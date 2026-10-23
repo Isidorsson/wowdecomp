@@ -54,6 +54,12 @@ if (WOWDECOMP_DISABLE_SIGNATURE_CHECKS)
     add_compile_definitions(DISABLE_SIGNATURE_CHECKS=1)
 endif ()
 
+# Local development only: lets tools drive the client over \\.\pipe\wowdecomp-dev (see WoW/Source/DevRemote.h).
+option(WOWDECOMP_DEV_REMOTE "Run Lua and console commands sent over a local named pipe" OFF)
+if (WOWDECOMP_DEV_REMOTE)
+    add_compile_definitions(WOWDECOMP_DEV_REMOTE=1)
+endif ()
+
 # Game identity (build 12340, version 3.3.5, client name) lives in GameVersion.h at the repository root.
 # WaystoneVersion.h is regenerated from git on every build; the login screen shows its build number.
 set(WAYSTONE_VERSION_HEADER ${CMAKE_BINARY_DIR}/generated/WaystoneVersion.h)

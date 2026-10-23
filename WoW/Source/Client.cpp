@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "Client.h"
+#include "DevRemote.h"
 #include "Engine/Source/Base/Base.h"
 #include "Engine/Source/Base/CmdLine.h"
 #include "Engine/Source/BlizzardCore/OggDecompress.h"
@@ -1065,6 +1066,7 @@ static void InitializeClient() {
     CGlueMgr::m_pendingTimerAlert = s_timeTestError;
     SpellVisualsInitialize();
     EventRegister(EVENT_ID_POLL, PollNet);
+    DevRemoteInitialize();
 }
 
 // VERIFY: 56a0f6b5 auto
