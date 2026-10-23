@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <new>
+#include <unordered_set>
 #include <xmmintrin.h>
 #if defined(_MSC_VER)
 #include <malloc.h>
@@ -16,6 +17,7 @@
 #include "Engine/Source/Base/ObjectAlloc.h"
 #include "Engine/Source/Base/SIMD.h"
 #include "Engine/Source/BlizzardCore/SFile2-Core.h"
+#include "Engine/Source/ConsoleBase/IConsole.h"
 #include "Engine/Source/Gx/CGxBuf.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "Engine/Source/Gx/CGxPool.h"
@@ -2324,6 +2326,27 @@ uint32_t CM2Model::GetNumPrimitives() {
     return primitives;
 }
 
+// Corrupt track timestamps are survivable once FindKey is guarded, but the model still animates wrong, so name it once per model.
+static void ReportBadTrackTimes(const CM2Shared* shared, uint32_t time, uint32_t firstKey) {
+    static SCritSect s_lock;
+    static std::unordered_set<uint32_t> s_reported;
+    static HSLOG s_log;
+
+    s_lock.Enter();
+
+    if (s_reported.insert(shared->m_fileNameHash).second) {
+        if (!s_log) {
+            SLogCreate("Logs\\M2Errors.log", 0, &s_log);
+        }
+
+        SLogWrite(s_log, "Bad animation track times in %s (time %u is before first key %u)", shared->m_fileName, time, firstKey);
+        SLogFlush(s_log);
+        ConsoleWriteA("M2: bad animation track times in %s, see Logs\\M2Errors.log", WARNING_COLOR, shared->m_fileName);
+    }
+
+    s_lock.Leave();
+}
+
 // VERIFY: 89dd83b7 manual
 // OFFSET: 0x008284D0
 void CM2Model::FindKey(M2ModelBoneSeq* sequence, const M2TrackBase& track, uint32_t& key0, uint32_t& key1, float& ratio) {
@@ -2387,6 +2410,7 @@ void CM2Model::FindKey(M2ModelBoneSeq* sequence, const M2TrackBase& track, uint3
                 if (time < keys[mid]) {
                     // When time is before the first key, mid - 1 underflows high to 0xFFFFFFFF and the next probe reads far out of bounds.
                     if (mid == 0) {
+                        ReportBadTrackTimes(this->m_shared, time, keys[0]);
                         break;
                     }
 
