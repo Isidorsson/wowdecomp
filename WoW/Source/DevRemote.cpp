@@ -11,7 +11,9 @@
 #include <thread>
 #include "Engine/Source/ConsoleBase/IConsole.h"
 #include "Engine/Source/Event/Event.h"
+#include "Engine/Source/Frame/CSimpleTop.h"
 #include "Engine/Source/FrameScript/FrameScript.h"
+#include "Engine/Source/Os/TimeManager.h"
 #include "Engine/Source/lua-5.1/src/lauxlib.h"
 #include "Engine/Source/lua-5.1/src/lua.h"
 #include "WoW/Source/Object/ObjectClient/Player_C.h"
@@ -210,6 +212,10 @@ static int32_t DevRemotePoll(const void* data, void* param) {
     std::lock_guard<std::mutex> guard(s_lock);
 
     if (s_pending) {
+        // A remote command is user activity. s_eventTime only moves on real input and starts at 0, so a client
+        // driven purely over the pipe looks idle for the whole system uptime and the idle check logs it out on
+        // entering the world.
+        CSimpleTop::s_eventTime = OsGetAsyncTimeMs();
         s_response = Dispatch(s_request);
         s_pending = false;
         s_answered.notify_one();
