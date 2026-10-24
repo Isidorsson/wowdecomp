@@ -1,6 +1,7 @@
 #include "Engine/Source/Retail/ModelSkins.h"
 #include "Tools/Tests/Check.h"
 #include "Tools/Tests/CreatureFixtures.h"
+#include "Tools/Tests/ItemFixtures.h"
 
 using Retail::Db2Table;
 using Retail::ItemSkinTables;
@@ -16,11 +17,7 @@ constexpr uint32_t MACE = 8266369;
 constexpr uint32_t HELM_HUMAN = 8100001;
 constexpr uint32_t HELM_ORC = 8100002;
 
-struct ItemDisplay {
-    uint32_t id;
-    std::vector<uint32_t> resources;   // Two model resources, 0 for none.
-    std::vector<uint32_t> materials;   // Each one's object skin material resource.
-};
+using ItemDisplay = ItemDisplayRow;
 
 struct Layer {
     uint32_t display;
@@ -29,11 +26,7 @@ struct Layer {
     uint32_t position;   // The model's position in the display.
 };
 
-struct TextureFile {
-    uint32_t file;
-    uint32_t usage;
-    uint32_t material;
-};
+using TextureFile = TextureFileRow;
 
 // The four tables, kept alive for the ItemSkinTables that refers to them.
 struct ItemTables {
@@ -45,19 +38,6 @@ struct ItemTables {
 
 static ItemTables Tables(const std::vector<std::pair<uint32_t, uint32_t>>& models, const std::vector<ItemDisplay>& displays, const std::vector<Layer>& layers,
     const std::vector<TextureFile>& files, uint32_t layerLayout = Retail::ITEM_DISPLAY_INFO_MODEL_MAT_RES_LAYOUT) {
-    std::vector<Db2Row> modelRows;
-    for (const auto& model : models) {
-        modelRows.push_back({ model.first, { 0, 0, 0, 0, model.second } });   // ModelResourcesID is column 4.
-    }
-
-    std::vector<Db2Row> displayRows;
-    for (const ItemDisplay& display : displays) {
-        std::vector<uint32_t> values(10, 0);   // ModelResourcesID[2] is column 10, ModelMaterialResourcesID[2] column 11.
-        values.insert(values.end(), display.resources.begin(), display.resources.end());
-        values.insert(values.end(), display.materials.begin(), display.materials.end());
-        displayRows.push_back({ display.id, values });
-    }
-
     std::vector<Db2Row> layerRows;
     std::vector<uint32_t> parents;
     for (uint32_t i = 0; i < layers.size(); i++) {
@@ -65,15 +45,7 @@ static ItemTables Tables(const std::vector<std::pair<uint32_t, uint32_t>>& model
         parents.push_back(layers[i].display);
     }
 
-    std::vector<Db2Row> fileRows;
-    for (const TextureFile& file : files) {
-        fileRows.push_back({ file.file, { 0, file.usage, file.material } });
-    }
-
-    std::vector<uint32_t> displayWidths(10, 1);
-    displayWidths.insert(displayWidths.end(), { 2, 2 });
-    return { PlainTable(Retail::MODEL_FILE_DATA_LAYOUT, { 1, 1, 1, 1, 1 }, modelRows), PlainTable(Retail::ITEM_DISPLAY_INFO_LAYOUT, displayWidths, displayRows),
-        PlainTable(layerLayout, { 1, 1, 1 }, layerRows, parents), PlainTable(Retail::TEXTURE_FILE_DATA_LAYOUT, { 1, 1, 1 }, fileRows) };
+    return { ModelFiles(models), ItemDisplays(displays), PlainTable(layerLayout, { 1, 1, 1 }, layerRows, parents), TextureFiles(files) };
 }
 
 static bool LoadInto(ModelSkins& skins, const ItemTables& tables, std::string& error) {

@@ -35,9 +35,6 @@ struct Geoset {
 // Each display's geosets, sorted and without repeats, by display id (the row's relation).
 std::map<uint32_t, std::vector<Geoset>> GeosetsByDisplay(const Db2Table& geosets);
 
-// Refuses table, by name, when its layout is not the one the loaders read.
-bool KnownLayout(const Db2Table& table, uint32_t layout, const char* name, std::string& error);
-
 }
 
 #endif

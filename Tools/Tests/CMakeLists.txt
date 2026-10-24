@@ -22,6 +22,7 @@ if (TARGET RetailCore)
         ModelSkinsTests.cpp
         ItemSkinsTests.cpp
         RetailDisplaysTests.cpp
+        RetailItemDisplaysTests.cpp
     )
     target_link_libraries(WowdecompTests PRIVATE RetailCore)
 endif ()

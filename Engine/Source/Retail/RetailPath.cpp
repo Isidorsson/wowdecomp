@@ -34,14 +34,29 @@ bool IsRetailPath(const std::string& normalized) {
     return normalized.compare(0, std::strlen(RETAIL_PREFIX), RETAIL_PREFIX) == 0;
 }
 
+// A retail file name, "retail-<fdid>.<ext>", as the last part of a path in any folder.
+static bool ParseRetailFileName(const std::string& normalized, uint32_t& fileDataId) {
+    size_t name = normalized.rfind('/') + 1;   // 0 without a folder.
+    if (normalized.compare(name, std::strlen(RETAIL_FILE_PREFIX), RETAIL_FILE_PREFIX) != 0) {
+        return false;
+    }
+
+    std::string stem = normalized.substr(name + std::strlen(RETAIL_FILE_PREFIX));
+    return ParseFileDataId(stem.substr(0, stem.find('.')), fileDataId);
+}
+
 bool ParseRetailPath(const std::string& normalized, uint32_t& fileDataId) {
     if (!IsRetailPath(normalized)) {
-        return false;
+        return ParseRetailFileName(normalized, fileDataId);
     }
 
     std::string stem = normalized.substr(std::strlen(RETAIL_PREFIX));
     stem = stem.substr(0, stem.find('.'));
     return ParseFileDataId(stem, fileDataId);
+}
+
+std::string RetailFileName(uint32_t fileDataId) {
+    return RETAIL_FILE_PREFIX + std::to_string(fileDataId);
 }
 
 bool AliasTable::Parse(const std::string& text, std::string& error) {

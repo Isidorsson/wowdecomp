@@ -31,4 +31,11 @@ class ItemDisplayInfoRec {
     bool Read(SFileImpl* file, const char* stringBuffer);
 };
 
+// Not in the original: this table serves, after its own rows, the retail item displays of a CASC build
+// (RetailItemRecords.cpp). Declared with the record so every caller of GetRecord reaches it.
+#include "WoW/Source/DB/WowClientDB.h"
+
+template <>
+int32_t WowClientDB_RLE<ItemDisplayInfoRec>::GetRecord(int32_t id, ItemDisplayInfoRec* rec) const;
+
 #endif

@@ -65,6 +65,9 @@ class Db2Table {
     std::vector<Row> m_rows;
 };
 
+// Refuses table, by name, when its layout is not the one a loader reads.
+bool KnownLayout(const Db2Table& table, uint32_t layout, const char* name, std::string& error);
+
 }
 
 #endif

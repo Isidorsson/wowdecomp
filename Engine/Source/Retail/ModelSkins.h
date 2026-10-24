@@ -6,18 +6,9 @@
 #include <string>
 #include <vector>
 #include "Engine/Source/Retail/CreatureTables.h"
+#include "Engine/Source/Retail/ItemTables.h"
 
 namespace Retail {
-
-// DBFilesClient item tables and the WoWDBDefs layouts read from them (wow-toolbox-editor casc/skins.rs).
-constexpr uint32_t MODEL_FILE_DATA_FDID = 1337833;
-constexpr uint32_t MODEL_FILE_DATA_LAYOUT = 0x2AE4E788;
-constexpr uint32_t ITEM_DISPLAY_INFO_FDID = 1266429;
-constexpr uint32_t ITEM_DISPLAY_INFO_LAYOUT = 0x9F3AB8A9;
-constexpr uint32_t ITEM_DISPLAY_INFO_MODEL_MAT_RES_FDID = 4050937;
-constexpr uint32_t ITEM_DISPLAY_INFO_MODEL_MAT_RES_LAYOUT = 0x52510D63;
-constexpr uint32_t TEXTURE_FILE_DATA_FDID = 982459;
-constexpr uint32_t TEXTURE_FILE_DATA_LAYOUT = 0xBD7C74C2;
 
 // One texture of a skin: the M2 texture type it fills and its file.
 struct SkinTexture {

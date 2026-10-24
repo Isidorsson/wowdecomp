@@ -1,4 +1,5 @@
 #include "Engine/Source/Retail/Db2Table.h"
+#include <cstdio>
 #include <cstring>
 
 namespace Retail {
@@ -282,6 +283,17 @@ std::vector<uint32_t> Db2Table::Values(size_t row, size_t column) const {
     }
 
     return {};
+}
+
+bool KnownLayout(const Db2Table& table, uint32_t layout, const char* name, std::string& error) {
+    if (table.LayoutHash() == layout) {
+        return true;
+    }
+
+    char message[128];
+    std::snprintf(message, sizeof(message), "%s layout %08X is not the known %08X (a newer build?)", name, table.LayoutHash(), layout);
+    error = message;
+    return false;
 }
 
 }

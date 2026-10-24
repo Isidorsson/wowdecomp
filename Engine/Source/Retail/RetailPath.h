@@ -8,14 +8,20 @@
 namespace Retail {
 
 constexpr const char* RETAIL_PREFIX = "retail/";
+constexpr const char* RETAIL_FILE_PREFIX = "retail-";
 
 // Lowercase with forward slashes, the form every lookup below expects.
 std::string NormalizePath(const char* name);
 
 bool IsRetailPath(const std::string& normalized);
 
-// "retail/916541.m2" -> 916541. False for other paths and for ids that are not plain decimal or overflow.
+// "retail/916541.m2" -> 916541, and a retail file name in any folder: "item/objectcomponents/weapon/
+// retail-8266369.m2" -> 8266369. False for other paths and for ids that are not plain decimal or overflow.
 bool ParseRetailPath(const std::string& normalized, uint32_t& fileDataId);
+
+// The name a served display row gives a retail file where the client puts a stock folder before it: "retail-<fdid>",
+// to which the client adds its own extension (or the row does, for a model).
+std::string RetailFileName(uint32_t fileDataId);
 
 // Rows of "FDID;client\path" that serve a retail file in place of a stock path.
 class AliasTable {

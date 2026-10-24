@@ -279,7 +279,7 @@ bool CascSource::ReadTables(const std::vector<std::pair<uint32_t, Db2Table*>>& t
 }
 
 // The display tables, from the same build as the models, read once: the default creature and item skins and the
-// retail creature displays. The creature and item halves load apart; one that fails leaves its skin slots unnamed
+// retail creature and item displays. The creature and item halves load apart; one that fails leaves its skin slots unnamed
 // (drawn white until a display fills them), which its warning explains.
 void CascSource::ReadDisplayTables() {
     std::call_once(this->m_displayTablesRead, [this] {
@@ -288,7 +288,7 @@ void CascSource::ReadDisplayTables() {
             this->Warn("creature tables: " + error);
         }
         if (!this->LoadItemTables(error)) {
-            this->Warn("item skins: " + error);
+            this->Warn("item tables: " + error);
         }
     });
 }
@@ -316,9 +316,15 @@ bool CascSource::LoadItemTables(std::string& error) {
     Db2Table itemDisplays;
     Db2Table layers;
     Db2Table textureFiles;
+    Db2Table componentModels;
+    Db2Table appearances;
     if (!this->ReadTables({ { MODEL_FILE_DATA_FDID, &modelFiles }, { ITEM_DISPLAY_INFO_FDID, &itemDisplays }, { ITEM_DISPLAY_INFO_MODEL_MAT_RES_FDID, &layers },
-            { TEXTURE_FILE_DATA_FDID, &textureFiles } }, error)
-        || !this->m_skins.LoadItems({ modelFiles, itemDisplays, layers, textureFiles }, error)) {
+            { TEXTURE_FILE_DATA_FDID, &textureFiles }, { COMPONENT_MODEL_FILE_DATA_FDID, &componentModels }, { ITEM_APPEARANCE_FDID, &appearances } }, error)) {
+        return false;
+    }
+
+    this->m_hasItemDisplays = this->m_itemDisplays.Load({ itemDisplays, modelFiles, componentModels, textureFiles, appearances }, error);
+    if (!this->m_hasItemDisplays || !this->m_skins.LoadItems({ modelFiles, itemDisplays, layers, textureFiles }, error)) {
         return false;
     }
     this->m_hasSkins = true;
@@ -336,6 +342,14 @@ const RetailDisplays* CascSource::Displays() {
     }
     this->ReadDisplayTables();
     return this->m_hasDisplays ? &this->m_displays : nullptr;
+}
+
+const RetailItemDisplays* CascSource::ItemDisplays() {
+    if (!this->m_configured) {
+        return nullptr;
+    }
+    this->ReadDisplayTables();
+    return this->m_hasItemDisplays ? &this->m_itemDisplays : nullptr;
 }
 
 void CascSource::Warn(const std::string& message) const {

@@ -14,6 +14,7 @@
 #include "Engine/Source/Retail/ModelSkins.h"
 #include "Engine/Source/Retail/RetailConfig.h"
 #include "Engine/Source/Retail/RetailDisplays.h"
+#include "Engine/Source/Retail/RetailItemDisplays.h"
 #include "Engine/Source/Retail/RetailPath.h"
 
 namespace Retail {
@@ -45,6 +46,7 @@ class CascSource {
     // The retail creature displays of the pinned build, read with the default skins on first use. Null without a
     // configured storage or when the creature tables fail, which a warning explains.
     const RetailDisplays* Displays();
+    const RetailItemDisplays* ItemDisplays();
 
     // Where a read reports data it dropped but did not fail on, such as a missing .anim file.
     void SetWarningSink(std::function<void(const std::string&)> sink) { this->m_warn = std::move(sink); }
@@ -91,6 +93,8 @@ class CascSource {
     bool m_hasSkins = false;
     RetailDisplays m_displays;
     bool m_hasDisplays = false;
+    RetailItemDisplays m_itemDisplays;
+    bool m_hasItemDisplays = false;
     std::function<void(const std::string&)> m_warn;
 };
 

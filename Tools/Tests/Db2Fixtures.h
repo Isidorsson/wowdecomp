@@ -37,7 +37,11 @@ inline Retail::Db2Table PlainTable(uint32_t layout, const std::vector<uint32_t>&
 
     Retail::Db2Table table;
     std::string error;
-    CHECK(table.Parse(BuildWdc5(spec), error));
+    bool parsed = table.Parse(BuildWdc5(spec), error);
+    CHECK(parsed);
+    if (!parsed) {
+        std::printf("    (fixture: %s)\n", error.c_str());
+    }
     return table;
 }
 

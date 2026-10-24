@@ -8,6 +8,7 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CreatureTables.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ModelSkins.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailDisplays.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailItemDisplays.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ItemSkins.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailModel.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailAnimation.cpp

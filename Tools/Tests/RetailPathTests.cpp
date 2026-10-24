@@ -83,3 +83,28 @@ TEST(BrokenAliasRowsAreRefused) {
     CHECK(!aliases.Parse("1;\n", error));
     CHECK(!aliases.Parse("1;World/Tree.blp\n2;world\\tree.BLP\n", error));
 }
+
+// A served item display row names retail files where the client puts a stock folder first
+// (Item\ObjectComponents\Weapon\ + name), so a retail file name counts in any folder.
+TEST(RetailFileNamesCountInAnyFolder) {
+    uint32_t id = 0;
+
+    CHECK(Retail::RetailFileName(8266369) == "retail-8266369");
+    CHECK(ParseRetailPath("item/objectcomponents/weapon/retail-8266369.m2", id) && id == 8266369);
+    CHECK(ParseRetailPath("item/objectcomponents/shoulder/retail-9002.blp", id) && id == 9002);
+    CHECK(ParseRetailPath("interface/icons/retail-134400.blp", id) && id == 134400);
+    CHECK(Retail::ClaimsPath("item/objectcomponents/cape/retail-77.blp", AliasTable()));
+}
+
+TEST(MalformedRetailFileNamesAreRefused) {
+    uint32_t id = 0;
+
+    CHECK(!ParseRetailPath("item/objectcomponents/weapon/retail-12a.m2", id));
+    CHECK(!ParseRetailPath("item/objectcomponents/weapon/retail-.m2", id));
+    CHECK(!ParseRetailPath("item/objectcomponents/weapon/retail_12.m2", id));
+    CHECK(!ParseRetailPath("item/objectcomponents/weapon/sword_retail-12.m2", id));
+    CHECK(!ParseRetailPath("item/retail-12/sword.m2", id));
+    CHECK(!ParseRetailPath("item/objectcomponents/weapon/retail-4294967296.m2", id));
+    // Race, gender and section suffixes name files B4b and B4c resolve, not a FileDataID.
+    CHECK(!ParseRetailPath("item/texturecomponents/armuppertexture/retail-12_u.blp", id));
+}
