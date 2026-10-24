@@ -60,6 +60,10 @@ if (WOWDECOMP_DEV_REMOTE)
     add_compile_definitions(WOWDECOMP_DEV_REMOTE=1)
 endif ()
 
+# Off by default: serves retail/<FileDataID> paths and aliased stock paths from Blizzard's CASC storage or CDN
+# (Engine/Source/Retail). ON downloads CascLib at configure time.
+option(WOWDECOMP_RETAIL_ASSETS "Load retail assets from CASC storage or the CDN" OFF)
+
 # Game identity (build 12340, version 3.3.5, client name) lives in GameVersion.h at the repository root.
 # WaystoneVersion.h is regenerated from git on every build; the login screen shows its build number.
 set(WAYSTONE_VERSION_HEADER ${CMAKE_BINARY_DIR}/generated/WaystoneVersion.h)
@@ -73,6 +77,11 @@ include_directories(${CMAKE_BINARY_DIR}/generated)
 # Third-party code is linked, not decompiled, for now.
 if (EXISTS ${CMAKE_SOURCE_DIR}/ThirdParty/CMakeLists.txt)
     add_subdirectory(ThirdParty)
+endif ()
+
+# Before the engine, so BlizzardCore can link RetailAssets.
+if (WOWDECOMP_RETAIL_ASSETS)
+    include(cmake/RetailAssets.cmake)
 endif ()
 
 add_subdirectory(Engine/Source/BLPFile)

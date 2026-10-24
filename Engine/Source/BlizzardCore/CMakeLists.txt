@@ -23,6 +23,13 @@ if(WIN32)
     )
 endif()
 
+if(TARGET RetailAssets)
+    target_link_libraries(BlizzardCore
+        PRIVATE
+            RetailAssets
+    )
+endif()
+
 target_include_directories(BlizzardCore
     PRIVATE
         ${CMAKE_SOURCE_DIR}/Engine/Source/SoundEngine/fmodex/lib/ogg_vorbis/ogg/include

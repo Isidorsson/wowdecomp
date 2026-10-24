@@ -1,0 +1,44 @@
+#include <cstdio>
+#include <string>
+#include <vector>
+#include "Engine/Source/Retail/CascSource.h"
+
+// Reads retail paths through the same source the client uses, so a cold CDN fetch can happen here
+// instead of stalling the game. Usage: RetailAssetProbe <RetailCasc.ini> <retail/123.m2|aliased path>...
+int main(int argc, char** argv) {
+    if (argc < 3) {
+        std::printf("usage: RetailAssetProbe <RetailCasc.ini> <path>...\n");
+        return 2;
+    }
+
+    Retail::CascSource source;
+    std::string error;
+
+    if (!source.Configure(argv[1], error)) {
+        std::printf("config: %s\n", error.c_str());
+        return 1;
+    }
+
+    int failures = 0;
+
+    for (int i = 2; i < argc; i++) {
+        uint32_t size = 0;
+        bool cached = source.IsCached(argv[i], size);
+        std::vector<uint8_t> bytes;
+
+        if (!source.Read(argv[i], bytes, error)) {
+            std::printf("%s: %s\n", argv[i], error.c_str());
+            failures++;
+            continue;
+        }
+
+        char magic[5] = {};
+        for (size_t c = 0; c < 4 && c < bytes.size(); c++) {
+            magic[c] = bytes[c] >= 32 && bytes[c] < 127 ? static_cast<char>(bytes[c]) : '.';
+        }
+
+        std::printf("%s: %zu bytes, magic %s, %s\n", argv[i], bytes.size(), magic, cached ? "cached" : "fetched");
+    }
+
+    return failures ? 1 : 0;
+}

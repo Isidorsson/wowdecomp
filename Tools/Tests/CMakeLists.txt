@@ -5,4 +5,13 @@ add_executable(WowdecompTests
 
 target_include_directories(WowdecompTests PRIVATE ${CMAKE_SOURCE_DIR})
 
+if (TARGET RetailCore)
+    target_sources(WowdecompTests PRIVATE
+        RetailConfigTests.cpp
+        RetailPathTests.cpp
+        DecodedCacheTests.cpp
+    )
+    target_link_libraries(WowdecompTests PRIVATE RetailCore)
+endif ()
+
 add_test(NAME wowdecomp-tests COMMAND WowdecompTests)
