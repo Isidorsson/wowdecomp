@@ -19,9 +19,6 @@ bool EmbedAliases(std::vector<uint8_t>& m2, std::string& error);
 // sequence lookup table.
 bool RemapSequences(std::vector<uint8_t>& m2, const AnimationFallbacks* fallbacks, std::vector<RemappedSequence>& remapped, std::string& error);
 
-// Rewrites 116-byte retail cameras (FoV track) as 100-byte 3.3.5 ones (constant FoV).
-bool ConvertCameras(std::vector<uint8_t>& m2, std::string& error);
-
 }
 
 #endif

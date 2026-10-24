@@ -12,7 +12,7 @@ struct TrackField {
 };
 
 // Every record type with tracks the client relocates per sequence (M2Init in M2Shared.cpp), in the 3.3.5
-// layout: cameras are already converted when animations are inlined. Particles arrive with slice C4.
+// layout: cameras and particles are already converted when animations are inlined.
 struct TrackedRecords {
     size_t header;
     size_t recordSize;
@@ -29,11 +29,10 @@ static const TrackedRecords TRACKED[] = {
     { M2At::LIGHTS, 0x9C, { { 0x10, 12 }, { 0x24, 4 }, { 0x38, 12 }, { 0x4C, 4 }, { 0x60, 4 }, { 0x74, 4 }, { 0x88, 1 } } },
     { M2At::CAMERAS, 0x64, { { 0x10, 36 }, { 0x30, 36 }, { 0x50, 12 } } },
     { M2At::RIBBONS, 0xB0, { { 0x24, 12 }, { 0x38, 2 }, { 0x4C, 4 }, { 0x60, 4 }, { 0x84, 2 }, { 0x98, 1 } } },
+    { M2At::PARTICLES, 0x1DC, { { 0x34, 4 }, { 0x48, 4 }, { 0x5C, 4 }, { 0x70, 4 }, { 0x84, 4 }, { 0x98, 4 }, { 0xB0, 4 }, { 0xC8, 4 }, { 0xDC, 4 }, { 0xF0, 4 }, { 0x1C8, 1 } } },
 };
 
 constexpr uint16_t NO_GLOBAL_LOOP = 0xFFFF;
-constexpr size_t TRACK_TIMES = 0x04;
-constexpr size_t TRACK_KEYS = 0x0C;
 constexpr size_t TIME_SIZE = 4;
 
 static std::string SequenceName(uint16_t id, uint16_t variation) {
@@ -82,17 +81,17 @@ static bool ChangeTracks(std::vector<uint8_t>& m2, const EntryChange& change, st
         for (uint32_t r = 0; r < span.count; r++) {
             for (const TrackField& field : records.tracks) {
                 size_t track = span.At(r, records.recordSize) + field.offset;
-                if (Get<uint16_t>(m2, track + 2) != NO_GLOBAL_LOOP) {
+                if (Get<uint16_t>(m2, track + TrackAt::GLOBAL_SEQUENCE) != NO_GLOBAL_LOOP) {
                     continue;
                 }
 
                 Span times;
                 Span keys;
-                if (!ReadSpan(m2, track + TRACK_TIMES, 8, "track timestamps", times, error) || !ChangeEntry(m2, times, change, TIME_SIZE, error)) {
+                if (!ReadSpan(m2, track + TrackAt::TIMES, 8, "track timestamps", times, error) || !ChangeEntry(m2, times, change, TIME_SIZE, error)) {
                     return false;
                 }
 
-                if (field.keySize && (!ReadSpan(m2, track + TRACK_KEYS, 8, "track keys", keys, error) || !ChangeEntry(m2, keys, change, field.keySize, error))) {
+                if (field.keySize && (!ReadSpan(m2, track + TrackAt::KEYS, 8, "track keys", keys, error) || !ChangeEntry(m2, keys, change, field.keySize, error))) {
                     return false;
                 }
             }

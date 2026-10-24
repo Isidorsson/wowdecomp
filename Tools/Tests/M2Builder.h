@@ -155,6 +155,20 @@ inline std::vector<uint8_t> Bone(uint32_t flags) {
     return record;
 }
 
+// A retail particle emitter (492 bytes): the 476-byte 3.3.5 record, then 16 scroll bytes (filled with 0xEE).
+// The two bytes at 0x2C hold retail's multi-texture scale (0x11 here).
+inline std::vector<uint8_t> RetailParticle(uint32_t id, uint32_t flags, uint16_t texture = 0, uint8_t blend = 2) {
+    std::vector<uint8_t> record(492, 0);
+    PutU32(record, 0x00, id);
+    PutU32(record, 0x04, flags);
+    PutU16(record, 0x16, texture);
+    record[0x28] = blend;
+    record[0x2C] = 0x11;
+    record[0x2D] = 0x11;
+    std::memset(record.data() + 476, 0xEE, 16);
+    return record;
+}
+
 inline std::vector<uint8_t> Texture(uint32_t type) {
     std::vector<uint8_t> record(0x10, 0);
     PutU32(record, 0x00, type);

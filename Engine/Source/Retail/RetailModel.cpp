@@ -1,6 +1,7 @@
 #include "Engine/Source/Retail/RetailModel.h"
 #include "Engine/Source/Retail/RetailAnimation.h"
 #include "Engine/Source/Retail/RetailModelData.h"
+#include "Engine/Source/Retail/RetailRecords.h"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -131,13 +132,8 @@ static bool ConvertGeometry(const std::map<std::string, std::vector<uint8_t>>& c
     }
 
     Span vertices;
-    Span particles;
-    if (!ReadSpan(m2, M2At::VERTICES, VERTEX_SIZE, "vertices", vertices, error) || !ReadSpan(m2, M2At::PARTICLES, 1, "particles", particles, error)) {
+    if (!ReadSpan(m2, M2At::VERTICES, VERTEX_SIZE, "vertices", vertices, error)) {
         return false;
-    }
-
-    if (particles.count) {
-        return Fail(error, "particle emitters change record size (converter slice C4)");
     }
 
     auto txid = chunks.find("TXID");
@@ -145,16 +141,35 @@ static bool ConvertGeometry(const std::map<std::string, std::vector<uint8_t>>& c
     return MaskBonesAndMaterials(m2, error) && ConvertTextures(m2, textureIds, error) && AppendCoordWindow(m2, error);
 }
 
+// Retail names particle models by FileDataID (GPID geometry, RPID recursion); the client loads names only.
+static void WarnParticleModels(const std::map<std::string, std::vector<uint8_t>>& chunks, std::vector<std::string>& warnings) {
+    for (const char* tag : { "GPID", "RPID" }) {
+        auto chunk = chunks.find(tag);
+        if (chunk == chunks.end()) {
+            continue;
+        }
+
+        std::vector<uint32_t> ids = U32s(chunk->second);
+        auto named = std::count_if(ids.begin(), ids.end(), [](uint32_t id) { return id != 0; });
+        if (named) {
+            warnings.push_back(std::to_string(named) + " particle models named by " + tag + " are not loaded");
+        }
+    }
+}
+
 bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources, ConvertedModel& model, std::string& error) {
     auto chunks = ReadChunks(file);
     std::vector<uint8_t> m2;
+    std::vector<uint32_t> compressedGravity;
     ConvertedModel converted;
 
-    if (!ConvertGeometry(chunks, m2, error) || !ConvertCameras(m2, error)
-        || !InlineAnimations(m2, chunks["AFID"], sources.read, converted.warnings, error) || !EmbedAliases(m2, error)
-        || !RemapSequences(m2, sources.fallbacks, converted.remapped, error)) {
+    if (!ConvertGeometry(chunks, m2, error) || !ConvertCameras(m2, error) || !ConvertParticles(m2, compressedGravity, converted.warnings, error)
+        || !InlineAnimations(m2, chunks["AFID"], sources.read, converted.warnings, error) || !DecodeParticleGravity(m2, compressedGravity, error)
+        || !EmbedAliases(m2, error) || !RemapSequences(m2, sources.fallbacks, converted.remapped, error)) {
         return false;
     }
+
+    WarnParticleModels(chunks, converted.warnings);
 
     std::vector<uint32_t> skins = U32s(chunks["SFID"]);
     uint32_t views = Get<uint32_t>(m2, M2At::VIEWS);

@@ -54,6 +54,13 @@ namespace SequenceAt {
     constexpr size_t ALIAS_NEXT = 0x3E;
 }
 
+namespace TrackAt {
+    constexpr size_t INTERPOLATION = 0x00;
+    constexpr size_t GLOBAL_SEQUENCE = 0x02;
+    constexpr size_t TIMES = 0x04;
+    constexpr size_t KEYS = 0x0C;
+}
+
 constexpr size_t SEQUENCE_SIZE = 0x40;
 constexpr size_t BONE_SIZE = 0x58;
 constexpr size_t VERTEX_SIZE = 0x30;

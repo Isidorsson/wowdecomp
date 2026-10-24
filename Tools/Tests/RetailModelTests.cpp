@@ -88,15 +88,8 @@ TEST(FlagsAre3_3_5Masked) {
     CHECK(GetU32(model.m2, RecordAt(model.m2, M2At::TEXTURES, 0, 0x10)) == 0);
 }
 
-TEST(LaterSliceFeaturesAreRefusedByName) {
-    std::vector<uint8_t> md20 = MinimalMd20();
-
-    CHECK(Refused(Md21File(md20, { Chunk("SKID", U32s({ 1 })) }), "SKID"));
-
-
-    std::vector<uint8_t> particles = MinimalMd20();
-    AddArray(particles, M2At::PARTICLES, 1, std::vector<uint8_t>(492, 0));
-    CHECK(Refused(Md21File(particles), "particle"));
+TEST(SharedSkeletonsAreRefusedByName) {
+    CHECK(Refused(Md21File(MinimalMd20(), { Chunk("SKID", U32s({ 1 })) }), "SKID"));
 }
 
 TEST(ArraysPastTheBlobAreRefused) {

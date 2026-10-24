@@ -14,6 +14,7 @@ if (TARGET RetailCore)
         AnimationFallbacksTests.cpp
         RetailModelTests.cpp
         RetailAnimationTests.cpp
+        RetailParticlesTests.cpp
     )
     target_link_libraries(WowdecompTests PRIVATE RetailCore)
 endif ()
