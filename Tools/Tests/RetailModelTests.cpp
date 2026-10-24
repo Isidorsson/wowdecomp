@@ -100,16 +100,6 @@ TEST(ArraysPastTheBlobAreRefused) {
     CHECK(Refused(Md21File(std::vector<uint8_t>(md20.begin(), md20.begin() + 0x100)), "header"));
 }
 
-TEST(ModelsGetTheEffectCoordWindow) {
-    std::vector<uint8_t> md20 = MinimalMd20();
-    AddArray(md20, M2At::COORD_COMBOS, 1, Concat({ { 1, 0 } }));
-    ConvertedModel model;
-
-    // UV1 for the first texture, the environment map (-1) for the second: what Diffuse_T1_Env samples.
-    CHECK(Convert(Md21File(md20), model));
-    CHECK(U16sAt(model.m2, M2At::COORD_COMBOS) == std::vector<uint16_t>({ 1, 0, 0xFFFF }));
-}
-
 // A retail model file with vertices weighing one bone and two bones, two texture combos and one coord
 // combo, and its retail skin.
 static std::vector<uint8_t> WeightedModel(uint32_t views) {
@@ -139,25 +129,9 @@ TEST(RetailEffectsZeroToTwoBecomeClientEffects) {
     std::vector<uint8_t> out;
     std::string error;
 
-    CHECK(ConvertSkin(RetailSkin({ SkinBatch(0, 0x8000, 2), SkinBatch(0, 0x8002, 2), SkinBatch(0, 0x0010, 1) }), WeightedModel(1), 0, out, error));
+    CHECK(ConvertSkin(RetailSkin({ SkinBatch(0, 0x8000, 2), SkinBatch(0, 0x8002, 2) }), WeightedModel(1), 0, out, error));
     CHECK(BatchShader(out, 0) == 0x8001);
     CHECK(BatchShader(out, 1) == 0x8003);
-    CHECK(BatchShader(out, 2) == 0);
-}
-
-static uint16_t BatchCoordCombo(const std::vector<uint8_t>& skin, size_t batch) {
-    return GetU16(skin, RecordAt(skin, SkinAt::BATCHES, batch, 0x18) + 0x12);
-}
-
-TEST(BatchesReadCoordCombosInsideTheTable) {
-    std::vector<uint8_t> out;
-    std::string error;
-
-    // Window [0, -1] lands at index 1, after the model's own combo.
-    CHECK(ConvertSkin(RetailSkin({ SkinBatch(0, 0x8000, 2, 0, 0, 0), SkinBatch(0, 0, 1, 0, 0, 0), SkinBatch(0, 0, 1, 0, 0, 7) }), WeightedModel(1), 0, out, error));
-    CHECK(BatchCoordCombo(out, 0) == 1);
-    CHECK(BatchCoordCombo(out, 1) == 0);
-    CHECK(BatchCoordCombo(out, 2) == 1);
 }
 
 TEST(BatchesPastTheTextureCombosAreRefused) {
@@ -173,7 +147,6 @@ TEST(SkinBatchesLaterSlicesConvertAreRefused) {
     std::string error;
 
     CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0x8003, 2) }), m2, 0, out, error) && error.find("effect") != std::string::npos);
-    CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0x0011, 2) }), m2, 0, out, error) && error.find("shader") != std::string::npos);
     CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0x8000, 3) }), m2, 0, out, error) && error.find("texture") != std::string::npos);
     CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0, 1) }, 1, 1), m2, 0, out, error) && error.find("Level") != std::string::npos);
 }

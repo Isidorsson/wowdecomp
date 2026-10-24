@@ -2,8 +2,8 @@
 #include "Engine/Source/Retail/RetailAnimation.h"
 #include "Engine/Source/Retail/RetailModelData.h"
 #include "Engine/Source/Retail/RetailRecords.h"
+#include "Engine/Source/Retail/RetailShading.h"
 #include <algorithm>
-#include <cstdio>
 #include <cstring>
 #include <map>
 
@@ -20,12 +20,7 @@ constexpr uint16_t RENDER_FLAGS_MASK = 0x1DF;
 constexpr uint16_t BLEND_BLEND_ADD = 7;
 constexpr uint16_t BLEND_ADD = 4;
 constexpr uint8_t BATCH_HIDDEN_IN_335 = 0x80;
-constexpr uint16_t EFFECT_FLAG = 0x8000;
-constexpr uint16_t CLIENT_EFFECTS = 3;
 constexpr uint16_t CLIENT_MAX_TEXTURES = 2;
-// Coordinate combos for the client effects (Diffuse_T1_Env): UV1, then the environment map. Retail effects
-// carry their own coordinates and often ship no combos, but the client indexes the table unchecked.
-constexpr uint16_t EFFECT_COORD_WINDOW[] = { 0, 0xFFFF };
 // The bone palette the client assumes for each view position (Wow.exe 12340 0xA45644, M2Shared.cpp).
 constexpr uint32_t VIEW_BONE_PALETTES[] = { 256, 64, 53, 21 };
 constexpr uint32_t MAX_VIEWS = 4;
@@ -88,29 +83,8 @@ static bool ConvertTextures(std::vector<uint8_t>& m2, const std::vector<uint32_t
     return true;
 }
 
-// The model's coordinate combos with EFFECT_COORD_WINDOW appended, which ConvertSkin points batches at.
-static bool AppendCoordWindow(std::vector<uint8_t>& m2, std::string& error) {
-    Span combos;
-    if (!ReadSpan(m2, M2At::COORD_COMBOS, 2, "coordinate combos", combos, error)) {
-        return false;
-    }
-
-    std::vector<uint8_t> values(m2.begin() + combos.offset, m2.begin() + combos.offset + combos.count * 2);
-    for (uint16_t coord : EFFECT_COORD_WINDOW) {
-        values.push_back(static_cast<uint8_t>(coord));
-        values.push_back(static_cast<uint8_t>(coord >> 8));
-    }
-
-    m2.resize((m2.size() + 15) & ~size_t(15), 0);
-    uint32_t offset = static_cast<uint32_t>(m2.size());
-    m2.insert(m2.end(), values.begin(), values.end());
-    Put<uint32_t>(m2, M2At::COORD_COMBOS, static_cast<uint32_t>(values.size() / 2));
-    Put<uint32_t>(m2, M2At::COORD_COMBOS + 4, offset);
-    return true;
-}
-
 // The parts of a model every conversion needs, skins included: header checks, masks, texture names and the
-// coordinate window. Animation and records come after it in ConvertModel only.
+// shading tables. Animation and records come after it in ConvertModel only.
 static bool ConvertGeometry(const std::map<std::string, std::vector<uint8_t>>& chunks, std::vector<uint8_t>& m2, std::string& error) {
     auto md21 = chunks.find("MD21");
     if (md21 == chunks.end()) {
@@ -138,7 +112,7 @@ static bool ConvertGeometry(const std::map<std::string, std::vector<uint8_t>>& c
 
     auto txid = chunks.find("TXID");
     std::vector<uint32_t> textureIds = txid == chunks.end() ? std::vector<uint32_t>() : U32s(txid->second);
-    return MaskBonesAndMaterials(m2, error) && ConvertTextures(m2, textureIds, error) && AppendCoordWindow(m2, error);
+    return AppendShadingTables(m2, error) && MaskBonesAndMaterials(m2, error) && ConvertTextures(m2, textureIds, error);
 }
 
 // Retail names particle models by FileDataID (GPID geometry, RPID recursion); the client loads names only.
@@ -232,24 +206,16 @@ static bool FitInfluences(std::vector<uint8_t>& skin, size_t section, const std:
 // The tables of the converted model a batch indexes into.
 struct BatchTables {
     uint32_t textureCombos;
-    uint32_t coordCombos;
-    uint16_t effectCoordWindow;
+    ShadingTables shading;
 };
 
 static bool ReadBatchTables(const std::vector<uint8_t>& m2, BatchTables& tables, std::string& error) {
     Span textures;
-    Span coords;
-    if (!ReadSpan(m2, M2At::TEXTURE_COMBOS, 2, "texture combos", textures, error) || !ReadSpan(m2, M2At::COORD_COMBOS, 2, "coordinate combos", coords, error)) {
+    if (!ReadSpan(m2, M2At::TEXTURE_COMBOS, 2, "texture combos", textures, error) || !ReadShadingTables(m2, tables.shading, error)) {
         return false;
     }
 
-    // ConvertModel appended the window last.
-    if (coords.count < 2 || Get<uint16_t>(m2, coords.At(coords.count - 2, 2)) != EFFECT_COORD_WINDOW[0]
-        || Get<uint16_t>(m2, coords.At(coords.count - 1, 2)) != EFFECT_COORD_WINDOW[1]) {
-        return Fail(error, "the skin's model is not converted");
-    }
-
-    tables = { textures.count, coords.count, static_cast<uint16_t>(coords.count - 2) };
+    tables.textureCombos = textures.count;
     return true;
 }
 
@@ -258,44 +224,18 @@ static bool ConvertBatch(std::vector<uint8_t>& skin, size_t batch, const BatchTa
     skin[batch] &= static_cast<uint8_t>(~BATCH_HIDDEN_IN_335);
     Put<uint16_t>(skin, batch + 0x06, Get<uint16_t>(skin, batch + 0x04));
 
-    uint16_t shader = Get<uint16_t>(skin, batch + 0x02);
     uint16_t textures = Get<uint16_t>(skin, batch + 0x0E);
     uint16_t textureCombo = Get<uint16_t>(skin, batch + 0x10);
 
     if (textures > CLIENT_MAX_TEXTURES) {
-        return Fail(error, std::to_string(textures) + " textures in one batch need extra passes (converter slice C5)");
+        return Fail(error, std::to_string(textures) + " textures in one batch need extra passes (converter slice C5c)");
     }
 
     if (uint32_t(textureCombo) + textures > tables.textureCombos) {
         return Fail(error, "a batch reads texture combo " + std::to_string(textureCombo) + " past the model's " + std::to_string(tables.textureCombos));
     }
 
-    if (shader & EFFECT_FLAG) {
-        uint16_t effect = shader & ~EFFECT_FLAG;
-        if (effect >= CLIENT_EFFECTS) {
-            return Fail(error, "shader effect " + std::to_string(effect) + " has no 3.3.5 shader (converter slice C5)");
-        }
-
-        // Retail counts effects from 0; the client's table starts at 1.
-        Put<uint16_t>(skin, batch + 0x02, static_cast<uint16_t>(EFFECT_FLAG | (effect + 1)));
-        Put<uint16_t>(skin, batch + 0x12, tables.effectCoordWindow);
-        return true;
-    }
-
-    // The window's first entry is UV1, the default for a single texture without combos of its own.
-    if (Get<uint16_t>(skin, batch + 0x12) >= tables.coordCombos) {
-        Put<uint16_t>(skin, batch + 0x12, tables.effectCoordWindow);
-    }
-
-    if (textures > 1) {
-        char hex[8];
-        std::snprintf(hex, sizeof(hex), "%04X", shader);
-        return Fail(error, std::string("shader 0x") + hex + " on two textures needs the combiner table (converter slice C5)");
-    }
-
-    // The client derives a single texture's shader from its material.
-    Put<uint16_t>(skin, batch + 0x02, 0);
-    return true;
+    return ShadeBatch(skin, batch, tables.shading, error);
 }
 
 bool ConvertSkin(const std::vector<uint8_t>& skin, const std::vector<uint8_t>& modelFile, uint32_t view, std::vector<uint8_t>& out, std::string& error) {
