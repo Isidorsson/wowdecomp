@@ -281,6 +281,9 @@ class M2Particle {
     /* 01C8 */ M2Track<uint8_t> m_visibilityTrack;
 };
 
+// Not in the original: M2Init reads particles by sizeof, so the 3.3.5 record must not drift.
+static_assert(sizeof(M2Particle) == 0x1DC, "M2Particle must match the 476-byte 3.3.5 record");
+
 class M2Batch {
     public:
     /* 0000 */ uint8_t m_flags;

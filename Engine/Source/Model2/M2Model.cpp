@@ -1441,6 +1441,11 @@ uint32_t CM2Model::GetBoneSequenceId(uint32_t boneId) {
         this->WaitForLoad(nullptr);
     }
 
+    // Not in the original: a model whose load failed (e.g. a refused skin) has no bones to read.
+    if (!(this->m_fFlags & 1)) {
+        return 0;
+    }
+
     M2Data* data = this->m_shared->m_data;
     uint32_t index;
 

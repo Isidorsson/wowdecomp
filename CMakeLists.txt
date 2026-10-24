@@ -128,6 +128,9 @@ if (WOWDECOMP_ARCH_64)
     add_subdirectory(Tools/XvidDecoder)
 endif ()
 
+enable_testing()
+add_subdirectory(Tools/Tests)
+
 add_dependencies(Glue WaystoneVersion)
 add_dependencies(Ui WaystoneVersion)
 

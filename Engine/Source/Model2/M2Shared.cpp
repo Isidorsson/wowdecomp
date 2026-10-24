@@ -9,12 +9,14 @@
 #include "Engine/Source/Base/SIMD.h"
 #include "Engine/Source/Base/Status.h"
 #include "Engine/Source/BlizzardCore/SFile2-Core.h"
+#include "Engine/Source/BlizzardCore/Source/System/Log/Log.h"
 #include "Engine/Source/Gx/CGxBuf.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "Engine/Source/Gx/CGxPool.h"
 #include "Engine/Source/Gx/CGxTexFlags.h"
 #include "Engine/Source/Gx/Gx.h"
 #include "Engine/Source/Model2/M2Cache.h"
+#include "Engine/Source/Model2/M2Limits.h"
 #include "Engine/Source/Model2/M2Model.h"
 #include "Engine/Source/Os/TimeManager.h"
 #include "Engine/Source/Services/AsyncFile.h"
@@ -714,49 +716,36 @@ CShaderEffect* CM2Shared::GetEffect(M2Batch* batch) {
     if (!(batch->m_shader & 0x8000)) {
         effect = this->GetEffect(batch->m_textureCount, batch->m_shader, batch->m_textureCoordComboIndex);
     } else {
-        const char* vertexShader = nullptr;
-        const char* pixelShader = nullptr;
-        EGxTexOp colorOp = static_cast<EGxTexOp>(0);
-        EGxTexOp alphaOp = static_cast<EGxTexOp>(0);
+        uint32_t id = batch->m_shader & 0x7FFF;
 
-        switch (batch->m_shader & 0x7FFF) {
-            case 0:
-                return nullptr;
-            case 1:
-                pixelShader = "Combiners_Opaque_Mod2xNA_Alpha";
-                vertexShader = "Diffuse_T1_Env";
-                colorOp = static_cast<EGxTexOp>(0);
-                alphaOp = static_cast<EGxTexOp>(3);
-                break;
-            case 2:
-                pixelShader = "Combiners_Opaque_AddAlpha";
-                vertexShader = "Diffuse_T1_Env";
-                colorOp = static_cast<EGxTexOp>(0);
-                alphaOp = static_cast<EGxTexOp>(3);
-                break;
-            case 3:
-                pixelShader = "Combiners_Opaque_AddAlpha_Alpha";
-                vertexShader = "Diffuse_T1_Env";
-                colorOp = static_cast<EGxTexOp>(0);
-                alphaOp = static_cast<EGxTexOp>(3);
-                break;
-            default:
-                break;
+        if (id == 0) {
+            return nullptr;
         }
 
-        char effectName[256];
-        strcpy(effectName, vertexShader);
-        strcat(effectName, pixelShader);
+        // Not in the original: ids without stock shaders took a null name into strcpy. They now
+        // reach the fallback below.
+        const M2LegacyEffect* legacy = M2FindLegacyEffect(id);
 
-        effect = CShaderEffectManager::GetEffect(effectName);
+        if (!legacy) {
+            Blizzard::Log::Printf(1, M2_LIMITS_LOG, "%s: unknown effect 0x%04X, using fallback\n", this->m_fileName, batch->m_shader);
+            effect = nullptr;
+        } else {
+            char effectName[256];
+            strcpy(effectName, legacy->vertexShader);
+            strcat(effectName, legacy->pixelShader);
 
-        if (effect) {
-            return effect;
+            effect = CShaderEffectManager::GetEffect(effectName);
+
+            if (effect) {
+                return effect;
+            }
+
+            EGxTexOp colorOp = legacy->colorOp;
+            EGxTexOp alphaOp = legacy->alphaOp;
+            effect = CShaderEffectManager::CreateEffect(effectName);
+            effect->InitEffect(legacy->vertexShader, legacy->pixelShader);
+            effect->InitFixedFuncPass(&colorOp, &alphaOp, 1);
         }
-
-        effect = CShaderEffectManager::CreateEffect(effectName);
-        effect->InitEffect(vertexShader, pixelShader);
-        effect->InitFixedFuncPass(&colorOp, &alphaOp, 1);
     }
 
     if (!effect) {
@@ -1132,6 +1121,19 @@ void CM2Shared::SubstituteSpecializedShaders() {
 // OFFSET: 0x00837A40
 int32_t CM2Shared::InitializeSkinProfile() {
     M2SkinProfile* skinData = this->m_skinData;
+
+    // Not in the original: a section past the bone upload window overwrote the shader constant
+    // shadow, and a zero bone count divided by zero below. Flag 8 is the shader path (CM2Cache::Initialize).
+    uint32_t maxBones = (this->m_cache->m_flags & 8) ? M2_MAX_SECTION_BONES : 0xFFFF;
+
+    for (uint32_t i = 0; i < skinData->m_skinSections.m_count; i++) {
+        const M2SkinSection& section = skinData->m_skinSections[i];
+
+        if (!M2SkinSectionFits(section.m_boneCount, section.m_boneComboIndex, this->m_data->m_boneCombos.m_count, maxBones)) {
+            Blizzard::Log::Printf(1, M2_LIMITS_LOG, "%s: skin section %u uses %u bones from combo %u, refused\n", this->m_fileName, i, section.m_boneCount, section.m_boneComboIndex);
+            return 0;
+        }
+    }
 
     this->m_maxInstances = skinData->m_indices.m_count ? 0x10000 / skinData->m_indices.m_count : 1;
 
