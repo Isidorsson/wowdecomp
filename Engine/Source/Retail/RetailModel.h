@@ -38,8 +38,17 @@ struct ConvertedModel {
 // stays valid. Features later slices convert are refused with a reason naming them.
 bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources, ConvertedModel& model, std::string& error);
 
-// A retail .skin for view of a retail model file (which supplies vertex weights and the view count).
-bool ConvertSkin(const std::vector<uint8_t>& skin, const std::vector<uint8_t>& modelFile, uint32_t view, std::vector<uint8_t>& out, std::string& error);
+// A retail .skin for view of a retail model file, which supplies vertex weights, the view count and, by SFID, the
+// other views' skins.
+struct SkinInput {
+    const std::vector<uint8_t>& skin;
+    const std::vector<uint8_t>& modelFile;
+    uint32_t view;
+    FileReader read;   // The other views' original skins, which place this view's bone windows. Without it a
+                       // model of several views has no submesh split.
+};
+
+bool ConvertSkin(const SkinInput& input, std::vector<uint8_t>& out, std::string& error);
 
 }
 

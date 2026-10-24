@@ -129,7 +129,7 @@ TEST(RetailEffectsZeroToTwoBecomeClientEffects) {
     std::vector<uint8_t> out;
     std::string error;
 
-    CHECK(ConvertSkin(RetailSkin({ SkinBatch(0, 0x8000, 2), SkinBatch(0, 0x8002, 2) }), WeightedModel(1), 0, out, error));
+    CHECK(ConvertSkin({ RetailSkin({ SkinBatch(0, 0x8000, 2), SkinBatch(0, 0x8002, 2) }), WeightedModel(1), 0 }, out, error));
     CHECK(BatchShader(out, 0) == 0x8001);
     CHECK(BatchShader(out, 1) == 0x8003);
 }
@@ -138,7 +138,7 @@ TEST(BatchesPastTheTextureCombosAreRefused) {
     std::vector<uint8_t> out;
     std::string error;
 
-    CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0x8000, 2, 0, 1, 0) }), WeightedModel(1), 0, out, error) && error.find("texture combo") != std::string::npos);
+    CHECK(!ConvertSkin({ RetailSkin({ SkinBatch(0, 0x8000, 2, 0, 1, 0) }), WeightedModel(1), 0 }, out, error) && error.find("texture combo") != std::string::npos);
 }
 
 TEST(SkinBatchesLaterSlicesConvertAreRefused) {
@@ -146,8 +146,8 @@ TEST(SkinBatchesLaterSlicesConvertAreRefused) {
     std::vector<uint8_t> out;
     std::string error;
 
-    CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0x0010, 3) }), m2, 0, out, error) && error.find("texture") != std::string::npos);
-    CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0, 1) }, 1, 1), m2, 0, out, error) && error.find("Level") != std::string::npos);
+    CHECK(!ConvertSkin({ RetailSkin({ SkinBatch(0, 0x0010, 3) }), m2, 0 }, out, error) && error.find("texture") != std::string::npos);
+    CHECK(!ConvertSkin({ RetailSkin({ SkinBatch(0, 0, 1) }, 1, 1), m2, 0 }, out, error) && error.find("Level") != std::string::npos);
 }
 
 TEST(SkinBatchFlagsAre3_3_5Masked) {
@@ -160,7 +160,7 @@ TEST(SkinBatchFlagsAre3_3_5Masked) {
     AddArray(skin, SkinAt::SECTIONS, 2, Concat({ SkinSection(1, 0, 0, 3), SkinSection(1, 0, 0, 3) }));
 
     // Stock 3.3.5 files keep the old geosetIndex equal to the submesh index; retail reuses it as flags2.
-    CHECK(ConvertSkin(skin, WeightedModel(1), 0, out, error));
+    CHECK(ConvertSkin({ skin, WeightedModel(1), 0 }, out, error));
     size_t batch = RecordAt(out, SkinAt::BATCHES, 0, 0x18);
     CHECK(out[batch] == 0x10);
     CHECK(GetU16(out, batch + 6) == 1);
@@ -170,7 +170,7 @@ TEST(BoneInfluencesFitTheVertices) {
     std::vector<uint8_t> out;
     std::string error;
 
-    CHECK(ConvertSkin(RetailSkin({ SkinBatch(0, 0, 1) }, 0), WeightedModel(1), 0, out, error));
+    CHECK(ConvertSkin({ RetailSkin({ SkinBatch(0, 0, 1) }, 0), WeightedModel(1), 0 }, out, error));
     CHECK(GetU16(out, RecordAt(out, SkinAt::SECTIONS, 0, 0x30) + 0x10) == 2);
 }
 
@@ -178,11 +178,11 @@ TEST(BoneCountMaxIsTheViewsStockPalette) {
     std::vector<uint8_t> out;
     std::string error;
 
-    CHECK(ConvertSkin(RetailSkin({ SkinBatch(0, 0, 1) }), WeightedModel(1), 0, out, error));
+    CHECK(ConvertSkin({ RetailSkin({ SkinBatch(0, 0, 1) }), WeightedModel(1), 0 }, out, error));
     CHECK(GetU32(out, SkinAt::BONE_COUNT_MAX) == 21);
-    CHECK(ConvertSkin(RetailSkin({ SkinBatch(0, 0, 1) }), WeightedModel(2), 0, out, error));
+    CHECK(ConvertSkin({ RetailSkin({ SkinBatch(0, 0, 1) }), WeightedModel(2), 0 }, out, error));
     CHECK(GetU32(out, SkinAt::BONE_COUNT_MAX) == 53);
-    CHECK(ConvertSkin(RetailSkin({ SkinBatch(0, 0, 1) }), WeightedModel(4), 0, out, error));
+    CHECK(ConvertSkin({ RetailSkin({ SkinBatch(0, 0, 1) }), WeightedModel(4), 0 }, out, error));
     CHECK(GetU32(out, SkinAt::BONE_COUNT_MAX) == 256);
 }
 
@@ -193,10 +193,10 @@ TEST(BrokenSkinsAreRefused) {
 
     std::vector<uint8_t> magic = RetailSkin({ SkinBatch(0, 0, 1) });
     magic[0] = 'X';
-    CHECK(!ConvertSkin(magic, m2, 0, out, error));
-    CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0, 1) }), m2, 1, out, error) && error.find("view") != std::string::npos);
+    CHECK(!ConvertSkin({ magic, m2, 0 }, out, error));
+    CHECK(!ConvertSkin({ RetailSkin({ SkinBatch(0, 0, 1) }), m2, 1 }, out, error) && error.find("view") != std::string::npos);
 
     std::vector<uint8_t> past = RetailSkin({ SkinBatch(0, 0, 1) });
     PutU32(past, SkinAt::INDICES, 9999);
-    CHECK(!ConvertSkin(past, m2, 0, out, error));
+    CHECK(!ConvertSkin({ past, m2, 0 }, out, error));
 }

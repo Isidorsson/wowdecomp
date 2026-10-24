@@ -20,6 +20,7 @@ namespace M2At {
     constexpr size_t VIEWS = 0x44;
     constexpr size_t TEXTURES = 0x50;
     constexpr size_t MATERIALS = 0x70;
+    constexpr size_t BONE_COMBOS = 0x78;
     constexpr size_t TEXTURE_COMBOS = 0x80;
     constexpr size_t COORD_COMBOS = 0x88;
     constexpr size_t WEIGHT_COMBOS = 0x90;
@@ -34,6 +35,7 @@ namespace M2At {
 namespace SkinAt {
     constexpr size_t VERTICES = 0x04;
     constexpr size_t INDICES = 0x0C;
+    constexpr size_t BONE_PROPERTIES = 0x14;   // Four bone slots per skin vertex, into its submesh's window.
     constexpr size_t SECTIONS = 0x1C;
     constexpr size_t BATCHES = 0x24;
     constexpr size_t BONE_COUNT_MAX = 0x2C;

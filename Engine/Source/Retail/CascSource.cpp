@@ -237,8 +237,14 @@ bool CascSource::ReadSkin(const Dependency& dependency, std::vector<uint8_t>& by
     std::vector<uint8_t> original;
     std::vector<uint8_t> file;
 
-    return this->ReadOriginal(dependency.model, file, error) && this->ReadOriginal(dependency.skin, original, error)
-        && ConvertSkin(original, file, dependency.view, bytes, error);
+    if (!this->ReadOriginal(dependency.model, file, error) || !this->ReadOriginal(dependency.skin, original, error)) {
+        return false;
+    }
+
+    SkinInput input{ original, file, dependency.view, [this](uint32_t skin, std::vector<uint8_t>& data, std::string& readError) {
+        return this->ReadOriginal(skin, data, readError);
+    } };
+    return ConvertSkin(input, bytes, error);
 }
 
 // AnimationData from the same build as the models, read once. Without it, models with new animation ids are

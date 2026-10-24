@@ -25,6 +25,7 @@ namespace M2At {
     constexpr size_t TEXTURE_WEIGHTS = 0x58;
     constexpr size_t TEXTURE_TRANSFORMS = 0x60;
     constexpr size_t MATERIALS = 0x70;
+    constexpr size_t BONE_COMBOS = 0x78;
     constexpr size_t TEXTURE_COMBOS = 0x80;
     constexpr size_t COORD_COMBOS = 0x88;
     constexpr size_t ATTACHMENTS = 0xF0;
@@ -39,6 +40,7 @@ namespace M2At {
 namespace SkinAt {
     constexpr size_t VERTICES = 0x04;
     constexpr size_t INDICES = 0x0C;
+    constexpr size_t BONE_PROPERTIES = 0x14;
     constexpr size_t SECTIONS = 0x1C;
     constexpr size_t BATCHES = 0x24;
     constexpr size_t BONE_COUNT_MAX = 0x2C;

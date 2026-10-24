@@ -18,7 +18,7 @@ static std::vector<ClientShading> Converted(const std::vector<std::pair<uint16_t
     ConvertedModel model;
     std::vector<uint8_t> skin;
     std::string error;
-    if (!ConvertModel(ShadedModel(), {}, model, error) || !ConvertSkin(SkinOf(records), ShadedModel(), 0, skin, error)) {
+    if (!ConvertModel(ShadedModel(), {}, model, error) || !ConvertSkin({ SkinOf(records), ShadedModel(), 0 }, skin, error)) {
         std::printf("    (%s)\n", error.c_str());
         return {};
     }
@@ -107,7 +107,7 @@ TEST(EffectBatchesReadUv1AndTheEnvironmentMap) {
     std::string error;
 
     CHECK(ConvertModel(ShadedModel(), {}, model, error));
-    CHECK(ConvertSkin(SkinOf({ SkinBatch(0, 0x8000, 2) }), ShadedModel(), 0, skin, error));
+    CHECK(ConvertSkin({ SkinOf({ SkinBatch(0, 0x8000, 2) }), ShadedModel(), 0 }, skin, error));
     size_t batch = RecordAt(skin, SkinAt::BATCHES, 0, BATCH);
     CHECK(GetU16(skin, batch + 0x02) == 0x8001);
     std::vector<uint16_t> coords = U16sAt(model.m2, M2At::COORD_COMBOS);

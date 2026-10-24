@@ -11,6 +11,7 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailShading.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailEffects.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailSecondUv.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailBoneWindows.cpp
 )
 target_include_directories(RetailCore PUBLIC ${CMAKE_SOURCE_DIR})
 

@@ -57,7 +57,7 @@ struct Overlaid {
 static Overlaid ConvertBatches(std::vector<std::vector<uint8_t>> batches) {
     Overlaid out;
     std::string error;
-    if (!ConvertModel(ShadedModel(), {}, out.model, error) || !ConvertSkin(SkinOf(batches), ShadedModel(), 0, out.skin, error)) {
+    if (!ConvertModel(ShadedModel(), {}, out.model, error) || !ConvertSkin({ SkinOf(batches), ShadedModel(), 0 }, out.skin, error)) {
         std::printf("    (%s)\n", error.c_str());
     }
     return out;
