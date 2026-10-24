@@ -25,6 +25,7 @@ static int32_t StockRecord(const WowClientDB_RLE<ItemDisplayInfoRec>& db, int32_
 }
 
 #if defined(WOWDECOMP_RETAIL_ASSETS)
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <string>
@@ -50,7 +51,8 @@ static const char* FileName(std::string& name, uint32_t fileDataId, const char* 
 // retail things, so they stay 0; the body textures are B4b's.
 static void FillItemDisplay(ServedItemDisplay& served, const Retail::RetailItemDisplay& display) {
     ItemDisplayInfoRec& rec = served.record;
-    rec = {};
+    // The record's constructor leaves its fields as they were, so {} would not clear what the row does not set.
+    std::memset(&rec, 0, sizeof(rec));
     rec.m_id = static_cast<int32_t>(display.id);
     for (int32_t side = 0; side < 2; side++) {
         rec.m_modelName[side] = FileName(served.models[side], display.models[side], ".m2");

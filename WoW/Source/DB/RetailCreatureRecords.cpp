@@ -16,6 +16,7 @@ static T* StockRecord(const WowClientDB<T>& db, int32_t id) {
 }
 
 #if defined(WOWDECOMP_RETAIL_ASSETS)
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <string>
@@ -40,7 +41,8 @@ static std::map<int32_t, ServedModel> s_models;
 // does not have, so they stay 0.
 static void FillDisplay(ServedDisplay& served, const Retail::RetailDisplay& display) {
     CreatureDisplayInfoRec& rec = served.record;
-    rec = {};
+    // The record's constructor leaves its fields as they were, so {} would not clear what the row does not set.
+    std::memset(&rec, 0, sizeof(rec));
     rec.m_id = static_cast<int32_t>(display.id);
     rec.m_modelID = static_cast<int32_t>(Retail::SyntheticModelId(display.modelId));
     rec.m_creatureModelScale = display.scale;
@@ -57,7 +59,8 @@ static void FillDisplay(ServedDisplay& served, const Retail::RetailDisplay& disp
 // Footprints, foley, camera shakes and sounds are retail ids too, so they stay 0; effect scales are 1.
 static void FillModel(ServedModel& served, int32_t id, const Retail::RetailCreatureModel& model) {
     CreatureModelDataRec& rec = served.record;
-    rec = {};
+    // The record's constructor leaves its fields as they were, so {} would not clear what the row does not set.
+    std::memset(&rec, 0, sizeof(rec));
     served.name = Retail::CreatureModelName(model.fileDataId);
     rec.m_id = id;
     rec.m_modelName = served.name.c_str();
