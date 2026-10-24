@@ -22,13 +22,16 @@ struct Fixture {
     std::vector<ComponentModelRow> componentModels;
     std::vector<TextureFileRow> textureFiles;
     std::vector<AppearanceRow> appearances;
+    std::vector<SectionRow> sections;
+    std::vector<ComponentTextureRow> componentTextures;
 };
 
 static RetailItemDisplays Loaded(const Fixture& fixture) {
     RetailItemDisplays retail;
     std::string error;
     if (!retail.Load({ ItemDisplays(fixture.displays), ModelFiles(fixture.modelFiles), ComponentModels(fixture.componentModels),
-            TextureFiles(fixture.textureFiles), Appearances(fixture.appearances) }, error)) {
+            TextureFiles(fixture.textureFiles), Appearances(fixture.appearances), Sections(fixture.sections), ComponentTextures(fixture.componentTextures) },
+            error)) {
         std::printf("    (%s)\n", error.c_str());
     }
     return retail;
@@ -126,12 +129,13 @@ TEST(UnknownItemDisplaysAreNotServed) {
 
 static bool Refused(uint32_t badTable, const char* name) {
     std::vector<uint32_t> layouts = { Retail::ITEM_DISPLAY_INFO_LAYOUT, Retail::MODEL_FILE_DATA_LAYOUT, Retail::COMPONENT_MODEL_FILE_DATA_LAYOUT,
-        Retail::TEXTURE_FILE_DATA_LAYOUT, Retail::ITEM_APPEARANCE_LAYOUT };
+        Retail::TEXTURE_FILE_DATA_LAYOUT, Retail::ITEM_APPEARANCE_LAYOUT, Retail::ITEM_DISPLAY_INFO_MATERIAL_RES_LAYOUT,
+        Retail::COMPONENT_TEXTURE_FILE_DATA_LAYOUT };
     layouts[badTable] = 0x5555;
     RetailItemDisplays retail;
     std::string error;
     bool loaded = retail.Load({ ItemDisplays({}, layouts[0]), ModelFiles({}, layouts[1]), ComponentModels({}, layouts[2]), TextureFiles({}, layouts[3]),
-                                  Appearances({}, layouts[4]) },
+                                  Appearances({}, layouts[4]), Sections({}, layouts[5]), ComponentTextures({}, layouts[6]) },
         error);
     return !loaded && error.find(name) != std::string::npos;
 }
@@ -142,4 +146,83 @@ TEST(UnknownItemLayoutsAreRefusedByName) {
     CHECK(Refused(2, "ComponentModelFileData"));
     CHECK(Refused(3, "TextureFileData"));
     CHECK(Refused(4, "ItemAppearance"));
+    CHECK(Refused(5, "ItemDisplayInfoMaterialRes"));
+    CHECK(Refused(6, "ComponentTextureFileData"));
+}
+
+// Body sections: ItemDisplayInfoMaterialRes gives a display's section materials, TextureFileData (usage 0) their
+// files and ComponentTextureFileData each file's gender (0 male, 1 female, 2 either) and race (0 every race).
+
+using Body = std::array<Retail::BodyTexture, Retail::BODY_SECTIONS>;
+
+// An armour display with no models: one geoset group, as its row must not read as all zeros.
+static Fixture Armour(const std::vector<SectionRow>& sections, const std::vector<TextureFileRow>& files, const std::vector<ComponentTextureRow>& owners) {
+    Fixture fixture;
+    fixture.displays = { { 60, { 0, 0 }, { 0, 0 }, { 1 } } };
+    fixture.sections = sections;
+    fixture.textureFiles = files;
+    fixture.componentTextures = owners;
+    return fixture;
+}
+
+static Body BodyOf(const Fixture& fixture) {
+    const RetailItemDisplay* display = Loaded(fixture).Display(60);
+    return display ? display->body : Body();
+}
+
+TEST(AnArmourDisplayNamesEachSectionsTexture) {
+    // 9000 has no ComponentTextureFileData row, so it is for everyone, as 9100's row says.
+    Body body = BodyOf(Armour({ { 60, 3, 900 }, { 60, 5, 901 } }, { { 9000, 0, 900 }, { 9100, 0, 901 } }, { { 9100, 2, 0 } }));
+
+    CHECK(body[3] == Retail::BodyTexture({ 9000, 9000 }));
+    CHECK(body[5] == Retail::BodyTexture({ 9100, 9100 }));
+    CHECK(body[0] == Retail::BodyTexture());
+}
+
+TEST(GenderedFilesFillTheirGender) {
+    Body body = BodyOf(Armour({ { 60, 0, 902 } }, { { 9010, 0, 902 }, { 9011, 0, 902 } }, { { 9010, 0, 0 }, { 9011, 1, 0 } }));
+
+    CHECK(body[0] == Retail::BodyTexture({ 9010, 9011 }));
+}
+
+TEST(AGenderWithoutAFileGetsNone) {
+    Body body = BodyOf(Armour({ { 60, 0, 902 } }, { { 9080, 0, 902 } }, { { 9080, 0, 0 }, { 1, 2, 0 } }));
+
+    CHECK(body[0] == Retail::BodyTexture({ 9080, 0 }));
+}
+
+TEST(AFileForBothGendersWinsOverGenderedOnes) {
+    Body body = BodyOf(Armour({ { 60, 1, 903 } }, { { 9021, 0, 903 }, { 9020, 0, 903 }, { 9022, 0, 903 } }, { { 9020, 2, 0 }, { 9021, 0, 0 }, { 9022, 1, 0 } }));
+
+    CHECK(body[1] == Retail::BodyTexture({ 9020, 9020 }));
+}
+
+TEST(RaceFilesFallBackToTheHumansThenTheLowestRaces) {
+    Body body = BodyOf(Armour({ { 60, 2, 904 }, { 60, 4, 905 }, { 60, 6, 906 } },
+        { { 9031, 0, 904 }, { 9030, 0, 904 }, { 9041, 0, 905 }, { 9040, 0, 905 }, { 9050, 0, 906 }, { 9052, 0, 906 } },
+        { { 9031, 2, 2 }, { 9030, 2, 1 }, { 9041, 2, 5 }, { 9040, 2, 3 }, { 9050, 2, 1 }, { 9052, 2, 0 } }));
+
+    CHECK(body[2] == Retail::BodyTexture({ 9030, 9030 }));   // Human.
+    CHECK(body[4] == Retail::BodyTexture({ 9040, 9040 }));   // The lowest race, 3.
+    CHECK(body[6] == Retail::BodyTexture({ 9052, 9052 }));   // Every race wins over the human's.
+}
+
+TEST(OnlyObjectSkinFilesAreBodyTextures) {
+    Body body = BodyOf(Armour({ { 60, 7, 907 } }, { { 9060, 1, 907 }, { 9061, 0, 907 } }, { { 9061, 2, 0 } }));
+
+    CHECK(body[7] == Retail::BodyTexture({ 9061, 9061 }));
+}
+
+TEST(TheLowestFileWinsATie) {
+    Body body = BodyOf(Armour({ { 60, 3, 908 } }, { { 9071, 0, 908 }, { 9070, 0, 908 } }, { { 9071, 2, 0 }, { 9070, 2, 0 } }));
+
+    CHECK(body[3] == Retail::BodyTexture({ 9070, 9070 }));
+}
+
+TEST(SectionsPastTheEighthAreDropped) {
+    Body body = BodyOf(Armour({ { 60, 9, 909 }, { 60, 3, 910 } }, { { 9090, 0, 909 }, { 9091, 0, 910 } }, { { 9090, 2, 0 }, { 9091, 2, 0 } }));
+
+    Body expected;
+    expected[3] = { 9091, 9091 };
+    CHECK(body == expected);
 }

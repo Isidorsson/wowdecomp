@@ -34,7 +34,34 @@ bool IsRetailPath(const std::string& normalized) {
     return normalized.compare(0, std::strlen(RETAIL_PREFIX), RETAIL_PREFIX) == 0;
 }
 
-// A retail file name, "retail-<fdid>.<ext>", as the last part of a path in any folder.
+// A body texture as the client asks for it: "<fdid>_u" for a file of both genders, "<male>-<female>_m" or "_f"
+// for gendered ones. A gender without a file (0) is not found, so the section draws nothing for it.
+static bool ParseBodyTexture(const std::string& stem, uint32_t& fileDataId) {
+    size_t suffix = stem.size() - 2;
+    if (stem.size() < 3 || stem[suffix] != '_') {
+        return false;
+    }
+
+    char gender = stem[suffix + 1];
+    std::string files = stem.substr(0, suffix);
+    size_t dash = files.find('-');
+    if (gender == 'u') {
+        return dash == std::string::npos && ParseFileDataId(files, fileDataId);
+    }
+    if ((gender != 'm' && gender != 'f') || dash == std::string::npos) {
+        return false;
+    }
+
+    uint32_t male = 0;
+    uint32_t female = 0;
+    if (!ParseFileDataId(files.substr(0, dash), male) || !ParseFileDataId(files.substr(dash + 1), female)) {
+        return false;
+    }
+    fileDataId = gender == 'm' ? male : female;
+    return fileDataId != 0;
+}
+
+// A retail file name, "retail-<fdid>.<ext>" or a body texture's, as the last part of a path in any folder.
 static bool ParseRetailFileName(const std::string& normalized, uint32_t& fileDataId) {
     size_t name = normalized.rfind('/') + 1;   // 0 without a folder.
     if (normalized.compare(name, std::strlen(RETAIL_FILE_PREFIX), RETAIL_FILE_PREFIX) != 0) {
@@ -42,7 +69,8 @@ static bool ParseRetailFileName(const std::string& normalized, uint32_t& fileDat
     }
 
     std::string stem = normalized.substr(name + std::strlen(RETAIL_FILE_PREFIX));
-    return ParseFileDataId(stem.substr(0, stem.find('.')), fileDataId);
+    stem = stem.substr(0, stem.find('.'));
+    return ParseFileDataId(stem, fileDataId) || ParseBodyTexture(stem, fileDataId);
 }
 
 bool ParseRetailPath(const std::string& normalized, uint32_t& fileDataId) {
@@ -57,6 +85,13 @@ bool ParseRetailPath(const std::string& normalized, uint32_t& fileDataId) {
 
 std::string RetailFileName(uint32_t fileDataId) {
     return RETAIL_FILE_PREFIX + std::to_string(fileDataId);
+}
+
+std::string RetailBodyTextureName(uint32_t male, uint32_t female) {
+    if (male == female) {
+        return RetailFileName(male);
+    }
+    return RetailFileName(male) + "-" + std::to_string(female);
 }
 
 bool AliasTable::Parse(const std::string& text, std::string& error) {

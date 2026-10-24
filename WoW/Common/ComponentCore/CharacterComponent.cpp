@@ -11,6 +11,7 @@
 #include <alloca.h>
 #endif
 #include "WoW/Common/ComponentCore/CharacterComponent.h"
+#include "Engine/Source/BLPFile/BlpPixels.h"
 #include "Engine/Source/Base/Handle.h"
 #include "Engine/Source/Base/ObjectAlloc.h"
 #include "Engine/Source/Base/Prop.h"
@@ -33,6 +34,7 @@
 #include "Engine/Source/Storm/Source/SThread.h"
 #include "Engine/Source/Tempest/CImVector.h"
 #include "Engine/Source/Tempest/CRandom.h"
+#include "WoW/Common/ComponentCore/ComponentPasteDecoded.h"
 #include "WoW/Common/ComponentCore/ComponentUtils.h"
 #include "WoW/Common/TextureCache.h"
 #include "WoW/Source/DB/DBClient/DBClient.h"
@@ -4719,27 +4721,29 @@ void CCharacterComponent::PasteToSection(COMPONENT_SECTIONS section, HTEXTURECAC
     info.m_alphaSize = 0;
     info.m_opaque = 1;
     TextureCacheGetInfo(texture, info, 1);
-    uint32_t width = info.m_width;
     uint32_t sectionWidth = s_sectionInfo[section].m_size.x;
+    uint32_t sectionHeight = s_sectionInfo[section].m_size.y;
     C2iVector srcPos;
+    srcPos.x = 0;
+    srcPos.y = 0;
 
-    if (info.m_width < sectionWidth && info.m_height < static_cast<uint32_t>(s_sectionInfo[section].m_size.y)) {
-        srcPos.x = 0;
-        srcPos.y = 0;
+    // Not in the original: a palettized texture smaller than the section, or of its size (or a mip of it), pastes as
+    // it did; any other encoding or size (retail's DXT body textures) is decoded and resampled, where the original
+    // pasted solid green or looked for the section's width among its mips forever.
+    MipFit fit = FitMipToRect(info.m_width, info.m_height, sectionWidth, sectionHeight);
+    bool palettized = TextureCacheGetPal(texture) != nullptr;
+
+    if (palettized && info.m_width < sectionWidth && info.m_height < sectionHeight) {
         CCharacterComponent::PasteScale(texture, dstMips, s_sectionInfo[section].m_pos, srcPos, s_sectionInfo[section].m_size, info);
         return;
     }
 
-    uint32_t mipLevel = 0;
-
-    while (width != sectionWidth) {
-        width >>= 1;
-        mipLevel++;
+    if (palettized && !fit.scale) {
+        CCharacterComponent::Paste(texture, dstMips, s_sectionInfo[section].m_pos, srcPos, s_sectionInfo[section].m_size, info, fit.mip);
+        return;
     }
 
-    srcPos.x = 0;
-    srcPos.y = 0;
-    CCharacterComponent::Paste(texture, dstMips, s_sectionInfo[section].m_pos, srcPos, s_sectionInfo[section].m_size, info, mipLevel);
+    PasteDecodedTexture(texture, { dstMips, 4 * s_textureSize, s_sectionInfo[section].m_pos, s_sectionInfo[section].m_size });
 }
 
 // VERIFY: a9b97d50 auto

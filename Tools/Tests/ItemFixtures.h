@@ -92,4 +92,36 @@ inline Retail::Db2Table Appearances(const std::vector<AppearanceRow>& appearance
     return PlainTable(layout, { 1, 1, 1, 1, 1 }, rows);
 }
 
+struct SectionRow {
+    uint32_t display;
+    uint32_t section;
+    uint32_t material;
+};
+
+// ComponentSection is column 0 and MaterialResourcesID 1; the display is the row's relation.
+inline Retail::Db2Table Sections(const std::vector<SectionRow>& sections, uint32_t layout = Retail::ITEM_DISPLAY_INFO_MATERIAL_RES_LAYOUT) {
+    std::vector<Db2Row> rows;
+    std::vector<uint32_t> relations;
+    for (uint32_t i = 0; i < sections.size(); i++) {
+        rows.push_back({ i + 1, { sections[i].section, sections[i].material } });
+        relations.push_back(sections[i].display);
+    }
+    return PlainTable(layout, { 1, 1 }, rows, relations);
+}
+
+struct ComponentTextureRow {
+    uint32_t file;
+    uint32_t gender;   // 0 male, 1 female, 2 either.
+    uint32_t race;     // 0 for every race.
+};
+
+// GenderIndex is column 0, ClassID 1 and RaceID 2 (the id, the file, is not inline).
+inline Retail::Db2Table ComponentTextures(const std::vector<ComponentTextureRow>& files, uint32_t layout = Retail::COMPONENT_TEXTURE_FILE_DATA_LAYOUT) {
+    std::vector<Db2Row> rows;
+    for (const ComponentTextureRow& file : files) {
+        rows.push_back({ file.file, { file.gender, 0, file.race } });
+    }
+    return PlainTable(layout, { 1, 1, 1 }, rows);
+}
+
 #endif

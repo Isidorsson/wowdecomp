@@ -16,9 +16,14 @@ constexpr size_t TEXTURE_USAGE = 1;
 constexpr size_t TEXTURE_MATERIAL = 2;
 constexpr size_t APPEARANCE_DISPLAY = 1;
 constexpr size_t APPEARANCE_ICON = 2;
+constexpr size_t SECTION_SECTION = 0;
+constexpr size_t SECTION_MATERIAL = 1;
+constexpr size_t COMPONENT_TEXTURE_GENDER = 0;
+constexpr size_t COMPONENT_TEXTURE_RACE = 2;
 
 constexpr uint32_t ANY_GENDER = 2;
 constexpr uint32_t MALE = 0;
+constexpr uint32_t FEMALE = 1;
 constexpr uint32_t HUMAN = 1;
 constexpr uint32_t OBJECT_SKIN_USAGE = 0;
 
@@ -106,10 +111,108 @@ static std::map<uint32_t, uint32_t> IconsByDisplay(const Db2Table& appearances) 
     return icons;
 }
 
+// A body texture file's gender and race; a file ComponentTextureFileData does not list is for everyone.
+struct TextureOwner {
+    uint32_t gender = ANY_GENDER;
+    uint32_t race = 0;
+};
+
+using SectionMaterials = std::vector<std::pair<uint32_t, uint32_t>>;   // Section, material resource.
+
+struct BodyLookups {
+    std::map<uint32_t, SectionMaterials> sectionsOf;            // By display.
+    std::map<uint32_t, std::vector<uint32_t>> objectFilesOf;    // Usage 0 files by material resource.
+    std::map<uint32_t, TextureOwner> owners;                    // By file.
+};
+
+static BodyLookups BodyLookupsOf(const ItemDisplayTables& tables) {
+    BodyLookups lookups;
+    for (size_t row = 0; row < tables.sections.RowCount(); row++) {
+        if (uint32_t display = tables.sections.Relation(row)) {
+            lookups.sectionsOf[display].push_back({ tables.sections.Value(row, SECTION_SECTION), tables.sections.Value(row, SECTION_MATERIAL) });
+        }
+    }
+    for (size_t row = 0; row < tables.textureFiles.RowCount(); row++) {
+        if (tables.textureFiles.Value(row, TEXTURE_USAGE) == OBJECT_SKIN_USAGE) {
+            lookups.objectFilesOf[tables.textureFiles.Value(row, TEXTURE_MATERIAL)].push_back(tables.textureFiles.RowId(row));
+        }
+    }
+    for (size_t row = 0; row < tables.componentTextures.RowCount(); row++) {
+        uint32_t gender = tables.componentTextures.Value(row, COMPONENT_TEXTURE_GENDER);
+        lookups.owners[tables.componentTextures.RowId(row)] = { gender == MALE || gender == FEMALE ? gender : ANY_GENDER,
+            tables.componentTextures.Value(row, COMPONENT_TEXTURE_RACE) };
+    }
+    return lookups;
+}
+
+struct SectionFile {
+    uint32_t fdid;
+    TextureOwner owner;
+};
+
+// The race whose files a section takes: every race's, else the human's, else the lowest race's.
+static uint32_t SectionRace(const std::vector<SectionFile>& files) {
+    uint32_t lowest = UINT32_MAX;
+    bool human = false;
+    for (const SectionFile& file : files) {
+        if (file.owner.race == 0) {
+            return 0;
+        }
+        human |= file.owner.race == HUMAN;
+        lowest = std::min(lowest, file.owner.race);
+    }
+    return human ? HUMAN : lowest;
+}
+
+static uint32_t LowestOfGender(const std::vector<SectionFile>& files, uint32_t race, uint32_t gender) {
+    uint32_t lowest = 0;
+    for (const SectionFile& file : files) {
+        if (file.owner.race == race && file.owner.gender == gender && (!lowest || file.fdid < lowest)) {
+            lowest = file.fdid;
+        }
+    }
+    return lowest;
+}
+
+// One file per gender, a file for both winning, as the client asks for "_U" first (wow-toolbox-editor
+// gear_textures.rs choose_section).
+static BodyTexture ChooseSection(const std::vector<SectionFile>& files) {
+    if (files.empty()) {
+        return {};
+    }
+    uint32_t race = SectionRace(files);
+    if (uint32_t both = LowestOfGender(files, race, ANY_GENDER)) {
+        return { both, both };
+    }
+    return { LowestOfGender(files, race, MALE), LowestOfGender(files, race, FEMALE) };
+}
+
+static std::array<BodyTexture, BODY_SECTIONS> BodyOf(uint32_t display, const BodyLookups& lookups) {
+    std::array<std::vector<SectionFile>, BODY_SECTIONS> filesOf;
+    auto sections = lookups.sectionsOf.find(display);
+    for (const auto& [section, material] : sections == lookups.sectionsOf.end() ? SectionMaterials() : sections->second) {
+        auto files = lookups.objectFilesOf.find(material);
+        if (section >= BODY_SECTIONS || files == lookups.objectFilesOf.end()) {
+            continue;
+        }
+        for (uint32_t fdid : files->second) {
+            auto owner = lookups.owners.find(fdid);
+            filesOf[section].push_back({ fdid, owner == lookups.owners.end() ? TextureOwner() : owner->second });
+        }
+    }
+
+    std::array<BodyTexture, BODY_SECTIONS> body;
+    for (size_t section = 0; section < BODY_SECTIONS; section++) {
+        body[section] = ChooseSection(filesOf[section]);
+    }
+    return body;
+}
+
 struct ItemLookups {
     ModelFilesByResource files;
     std::map<uint32_t, uint32_t> skins;
     std::map<uint32_t, uint32_t> icons;
+    BodyLookups body;
 };
 
 static uint32_t Find(const std::map<uint32_t, uint32_t>& map, uint32_t key) {
@@ -134,6 +237,7 @@ static RetailItemDisplay DisplayAt(const Db2Table& displays, size_t row, const I
         display.geosetGroups[i] = groups[i];
     }
     display.icon = Find(lookups.icons, display.id);
+    display.body = BodyOf(display.id, lookups.body);
     return display;
 }
 
@@ -141,7 +245,9 @@ static bool KnownLayouts(const ItemDisplayTables& tables, std::string& error) {
     return KnownLayout(tables.displays, ITEM_DISPLAY_INFO_LAYOUT, "ItemDisplayInfo", error) && KnownLayout(tables.modelFiles, MODEL_FILE_DATA_LAYOUT, "ModelFileData", error)
         && KnownLayout(tables.componentModels, COMPONENT_MODEL_FILE_DATA_LAYOUT, "ComponentModelFileData", error)
         && KnownLayout(tables.textureFiles, TEXTURE_FILE_DATA_LAYOUT, "TextureFileData", error)
-        && KnownLayout(tables.appearances, ITEM_APPEARANCE_LAYOUT, "ItemAppearance", error);
+        && KnownLayout(tables.appearances, ITEM_APPEARANCE_LAYOUT, "ItemAppearance", error)
+        && KnownLayout(tables.sections, ITEM_DISPLAY_INFO_MATERIAL_RES_LAYOUT, "ItemDisplayInfoMaterialRes", error)
+        && KnownLayout(tables.componentTextures, COMPONENT_TEXTURE_FILE_DATA_LAYOUT, "ComponentTextureFileData", error);
 }
 
 bool RetailItemDisplays::Load(const ItemDisplayTables& tables, std::string& error) {
@@ -149,7 +255,8 @@ bool RetailItemDisplays::Load(const ItemDisplayTables& tables, std::string& erro
         return false;
     }
 
-    ItemLookups lookups = { FilesByResource(tables.modelFiles, tables.componentModels), SkinsByMaterial(tables.textureFiles), IconsByDisplay(tables.appearances) };
+    ItemLookups lookups = { FilesByResource(tables.modelFiles, tables.componentModels), SkinsByMaterial(tables.textureFiles), IconsByDisplay(tables.appearances),
+        BodyLookupsOf(tables) };
     this->m_displays.clear();
     for (size_t row = 0; row < tables.displays.RowCount(); row++) {
         this->m_displays.push_back(DisplayAt(tables.displays, row, lookups));

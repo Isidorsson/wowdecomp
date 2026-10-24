@@ -318,12 +318,15 @@ bool CascSource::LoadItemTables(std::string& error) {
     Db2Table textureFiles;
     Db2Table componentModels;
     Db2Table appearances;
+    Db2Table sections;
+    Db2Table componentTextures;
     if (!this->ReadTables({ { MODEL_FILE_DATA_FDID, &modelFiles }, { ITEM_DISPLAY_INFO_FDID, &itemDisplays }, { ITEM_DISPLAY_INFO_MODEL_MAT_RES_FDID, &layers },
-            { TEXTURE_FILE_DATA_FDID, &textureFiles }, { COMPONENT_MODEL_FILE_DATA_FDID, &componentModels }, { ITEM_APPEARANCE_FDID, &appearances } }, error)) {
+            { TEXTURE_FILE_DATA_FDID, &textureFiles }, { COMPONENT_MODEL_FILE_DATA_FDID, &componentModels }, { ITEM_APPEARANCE_FDID, &appearances },
+            { ITEM_DISPLAY_INFO_MATERIAL_RES_FDID, &sections }, { COMPONENT_TEXTURE_FILE_DATA_FDID, &componentTextures } }, error)) {
         return false;
     }
 
-    this->m_hasItemDisplays = this->m_itemDisplays.Load({ itemDisplays, modelFiles, componentModels, textureFiles, appearances }, error);
+    this->m_hasItemDisplays = this->m_itemDisplays.Load({ itemDisplays, modelFiles, componentModels, textureFiles, appearances, sections, componentTextures }, error);
     if (!this->m_hasItemDisplays || !this->m_skins.LoadItems({ modelFiles, itemDisplays, layers, textureFiles }, error)) {
         return false;
     }

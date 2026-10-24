@@ -105,6 +105,35 @@ TEST(MalformedRetailFileNamesAreRefused) {
     CHECK(!ParseRetailPath("item/objectcomponents/weapon/sword_retail-12.m2", id));
     CHECK(!ParseRetailPath("item/retail-12/sword.m2", id));
     CHECK(!ParseRetailPath("item/objectcomponents/weapon/retail-4294967296.m2", id));
-    // Race, gender and section suffixes name files B4b and B4c resolve, not a FileDataID.
-    CHECK(!ParseRetailPath("item/texturecomponents/armuppertexture/retail-12_u.blp", id));
+}
+
+// The client loads a body section's texture as <name>_U.blp, else <name>_M or _F by the character's gender
+// (CCharacterComponent::LoadItemComponentTexture), so the name carries both genders' files.
+TEST(BodyTextureNamesCarryBothGenders) {
+    CHECK(Retail::RetailBodyTextureName(9000, 9000) == "retail-9000");
+    CHECK(Retail::RetailBodyTextureName(9010, 9011) == "retail-9010-9011");
+    CHECK(Retail::RetailBodyTextureName(9080, 0) == "retail-9080-0");
+}
+
+TEST(BodyTexturePathsResolveByTheClientsSuffix) {
+    uint32_t id = 0;
+
+    CHECK(ParseRetailPath("item/texturecomponents/torsouppertexture/retail-9000_u.blp", id) && id == 9000);
+    CHECK(ParseRetailPath("item/texturecomponents/torsouppertexture/retail-9010-9011_m.blp", id) && id == 9010);
+    CHECK(ParseRetailPath("item/texturecomponents/torsouppertexture/retail-9010-9011_f.blp", id) && id == 9011);
+    CHECK(Retail::ClaimsPath("item/texturecomponents/foottexture/retail-9010-9011_f.blp", AliasTable()));
+}
+
+TEST(BodyTexturePathsTheClientMustNotFindAreRefused) {
+    uint32_t id = 0;
+
+    // A gendered pair has no file for both, so the client goes on to its gender's.
+    CHECK(!ParseRetailPath("item/texturecomponents/torsouppertexture/retail-9010-9011_u.blp", id));
+    // A file for both is found as _U first; the gendered names are never asked for.
+    CHECK(!ParseRetailPath("item/texturecomponents/torsouppertexture/retail-9000_m.blp", id));
+    // A gender without a file stays unclaimed, so the section draws nothing for it, as in retail.
+    CHECK(!ParseRetailPath("item/texturecomponents/torsouppertexture/retail-9080-0_f.blp", id));
+    CHECK(!ParseRetailPath("item/texturecomponents/torsouppertexture/retail-9010-9011.blp", id));
+    CHECK(!ParseRetailPath("item/texturecomponents/torsouppertexture/retail-1-2-3_m.blp", id));
+    CHECK(!ParseRetailPath("item/texturecomponents/torsouppertexture/retail-9010-9011_x.blp", id));
 }

@@ -23,6 +23,11 @@ bool ParseRetailPath(const std::string& normalized, uint32_t& fileDataId);
 // to which the client adds its own extension (or the row does, for a model).
 std::string RetailFileName(uint32_t fileDataId);
 
+// The name a served display row gives a body section's texture, to which the client adds "_U", else "_M" or "_F" by
+// the character's gender: "retail-<fdid>" when one file is for both, else "retail-<male>-<female>" (0 for none).
+// ParseRetailPath reads back "_u" of the first and "_m" / "_f" of the second.
+std::string RetailBodyTextureName(uint32_t male, uint32_t female);
+
 // Rows of "FDID;client\path" that serve a retail file in place of a stock path.
 class AliasTable {
     public:

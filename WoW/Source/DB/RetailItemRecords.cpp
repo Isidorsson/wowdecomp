@@ -37,6 +37,7 @@ struct ServedItemDisplay {
     std::string models[2];
     std::string skins[2];
     std::string icon;
+    std::string body[Retail::BODY_SECTIONS];
 };
 
 static std::mutex s_servedMutex;
@@ -48,7 +49,7 @@ static const char* FileName(std::string& name, uint32_t fileDataId, const char* 
 }
 
 // Flags, group sound, spell and item visuals, particle colours and helmet geosets index retail tables or mean
-// retail things, so they stay 0; the body textures are B4b's.
+// retail things, so they stay 0. A body section names both genders' files, as the client adds _U, _M or _F.
 static void FillItemDisplay(ServedItemDisplay& served, const Retail::RetailItemDisplay& display) {
     ItemDisplayInfoRec& rec = served.record;
     // The record's constructor leaves its fields as they were, so {} would not clear what the row does not set.
@@ -63,8 +64,10 @@ static void FillItemDisplay(ServedItemDisplay& served, const Retail::RetailItemD
     for (int32_t group = 0; group < 3; group++) {
         rec.m_geosetGroup[group] = static_cast<int32_t>(display.geosetGroups[group]);
     }
-    for (const char*& texture : rec.m_texture) {
-        texture = "";
+    for (size_t section = 0; section < Retail::BODY_SECTIONS; section++) {
+        const Retail::BodyTexture& body = display.body[section];
+        served.body[section] = body.male || body.female ? Retail::RetailBodyTextureName(body.male, body.female) : std::string();
+        rec.m_texture[section] = served.body[section].c_str();
     }
 }
 
