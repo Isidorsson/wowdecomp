@@ -22,6 +22,8 @@ namespace M2At {
     constexpr size_t MATERIALS = 0x70;
     constexpr size_t TEXTURE_COMBOS = 0x80;
     constexpr size_t COORD_COMBOS = 0x88;
+    constexpr size_t WEIGHT_COMBOS = 0x90;
+    constexpr size_t TRANSFORM_COMBOS = 0x98;
     constexpr size_t EVENTS = 0x100;
     constexpr size_t CAMERAS = 0x110;
     constexpr size_t PARTICLES = 0x128;

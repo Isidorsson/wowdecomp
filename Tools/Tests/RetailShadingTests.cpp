@@ -1,71 +1,11 @@
 #include "Engine/Source/Retail/RetailModel.h"
 #include "Tools/Tests/Check.h"
 #include "Tools/Tests/M2Builder.h"
+#include "Tools/Tests/ShadingFixtures.h"
 
 using Retail::ConvertedModel;
 using Retail::ConvertModel;
 using Retail::ConvertSkin;
-
-// 3.3.5 combiner operations (M2COMBINER) and texture coordinate sources (textureCoordCombos values).
-constexpr uint16_t OPAQUE = 0;
-constexpr uint16_t MOD = 1;
-constexpr uint16_t ADD = 3;
-constexpr uint16_t MOD2X = 4;
-constexpr uint16_t MOD2X_NA = 6;
-constexpr uint16_t ADD_NA = 7;
-constexpr uint16_t UV1 = 0;
-constexpr uint16_t UV2 = 1;
-constexpr uint16_t ENV = 0xFFFF;
-constexpr uint32_t USES_COMBINER_COMBOS = 0x8;
-constexpr size_t BATCH = 0x18;
-
-// A retail model whose header ends at 0x130, as every retail file's does: the first array (the name here)
-// starts where 3.3.5 keeps the combiner table.
-static std::vector<uint8_t> ShadedModel(std::vector<std::vector<uint8_t>> chunks = {}) {
-    std::vector<uint8_t> md20 = NewMd20();
-    md20.resize(M2At::TEXTURE_COMBINER_COMBOS);
-    std::string name = "kobold";
-    AddArray(md20, 0x08, static_cast<uint32_t>(name.size() + 1), std::vector<uint8_t>(name.c_str(), name.c_str() + name.size() + 1));
-    AddArray(md20, M2At::SEQUENCES, 1, Sequence(0, 0x20));
-    AddArray(md20, M2At::VERTICES, 2, Concat({ Vertex(255, 0, 0, 0), Vertex(255, 0, 0, 0) }));
-    AddArray(md20, M2At::TEXTURE_COMBOS, 3, Concat({ { 0, 0 }, { 1, 0 }, { 0, 0 } }));
-    AddArray(md20, M2At::COORD_COMBOS, 1, Concat({ { 1, 0 } }));
-    return Md21File(md20, chunks);
-}
-
-static std::vector<uint8_t> SkinOf(std::vector<std::vector<uint8_t>> batches) {
-    std::vector<uint8_t> skin = NewSkin();
-    AddArray(skin, SkinAt::VERTICES, 2, Concat({ { 0, 0 }, { 1, 0 } }));
-    AddArray(skin, SkinAt::INDICES, 3, Concat({ { 0, 0 }, { 1, 0 }, { 1, 0 } }));
-    AddArray(skin, SkinAt::SECTIONS, 1, SkinSection(1, 0, 1, 3));
-    AddArray(skin, SkinAt::BATCHES, static_cast<uint32_t>(batches.size()), Concat(batches));
-    return skin;
-}
-
-// What SubstituteSimpleShaders and GetEffect (M2Shared.cpp) read for a batch: one combiner operation and one
-// coordinate source per texture.
-struct ClientShading {
-    std::vector<uint16_t> ops;
-    std::vector<uint16_t> coords;
-
-    bool operator==(const ClientShading& other) const { return ops == other.ops && coords == other.coords; }
-};
-
-static ClientShading Shading(const std::vector<uint8_t>& m2, const std::vector<uint8_t>& skin, size_t index) {
-    size_t batch = RecordAt(skin, SkinAt::BATCHES, index, BATCH);
-    std::vector<uint16_t> combos = U16sAt(m2, M2At::TEXTURE_COMBINER_COMBOS);
-    std::vector<uint16_t> coords = U16sAt(m2, M2At::COORD_COMBOS);
-    uint16_t shader = GetU16(skin, batch + 0x02);
-    uint16_t coord = GetU16(skin, batch + 0x12);
-    ClientShading shading;
-
-    for (uint16_t t = 0; t < GetU16(skin, batch + 0x0E); t++) {
-        shading.ops.push_back(size_t(shader) + t < combos.size() ? combos[shader + t] : 0xEEEE);
-        shading.coords.push_back(size_t(coord) + t < coords.size() ? coords[coord + t] : 0xEEEE);
-    }
-
-    return shading;
-}
 
 // Converts the model and a skin holding one batch per (shader, texture count) and returns what the client
 // reads for each.
@@ -206,16 +146,6 @@ TEST(EffectsPastTheTableDrawTheirFirstTexture) {
     auto shadings = Converted({ { 0x8028, 2 } });
 
     CHECK(shadings.size() == 1 && shadings[0] == ClientShading({ { MOD }, { UV1 } }));
-}
-
-TEST(EffectsWithOverlayPassesAreRefusedUntilC5c) {
-    std::vector<uint8_t> skin;
-    std::string error;
-
-    for (uint16_t effect : { 3, 9, 17, 18, 20, 22, 24, 30, 31 }) {
-        bool refused = !ConvertSkin(SkinOf({ SkinBatch(0, static_cast<uint16_t>(0x8000 | effect), 2) }), ShadedModel(), 0, skin, error) && error.find("C5c") != std::string::npos;
-        CHECK(refused);
-    }
 }
 
 static ConvertedModel WithSkin(std::vector<std::vector<uint8_t>> batches) {

@@ -152,3 +152,11 @@ TEST(EffectBasesCountForTheCopy) {
     CHECK(kept.m2.size() > 0 && !Uv2IsUv1(kept.m2, 0));
     CHECK(Mentions(kept, "kept"));
 }
+
+TEST(OverlayPassesOnUv2CountAsReadingIt) {
+    // Effect 20 adds its third texture on UV2 over the same submesh.
+    ConvertedModel model = Converted(1, { { SKIN_A, UvSkin({ On(0, 0x0014, 2), On(0, 0x8014, 3) }) } });
+
+    CHECK(model.m2.size() > 0 && !Uv2IsUv1(model.m2, 0));
+    CHECK(Mentions(model, "kept"));
+}

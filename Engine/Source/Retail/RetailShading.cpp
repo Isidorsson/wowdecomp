@@ -1,7 +1,5 @@
 #include "Engine/Source/Retail/RetailShading.h"
-#include <algorithm>
-#include <map>
-#include <set>
+#include "Engine/Source/Retail/RetailEffects.h"
 #include "Engine/Source/Retail/RetailModelData.h"
 
 namespace Retail {
@@ -14,31 +12,19 @@ constexpr size_t HEADER_WITH_COMBINERS = COMBINER_SLOT + 8;
 constexpr uint16_t COMBINER_OPS = 8;                // M2COMBINER_OP_MASK + 1.
 constexpr uint32_t COMBINER_ENTRIES = COMBINER_OPS * COMBINER_OPS * 2;
 
-// M2COMBINER operations.
-constexpr uint16_t OP_OPAQUE = 0;
-constexpr uint16_t OP_MOD = 1;
-constexpr uint16_t OP_ADD = 3;
-constexpr uint16_t OP_MOD2X = 4;
-constexpr uint16_t OP_MOD2X_NA = 6;
-constexpr uint16_t OP_ADD_NA = 7;
-
-// Texture coordinate sources, in textureCoordCombos values: UV1, UV2, the environment map.
+// Texture coordinate sources, in textureCoordCombos values, in the order of UV1, UV2 and ENV.
 constexpr uint16_t COORD_SOURCES[] = { 0, 1, 0xFFFF };
-constexpr uint16_t UV1 = 0;
-constexpr uint16_t UV2 = 1;
-constexpr uint16_t ENV = 2;
 constexpr uint32_t COORD_SOURCE_COUNT = 3;
 constexpr uint32_t COORD_PAIR_ENTRIES = COORD_SOURCE_COUNT * COORD_SOURCE_COUNT * 2;
 
-// The bits of a retail shader without the effect flag (wow.export ShaderMapper, as wow-toolbox-editor's
-// downport/transform/shading.rs decodes them).
-constexpr uint16_t SHADER_FIRST_MOD = 0x70;
-constexpr uint16_t SHADER_FIRST_ENV = 0x80;
-constexpr uint16_t SHADER_SECOND_OP = 0x07;
-constexpr uint16_t SHADER_SECOND_ENV = 0x08;
-constexpr uint16_t SHADER_LAST_UV2 = 0x4000;
-constexpr uint16_t EFFECT_FLAG = 0x8000;
-constexpr uint16_t CLIENT_EFFECTS = 3;
+// Each material is followed by layer blocks for passes: [copy, Add], [copy, Alpha, Alpha], [copy, Mod]. The
+// client takes a layer's base material from materialIndex - materialLayer (M2Scene.cpp), which is the copy.
+constexpr uint16_t LAYER_BLOCK_SIZE = 7;
+constexpr uint16_t ADD_BLOCK = 0;
+constexpr uint16_t ALPHA_BLOCK = 2;
+constexpr uint16_t MOD_BLOCK = 5;
+constexpr uint16_t LAYER_BLENDS[LAYER_BLOCK_SIZE] = { 0, BLEND_ADD, 0, BLEND_ALPHA, BLEND_ALPHA, 0, BLEND_MOD };
+constexpr uint16_t RENDER_NO_DEPTH_WRITE = 0x10;
 
 struct HeaderArray {
     size_t header;
@@ -57,6 +43,9 @@ static const HeaderArray HEADER_ARRAYS[] = {
     { 0xF0, 0x28, "attachments" }, { 0xF8, 2, "attachment lookup" }, { 0x100, 0x24, "events" }, { 0x108, 0x9C, "lights" },
     { 0x110, 116, "cameras" }, { 0x118, 2, "camera lookup" }, { 0x120, 0xB0, "ribbons" }, { 0x128, 492, "particle emitters" },
 };
+
+constexpr size_t WEIGHT_COMBOS = 0x90;
+constexpr size_t TRANSFORM_COMBOS = 0x98;
 
 // Retail headers end at the slot and their first array starts there; that array is copied to the end.
 static bool FreeCombinerSlot(std::vector<uint8_t>& m2, std::string& error) {
@@ -81,9 +70,30 @@ static bool FreeCombinerSlot(std::vector<uint8_t>& m2, std::string& error) {
     return true;
 }
 
+static void AppendLayerMaterials(std::vector<uint8_t>& m2, const Span& materials) {
+    std::vector<uint8_t> all(m2.begin() + materials.offset, m2.begin() + materials.offset + materials.count * MATERIAL_SIZE);
+    all.resize(materials.count * MATERIAL_SIZE * (1 + LAYER_BLOCK_SIZE), 0);
+
+    for (uint32_t m = 0; m < materials.count; m++) {
+        uint16_t flags = Get<uint16_t>(m2, materials.At(m, MATERIAL_SIZE));
+        uint16_t blend = Get<uint16_t>(m2, materials.At(m, MATERIAL_SIZE) + 2);
+
+        for (uint16_t slot = 0; slot < LAYER_BLOCK_SIZE; slot++) {
+            size_t at = (materials.count + m * LAYER_BLOCK_SIZE + slot) * MATERIAL_SIZE;
+            Put<uint16_t>(all, at, LAYER_BLENDS[slot] ? flags | RENDER_NO_DEPTH_WRITE : flags);
+            Put<uint16_t>(all, at + 2, LAYER_BLENDS[slot] ? LAYER_BLENDS[slot] : blend);
+        }
+    }
+
+    Put<uint32_t>(m2, M2At::MATERIALS, materials.count * (1 + LAYER_BLOCK_SIZE));
+    Put<uint32_t>(m2, M2At::MATERIALS + 4, AppendAligned(m2, all));
+}
+
 bool AppendShadingTables(std::vector<uint8_t>& m2, std::string& error) {
     Span coords;
-    if (!FreeCombinerSlot(m2, error) || !ReadSpan(m2, M2At::COORD_COMBOS, 2, "coordinate combos", coords, error)) {
+    Span materials;
+    if (!FreeCombinerSlot(m2, error) || !ReadSpan(m2, M2At::COORD_COMBOS, 2, "coordinate combos", coords, error)
+        || !ReadSpan(m2, M2At::MATERIALS, MATERIAL_SIZE, "materials", materials, error)) {
         return false;
     }
 
@@ -108,350 +118,120 @@ bool AppendShadingTables(std::vector<uint8_t>& m2, std::string& error) {
     Put<uint32_t>(m2, M2At::COORD_COMBOS, static_cast<uint32_t>(pairs.size() / 2));
     Put<uint32_t>(m2, M2At::COORD_COMBOS + 4, AppendAligned(m2, pairs));
     Put<uint32_t>(m2, M2At::FLAGS, Get<uint32_t>(m2, M2At::FLAGS) | USES_COMBINER_COMBOS);
+    AppendLayerMaterials(m2, materials);
     return true;
 }
 
 bool ReadShadingTables(const std::vector<uint8_t>& m2, ShadingTables& tables, std::string& error) {
     Span combiners;
     Span coords;
+    Span materials;
+    Span textures;
+    Span weights;
+    Span transforms;
     if (m2.size() < HEADER_WITH_COMBINERS || !(Get<uint32_t>(m2, M2At::FLAGS) & USES_COMBINER_COMBOS)
         || !ReadSpan(m2, COMBINER_SLOT, 2, "combiner combos", combiners, error) || !ReadSpan(m2, M2At::COORD_COMBOS, 2, "coordinate combos", coords, error)
-        || combiners.count != COMBINER_ENTRIES || coords.count < COORD_PAIR_ENTRIES) {
+        || !ReadSpan(m2, M2At::MATERIALS, MATERIAL_SIZE, "materials", materials, error) || !ReadSpan(m2, M2At::TEXTURE_COMBOS, 2, "texture combos", textures, error)
+        || !ReadSpan(m2, WEIGHT_COMBOS, 2, "weight combos", weights, error) || !ReadSpan(m2, TRANSFORM_COMBOS, 2, "transform combos", transforms, error)
+        || combiners.count != COMBINER_ENTRIES || coords.count < COORD_PAIR_ENTRIES || materials.count % (1 + LAYER_BLOCK_SIZE)) {
         return Fail(error, "the skin's model is not converted");
     }
 
-    tables = { coords.count - COORD_PAIR_ENTRIES };
+    tables = { coords.count - COORD_PAIR_ENTRIES, materials.count / (1 + LAYER_BLOCK_SIZE), textures.count, weights.count, transforms.count };
     return true;
-}
-
-struct Shading {
-    uint16_t ops[2];
-    uint16_t coords[2];     // Indices into COORD_SOURCES.
-};
-
-static uint16_t SecondOp(uint16_t shader, uint16_t first) {
-    uint16_t op = shader & SHADER_SECOND_OP;
-
-    if (first == OP_OPAQUE && op == 0) {
-        return OP_OPAQUE;
-    }
-
-    if (first == OP_OPAQUE && op == OP_ADD_NA) {
-        return OP_ADD;
-    }
-
-    // Decal (2) and Fade (5) have no two-texture 3.3.5 shader.
-    return op == OP_ADD || op == OP_MOD2X || op == OP_MOD2X_NA || op == OP_ADD_NA ? op : OP_MOD;
-}
-
-static Shading DecodeShader(uint16_t shader, uint16_t textures) {
-    uint16_t first = shader & SHADER_FIRST_MOD ? OP_MOD : OP_OPAQUE;
-    bool firstEnv = shader & SHADER_FIRST_ENV;
-    bool lastUv2 = shader & SHADER_LAST_UV2;
-
-    if (textures <= 1) {
-        return { { first, OP_OPAQUE }, { firstEnv ? ENV : lastUv2 ? UV2 : UV1, UV1 } };
-    }
-
-    uint16_t secondCoord = shader & SHADER_SECOND_ENV ? ENV : !firstEnv && lastUv2 ? UV2 : UV1;
-    return { { first, SecondOp(shader, first) }, { firstEnv ? ENV : UV1, secondCoord } };
-}
-
-// A retail shader effect in 3.3.5 terms (wow-toolbox-editor downport/transform/shader_effects.rs, after
-// wow.export's ShaderMapper): its base batch is one of the client's effects or one or two combiners, and
-// textures past the base are overlay passes (converter slice C5c) or lost.
-struct Effect {
-    const char* pixelShader;
-    uint16_t textures;          // Of the base batch.
-    Shading base;
-    int16_t clientEffect;       // The client effect (0 to 2) the base is, or -1.
-    uint16_t overlays;
-    const char* lost;
-};
-
-constexpr int16_t NO_CLIENT_EFFECT = -1;
-constexpr const char* UNLIT_GLOW_LOST = "the glow does not darken the base under it";
-constexpr const char* CROSSFADE_LOST = "the crossfade runs on the texture weights of the second and third texture, which the model must animate for it to fade";
-constexpr const char* PRODUCT_LOST = "the effect's constant factor is not applied, and every pass multiplies the diffuse light again";
-constexpr const char* GUILD_LOST = "the tabard's emblem and border textures are not drawn (they depend on the guild's colours, which a 3.3.5 model cannot take)";
-
-static const Effect EFFECTS[] = {
-    { "Combiners_Opaque_Mod2xNA_Alpha", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 0, "" },
-    { "Combiners_Opaque_AddAlpha", 2, { { OP_OPAQUE, OP_ADD }, { UV1, ENV } }, 1, 0, "" },
-    { "Combiners_Opaque_AddAlpha_Alpha", 2, { { OP_OPAQUE, OP_ADD }, { UV1, ENV } }, 2, 0, "" },
-    { "Combiners_Opaque_Mod2xNA_Alpha_Add", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 1, "" },
-    { "Combiners_Mod_AddAlpha", 2, { { OP_MOD, OP_ADD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Opaque_AddAlpha", 2, { { OP_OPAQUE, OP_ADD }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Mod_AddAlpha", 2, { { OP_MOD, OP_ADD }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Mod_AddAlpha_Alpha", 2, { { OP_MOD, OP_ADD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Opaque_Alpha_Alpha", 2, { { OP_OPAQUE, OP_MOD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Opaque_Mod2xNA_Alpha_3s", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 1, "" },
-    { "Combiners_Opaque_AddAlpha_Wgt", 2, { { OP_OPAQUE, OP_ADD }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Mod_Add_Alpha", 2, { { OP_MOD, OP_ADD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Opaque_ModNA_Alpha", 2, { { OP_OPAQUE, OP_MOD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Mod_AddAlpha_Wgt", 2, { { OP_MOD, OP_ADD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Mod_AddAlpha_Wgt", 2, { { OP_MOD, OP_ADD }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Opaque_AddAlpha_Wgt", 2, { { OP_OPAQUE, OP_ADD }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Opaque_Mod_Add_Wgt", 2, { { OP_OPAQUE, OP_MOD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 1, UNLIT_GLOW_LOST },
-    { "Combiners_Mod_Dual_Crossfade", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 2, CROSSFADE_LOST },
-    { "Combiners_Mod_Depth", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Opaque_Mod2xNA_Alpha_Alpha", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 1, "" },
-    { "Combiners_Mod_Mod", 2, { { OP_MOD, OP_MOD }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Mod_Masked_Dual_Crossfade", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 2,
-        "the fourth texture, which masks the result's alpha, is not applied, and the crossfade runs on the texture weights of the second and third texture, which the model must animate for it to fade" },
-    { "Combiners_Opaque_Alpha", 2, { { OP_OPAQUE, OP_MOD }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 1, UNLIT_GLOW_LOST },
-    { "Combiners_Mod_Depth", 1, { { OP_MOD, OP_OPAQUE }, { ENV, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Guild", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, GUILD_LOST },
-    { "Guild_NoBorder", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, GUILD_LOST },
-    { "Guild_Opaque", 1, { { OP_OPAQUE, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, GUILD_LOST },
-    { "Illum", 1, { { OP_OPAQUE, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "the second texture, which the effect uses as an illumination layer, is not drawn" },
-    { "Combiners_Mod_Mod_Mod_Const", 2, { { OP_MOD, OP_MOD }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 1, PRODUCT_LOST },
-    { "Combiners_Mod_Mod_Mod_Const", 2, { { OP_MOD, OP_MOD }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 1, PRODUCT_LOST },
-    { "Combiners_Opaque", 1, { { OP_OPAQUE, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Mod_Mod2x", 2, { { OP_MOD, OP_MOD2X }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Mod", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
-    { "Combiners_Mod_Mod_Depth", 2, { { OP_MOD, OP_MOD }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 0, "" },
-};
-
-constexpr uint16_t EFFECT_COUNT = sizeof(EFFECTS) / sizeof(EFFECTS[0]);
-// Effects later builds add: their first texture, which every effect samples.
-constexpr Shading UNKNOWN_EFFECT_BASE = { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } };
-
-// What a retail batch draws in 3.3.5: one of the client's effects, or combiners on coordinate sources.
-struct BaseShading {
-    const Effect* effect;       // Null for a batch without the effect flag or past the table.
-    bool unknownEffect;
-    int16_t clientEffect;
-    uint16_t textures;
-    Shading shading;
-};
-
-static BaseShading ResolveShading(uint16_t shader, uint16_t textures) {
-    if (!(shader & EFFECT_FLAG)) {
-        return { nullptr, false, NO_CLIENT_EFFECT, textures, DecodeShader(shader, textures) };
-    }
-
-    uint16_t id = shader & ~EFFECT_FLAG;
-    if (id >= EFFECT_COUNT) {
-        return { nullptr, true, NO_CLIENT_EFFECT, 1, UNKNOWN_EFFECT_BASE };
-    }
-
-    const Effect& effect = EFFECTS[id];
-    return { &effect, false, effect.clientEffect, std::min(textures, effect.textures), effect.base };
 }
 
 static uint16_t CoordPair(const ShadingTables& tables, uint16_t first, uint16_t second) {
     return static_cast<uint16_t>(tables.coordPairs + (first * COORD_SOURCE_COUNT + second) * 2);
 }
 
-bool ShadeBatch(std::vector<uint8_t>& skin, size_t batch, const ShadingTables& tables, std::string& error) {
-    uint16_t shader = Get<uint16_t>(skin, batch + 0x02);
-    BaseShading base = ResolveShading(shader, Get<uint16_t>(skin, batch + 0x0E));
+static uint16_t CombinerPair(uint16_t first, uint16_t second) {
+    return static_cast<uint16_t>((first * COMBINER_OPS + second) * 2);
+}
 
-    if (base.effect && base.effect->overlays) {
-        return Fail(error, "shader effect " + std::to_string(shader & ~EFFECT_FLAG) + " (" + base.effect->pixelShader + ") draws its textures past the second as extra passes (converter slice C5c)");
-    }
-
+// The base's own shading: one of the client's effects or combiners, its textures cut to what the base draws.
+static void ShadeBase(std::vector<uint8_t>& record, const BaseShading& base, const ShadingTables& tables) {
     if (base.clientEffect != NO_CLIENT_EFFECT) {
         // Retail counts effects from 0; the client's table starts at 1. Its effects are Diffuse_T1_Env.
-        Put<uint16_t>(skin, batch + 0x02, static_cast<uint16_t>(EFFECT_FLAG | (base.clientEffect + 1)));
-        Put<uint16_t>(skin, batch + 0x12, CoordPair(tables, UV1, ENV));
-        return true;
+        Put<uint16_t>(record, 0x02, static_cast<uint16_t>(EFFECT_FLAG | (base.clientEffect + 1)));
+        Put<uint16_t>(record, 0x0E, base.textures);
+        Put<uint16_t>(record, 0x12, CoordPair(tables, UV1, ENV));
+        return;
     }
 
-    Put<uint16_t>(skin, batch + 0x02, static_cast<uint16_t>((base.shading.ops[0] * COMBINER_OPS + base.shading.ops[1]) * 2));
-    Put<uint16_t>(skin, batch + 0x0E, base.textures);
-    Put<uint16_t>(skin, batch + 0x12, CoordPair(tables, base.shading.coords[0], base.shading.coords[1]));
-    return true;
+    Put<uint16_t>(record, 0x02, CombinerPair(base.shading.ops[0], base.shading.ops[1]));
+    Put<uint16_t>(record, 0x0E, base.textures);
+    Put<uint16_t>(record, 0x12, CoordPair(tables, base.shading.coords[0], base.shading.coords[1]));
 }
 
-constexpr size_t VERTEX_UV1 = 0x20;
-constexpr size_t VERTEX_UV2 = 0x28;
-constexpr size_t UV_SIZE = 8;
-
-// One classic batch of a view: the model vertices its submesh draws and the UV sets it samples.
-struct UvBatch {
-    uint32_t view;
-    uint32_t index;
-    std::vector<uint16_t> vertices;
-    bool firstSetTwice;
-    bool readsUv2;
-};
-
-static bool DrawnVertices(const std::vector<uint8_t>& skin, size_t batch, uint32_t modelVertices, std::vector<uint16_t>& vertices, std::string& error) {
-    Span sections;
-    Span lookup;
-    if (!ReadSpan(skin, SkinAt::SECTIONS, SECTION_SIZE, "submeshes", sections, error) || !ReadSpan(skin, SkinAt::VERTICES, 2, "skin vertices", lookup, error)) {
-        return false;
-    }
-
-    uint16_t section = Get<uint16_t>(skin, batch + 0x04);
-    if (section >= sections.count) {
-        return Fail(error, "a batch names submesh " + std::to_string(section) + " past the skin's " + std::to_string(sections.count));
-    }
-
-    uint32_t start = Get<uint16_t>(skin, sections.At(section, SECTION_SIZE) + 0x04);
-    uint32_t count = Get<uint16_t>(skin, sections.At(section, SECTION_SIZE) + 0x06);
-    if (start + count > lookup.count) {
-        return Fail(error, "a submesh runs past the skin's vertex list");
-    }
-
-    for (uint32_t i = start; i < start + count; i++) {
-        uint16_t vertex = Get<uint16_t>(skin, lookup.At(i, 2));
-        if (vertex >= modelVertices) {
-            return Fail(error, "a skin vertex names a vertex past the model's");
-        }
-        vertices.push_back(vertex);
-    }
-
-    return true;
+// Entry offset after start of a lookup of count entries, or start when the lookup is not that long.
+static uint16_t Slot(uint16_t start, uint16_t offset, uint32_t count) {
+    return uint32_t(start) + offset < count ? static_cast<uint16_t>(start + offset) : start;
 }
 
-static bool ReadUvBatches(const std::vector<std::vector<uint8_t>>& skins, uint32_t modelVertices, std::vector<UvBatch>& batches, std::string& error) {
-    for (uint32_t view = 0; view < skins.size(); view++) {
-        Span records;
-        if (!ReadSpan(skins[view], SkinAt::BATCHES, BATCH_SIZE, "batches", records, error)) {
-            return false;
-        }
-
-        for (uint32_t i = 0; i < records.count; i++) {
-            size_t at = records.At(i, BATCH_SIZE);
-            BaseShading base = ResolveShading(Get<uint16_t>(skins[view], at + 0x02), Get<uint16_t>(skins[view], at + 0x0E));
-            if (base.clientEffect != NO_CLIENT_EFFECT) {
-                continue;
-            }
-
-            const Shading& shading = base.shading;
-            UvBatch batch { view, i, {}, base.textures == 2 && shading.coords[0] == UV1 && shading.coords[1] == UV1,
-                shading.coords[0] == UV2 || (base.textures == 2 && shading.coords[1] == UV2) };
-            if ((batch.firstSetTwice || batch.readsUv2) && !DrawnVertices(skins[view], at, modelVertices, batch.vertices, error)) {
-                return false;
-            }
-            batches.push_back(std::move(batch));
-        }
-    }
-
-    return true;
+static uint16_t LayerBlock(const Effect& effect) {
+    uint16_t blend = effect.passes[0].blend;
+    return blend == BLEND_ADD ? ADD_BLOCK : blend == BLEND_ALPHA ? ALPHA_BLOCK : MOD_BLOCK;
 }
 
-// "skin 0: batches 3, 4" for the warnings, one per view.
-static std::map<uint32_t, std::string> BatchNames(const std::map<uint32_t, std::vector<uint32_t>>& byView) {
-    std::map<uint32_t, std::string> names;
-    for (const auto& view : byView) {
-        std::string name = "skin " + std::to_string(view.first) + (view.second.size() == 1 ? ": batch " : ": batches ");
-        for (size_t i = 0; i < view.second.size(); i++) {
-            name += (i ? ", " : "") + std::to_string(view.second[i]);
-        }
-        names[view.first] = name;
-    }
-    return names;
-}
-
-static std::map<uint32_t, std::string> BatchNames(const std::vector<const UvBatch*>& batches) {
-    std::map<uint32_t, std::vector<uint32_t>> byView;
-    for (const UvBatch* batch : batches) {
-        byView[batch->view].push_back(batch->index);
-    }
-    return BatchNames(byView);
-}
-
-static const char* const OP_NAMES[] = { "Opaque", "Mod", "Decal", "Add", "Mod2x", "Fade", "Mod2xNoAlpha", "AddNoAlpha" };
-static const char* const COORD_NAMES[] = { "Uv1", "Uv2", "Env" };
-
-// "combiner [Mod, Add] on coordinates [Uv1, Env]", as the downporter writes it.
-static std::string DescribeBase(const BaseShading& base) {
-    std::string ops;
-    std::string coords;
-    for (uint16_t t = 0; t < base.textures; t++) {
-        ops += std::string(t ? ", " : "") + OP_NAMES[base.shading.ops[t]];
-        coords += std::string(t ? ", " : "") + COORD_NAMES[base.shading.coords[t]];
-    }
-    return "combiner [" + ops + "] on coordinates [" + coords + "]";
-}
-
-bool ReportEffects(const std::vector<std::vector<uint8_t>>& skins, std::vector<std::string>& warnings, std::string& error) {
-    for (uint32_t view = 0; view < skins.size(); view++) {
-        Span records;
-        if (!ReadSpan(skins[view], SkinAt::BATCHES, BATCH_SIZE, "batches", records, error)) {
-            return false;
-        }
-
-        // Effect id -> its batches, for one entry per effect.
-        std::map<uint16_t, std::vector<uint32_t>> byEffect;
-        for (uint32_t i = 0; i < records.count; i++) {
-            uint16_t shader = Get<uint16_t>(skins[view], records.At(i, BATCH_SIZE) + 0x02);
-            if ((shader & EFFECT_FLAG) && (shader & ~EFFECT_FLAG) >= CLIENT_EFFECTS) {
-                byEffect[shader & ~EFFECT_FLAG].push_back(i);
-            }
-        }
-
-        for (const auto& effect : byEffect) {
-            BaseShading base = ResolveShading(EFFECT_FLAG | effect.first, 2);
-            if (base.effect && base.effect->overlays) {
-                continue;
-            }
-
-            std::string batches = BatchNames(std::map<uint32_t, std::vector<uint32_t>> { { view, effect.second } }).at(view);
-            std::string id = "shader effect " + std::to_string(effect.first);
-            if (!base.effect) {
-                warnings.push_back(batches + ": used " + id + ", which no effect table knows; they draw their first texture with " + DescribeBase(base));
-                continue;
-            }
-
-            std::string lost = *base.effect->lost ? std::string(". Not reproduced: ") + base.effect->lost : "";
-            warnings.push_back(batches + ": used " + id + " (" + base.effect->pixelShader + "), which 3.3.5 lacks; they use " + DescribeBase(base) + lost);
-        }
+// The base of an effect with passes draws with its layer block's copy; each pass that fits follows it.
+static bool AppendPasses(std::vector<uint8_t>& out, std::vector<uint8_t> base, const Effect& effect, uint16_t declared, const ShadingTables& tables, std::string& error) {
+    uint16_t material = Get<uint16_t>(base, 0x0A);
+    if (material >= tables.materials) {
+        return Fail(error, "a batch names material " + std::to_string(material) + " past the model's " + std::to_string(tables.materials));
     }
 
-    return true;
-}
+    uint16_t copy = static_cast<uint16_t>(tables.materials + material * LAYER_BLOCK_SIZE + LayerBlock(effect));
+    uint16_t layer = Get<uint16_t>(base, 0x0C);
+    uint16_t textureCombo = Get<uint16_t>(base, 0x10);
+    Put<uint16_t>(base, 0x0A, copy);
+    out.insert(out.end(), base.begin(), base.end());
 
-bool CopyFirstUvSet(std::vector<uint8_t>& m2, const std::vector<std::vector<uint8_t>>& skins, std::vector<std::string>& warnings, std::string& error) {
-    Span vertices;
-    std::vector<UvBatch> batches;
-    if (!ReadSpan(m2, M2At::VERTICES, VERTEX_SIZE, "vertices", vertices, error) || !ReadUvBatches(skins, vertices.count, batches, error)) {
-        return false;
-    }
-
-    std::set<uint16_t> readingUv2;
-    for (const UvBatch& batch : batches) {
-        if (batch.readsUv2) {
-            readingUv2.insert(batch.vertices.begin(), batch.vertices.end());
-        }
-    }
-
-    std::vector<const UvBatch*> copied;
-    std::vector<const UvBatch*> kept;
-    std::set<uint16_t> copiedVertices;
-    for (const UvBatch& batch : batches) {
-        if (!batch.firstSetTwice) {
+    for (uint16_t p = 0; p < effect.passCount; p++) {
+        const Pass& pass = effect.passes[p];
+        if (!PassFits(pass, declared, textureCombo, tables.textureCombos)) {
             continue;
         }
 
-        bool shared = std::any_of(batch.vertices.begin(), batch.vertices.end(), [&](uint16_t vertex) { return readingUv2.count(vertex); });
-        (shared ? kept : copied).push_back(&batch);
-        if (!shared) {
-            copiedVertices.insert(batch.vertices.begin(), batch.vertices.end());
+        // The pass's blend weighs the texture by its alpha, which Mod keeps.
+        std::vector<uint8_t> record = base;
+        Put<uint16_t>(record, 0x02, CombinerPair(OP_MOD, OP_OPAQUE));
+        Put<uint16_t>(record, 0x0A, static_cast<uint16_t>(copy + p + 1));
+        Put<uint16_t>(record, 0x0C, static_cast<uint16_t>(layer + p + 1));
+        Put<uint16_t>(record, 0x0E, 1);
+        Put<uint16_t>(record, 0x10, static_cast<uint16_t>(textureCombo + pass.texture));
+        Put<uint16_t>(record, 0x12, CoordPair(tables, pass.coord, UV1));
+        Put<uint16_t>(record, 0x14, Slot(Get<uint16_t>(base, 0x14), pass.weight, tables.weightCombos));
+        // A pass on UV2 uses the batch's second texture transform (wow.export's T2 reads tex_mat2).
+        Put<uint16_t>(record, 0x16, Slot(Get<uint16_t>(base, 0x16), pass.coord == UV2, tables.transformCombos));
+        out.insert(out.end(), record.begin(), record.end());
+    }
+
+    return true;
+}
+
+bool ShadeBatches(std::vector<uint8_t>& skin, const ShadingTables& tables, std::string& error) {
+    Span batches;
+    if (!ReadSpan(skin, SkinAt::BATCHES, BATCH_SIZE, "batches", batches, error)) {
+        return false;
+    }
+
+    std::vector<uint8_t> out;
+    for (uint32_t i = 0; i < batches.count; i++) {
+        std::vector<uint8_t> record(skin.begin() + batches.At(i, BATCH_SIZE), skin.begin() + batches.At(i, BATCH_SIZE) + BATCH_SIZE);
+        uint16_t declared = Get<uint16_t>(record, 0x0E);
+        BaseShading base = ResolveShading(Get<uint16_t>(record, 0x02), declared);
+        ShadeBase(record, base, tables);
+
+        if (!base.effect || !base.effect->passCount) {
+            out.insert(out.end(), record.begin(), record.end());
+        } else if (!AppendPasses(out, record, *base.effect, declared, tables, error)) {
+            return false;
         }
     }
 
-    for (uint16_t vertex : copiedVertices) {
-        size_t at = vertices.At(vertex, VERTEX_SIZE);
-        std::memcpy(m2.data() + at + VERTEX_UV2, m2.data() + at + VERTEX_UV1, UV_SIZE);
-    }
-
-    // The downporter's report entries (second_uv_set).
-    for (const auto& name : BatchNames(copied)) {
-        warnings.push_back(name.second + ": drew both textures with the first UV set, which the 3.3.5 client cannot (its second texture always reads the second set); the first set was copied into the second on the "
-            + std::to_string(copiedVertices.size()) + " vertices they draw");
-    }
-
-    for (const auto& name : BatchNames(kept)) {
-        warnings.push_back(name.second + ": draw both textures with the first UV set, but other batches draw the same vertices with the second set, so it was kept; their second texture reads the second UV set in the 3.3.5 client");
-    }
-
+    Put<uint32_t>(skin, SkinAt::BATCHES, static_cast<uint32_t>(out.size() / BATCH_SIZE));
+    Put<uint32_t>(skin, SkinAt::BATCHES + 4, AppendAligned(skin, out));
     return true;
 }
 

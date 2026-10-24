@@ -145,7 +145,7 @@ static bool ConvertForViews(std::vector<uint8_t>& m2, const std::vector<uint32_t
         }
     }
 
-    return CopyFirstUvSet(m2, originals, warnings, error) && ReportEffects(originals, warnings, error);
+    return CopyFirstUvSet(m2, originals, warnings, error) && ReportEffects(m2, originals, warnings, error);
 }
 
 bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources, ConvertedModel& model, std::string& error) {
@@ -224,23 +224,8 @@ static bool FitInfluences(std::vector<uint8_t>& skin, size_t section, const std:
     return true;
 }
 
-// The tables of the converted model a batch indexes into.
-struct BatchTables {
-    uint32_t textureCombos;
-    ShadingTables shading;
-};
-
-static bool ReadBatchTables(const std::vector<uint8_t>& m2, BatchTables& tables, std::string& error) {
-    Span textures;
-    if (!ReadSpan(m2, M2At::TEXTURE_COMBOS, 2, "texture combos", textures, error) || !ReadShadingTables(m2, tables.shading, error)) {
-        return false;
-    }
-
-    tables.textureCombos = textures.count;
-    return true;
-}
-
-static bool ConvertBatch(std::vector<uint8_t>& skin, size_t batch, const BatchTables& tables, std::string& error) {
+// The flags and checks of one batch; ShadeBatches converts its shading afterwards.
+static bool ConvertBatch(std::vector<uint8_t>& skin, size_t batch, const ShadingTables& tables, std::string& error) {
     // Retail reuses geosetIndex as flags2; stock 3.3.5 files keep it equal to the submesh index.
     skin[batch] &= static_cast<uint8_t>(~BATCH_HIDDEN_IN_335);
     Put<uint16_t>(skin, batch + 0x06, Get<uint16_t>(skin, batch + 0x04));
@@ -248,7 +233,7 @@ static bool ConvertBatch(std::vector<uint8_t>& skin, size_t batch, const BatchTa
     uint16_t textures = Get<uint16_t>(skin, batch + 0x0E);
     uint16_t textureCombo = Get<uint16_t>(skin, batch + 0x10);
 
-    // An effect's base decides how many it draws (ShadeBatch).
+    // An effect's base decides how many it draws (ShadeBatches).
     if (textures > CLIENT_MAX_TEXTURES && !(Get<uint16_t>(skin, batch + 0x02) & EFFECT_FLAG)) {
         return Fail(error, std::to_string(textures) + " textures in one batch without a shader effect have no 3.3.5 shader");
     }
@@ -257,7 +242,7 @@ static bool ConvertBatch(std::vector<uint8_t>& skin, size_t batch, const BatchTa
         return Fail(error, "a batch reads texture combo " + std::to_string(textureCombo) + " past the model's " + std::to_string(tables.textureCombos));
     }
 
-    return ShadeBatch(skin, batch, tables.shading, error);
+    return true;
 }
 
 bool ConvertSkin(const std::vector<uint8_t>& skin, const std::vector<uint8_t>& modelFile, uint32_t view, std::vector<uint8_t>& out, std::string& error) {
@@ -278,9 +263,9 @@ bool ConvertSkin(const std::vector<uint8_t>& skin, const std::vector<uint8_t>& m
     std::vector<uint8_t> converted = skin;
     Span sections;
     Span batches;
-    BatchTables tables;
+    ShadingTables tables;
     if (!ReadSpan(converted, SkinAt::SECTIONS, SECTION_SIZE, "submeshes", sections, error) || !ReadSpan(converted, SkinAt::BATCHES, BATCH_SIZE, "batches", batches, error)
-        || !ReadBatchTables(m2, tables, error)) {
+        || !ReadShadingTables(m2, tables, error)) {
         return false;
     }
 
@@ -300,6 +285,10 @@ bool ConvertSkin(const std::vector<uint8_t>& skin, const std::vector<uint8_t>& m
         if (!ConvertBatch(converted, batches.At(i, BATCH_SIZE), tables, error)) {
             return false;
         }
+    }
+
+    if (!ShadeBatches(converted, tables, error)) {
+        return false;
     }
 
     uint32_t first = MAX_VIEWS - std::min(views, MAX_VIEWS);

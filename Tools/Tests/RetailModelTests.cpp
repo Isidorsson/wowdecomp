@@ -146,8 +146,7 @@ TEST(SkinBatchesLaterSlicesConvertAreRefused) {
     std::vector<uint8_t> out;
     std::string error;
 
-    CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0x8003, 2) }), m2, 0, out, error) && error.find("effect") != std::string::npos);
-    CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0x8000, 3) }), m2, 0, out, error) && error.find("texture") != std::string::npos);
+    CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0x0010, 3) }), m2, 0, out, error) && error.find("texture") != std::string::npos);
     CHECK(!ConvertSkin(RetailSkin({ SkinBatch(0, 0, 1) }, 1, 1), m2, 0, out, error) && error.find("Level") != std::string::npos);
 }
 
