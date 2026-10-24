@@ -21,6 +21,7 @@ constexpr uint16_t BLEND_BLEND_ADD = 7;
 constexpr uint16_t BLEND_ADD = 4;
 constexpr uint8_t BATCH_HIDDEN_IN_335 = 0x80;
 constexpr uint16_t CLIENT_MAX_TEXTURES = 2;
+constexpr uint16_t EFFECT_FLAG = 0x8000;
 // The bone palette the client assumes for each view position (Wow.exe 12340 0xA45644, M2Shared.cpp).
 constexpr uint32_t VIEW_BONE_PALETTES[] = { 256, 64, 53, 21 };
 constexpr uint32_t MAX_VIEWS = 4;
@@ -131,8 +132,9 @@ static void WarnParticleModels(const std::map<std::string, std::vector<uint8_t>>
     }
 }
 
-// The original skin of every view. UV1 is copied only when all of them were read: any view may read UV2.
-static bool CopyFirstUvSetOfViews(std::vector<uint8_t>& m2, const std::vector<uint32_t>& skins, const FileReader& read, std::vector<std::string>& warnings, std::string& error) {
+// What the model needs from the original skin of every view: the UV1 copy and the effect report. UV1 is
+// copied only when all of them were read, since any view may read UV2.
+static bool ConvertForViews(std::vector<uint8_t>& m2, const std::vector<uint32_t>& skins, const FileReader& read, std::vector<std::string>& warnings, std::string& error) {
     std::vector<std::vector<uint8_t>> originals(skins.size());
 
     for (uint32_t view = 0; view < skins.size(); view++) {
@@ -143,7 +145,7 @@ static bool CopyFirstUvSetOfViews(std::vector<uint8_t>& m2, const std::vector<ui
         }
     }
 
-    return CopyFirstUvSet(m2, originals, warnings, error);
+    return CopyFirstUvSet(m2, originals, warnings, error) && ReportEffects(originals, warnings, error);
 }
 
 bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources, ConvertedModel& model, std::string& error) {
@@ -168,7 +170,7 @@ bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources,
     }
 
     skins.resize(skins.empty() ? 0 : views);
-    if (!CopyFirstUvSetOfViews(m2, skins, sources.read, converted.warnings, error)) {
+    if (!ConvertForViews(m2, skins, sources.read, converted.warnings, error)) {
         return false;
     }
 
@@ -246,8 +248,9 @@ static bool ConvertBatch(std::vector<uint8_t>& skin, size_t batch, const BatchTa
     uint16_t textures = Get<uint16_t>(skin, batch + 0x0E);
     uint16_t textureCombo = Get<uint16_t>(skin, batch + 0x10);
 
-    if (textures > CLIENT_MAX_TEXTURES) {
-        return Fail(error, std::to_string(textures) + " textures in one batch need extra passes (converter slice C5c)");
+    // An effect's base decides how many it draws (ShadeBatch).
+    if (textures > CLIENT_MAX_TEXTURES && !(Get<uint16_t>(skin, batch + 0x02) & EFFECT_FLAG)) {
+        return Fail(error, std::to_string(textures) + " textures in one batch without a shader effect have no 3.3.5 shader");
     }
 
     if (uint32_t(textureCombo) + textures > tables.textureCombos) {

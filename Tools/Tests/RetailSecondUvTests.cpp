@@ -142,3 +142,13 @@ TEST(EffectsAndEnvironmentPairsAreNotCopied) {
     CHECK(!Uv2IsUv1(model.m2, 0) && !Uv2IsUv1(model.m2, 2));
     CHECK(model.warnings.empty());
 }
+
+TEST(EffectBasesCountForTheCopy) {
+    // Effect 23 (Combiners_Opaque_Alpha) draws (UV1, UV1); effect 21 (Combiners_Mod_Mod) reads UV2.
+    ConvertedModel copied = Converted(1, { { SKIN_A, UvSkin({ On(0, 0x8017, 2) }) } });
+    ConvertedModel kept = Converted(1, { { SKIN_A, UvSkin({ On(0, 0x8017, 2), On(0, 0x8015, 2) }) } });
+
+    CHECK(copied.m2.size() > 0 && Uv2IsUv1(copied.m2, 0) && Uv2IsUv1(copied.m2, 1));
+    CHECK(kept.m2.size() > 0 && !Uv2IsUv1(kept.m2, 0));
+    CHECK(Mentions(kept, "kept"));
+}

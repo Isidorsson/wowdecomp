@@ -21,16 +21,16 @@ constexpr size_t BATCH = 0x18;
 
 // A retail model whose header ends at 0x130, as every retail file's does: the first array (the name here)
 // starts where 3.3.5 keeps the combiner table.
-static std::vector<uint8_t> ShadedModel() {
+static std::vector<uint8_t> ShadedModel(std::vector<std::vector<uint8_t>> chunks = {}) {
     std::vector<uint8_t> md20 = NewMd20();
     md20.resize(M2At::TEXTURE_COMBINER_COMBOS);
     std::string name = "kobold";
     AddArray(md20, 0x08, static_cast<uint32_t>(name.size() + 1), std::vector<uint8_t>(name.c_str(), name.c_str() + name.size() + 1));
     AddArray(md20, M2At::SEQUENCES, 1, Sequence(0, 0x20));
     AddArray(md20, M2At::VERTICES, 2, Concat({ Vertex(255, 0, 0, 0), Vertex(255, 0, 0, 0) }));
-    AddArray(md20, M2At::TEXTURE_COMBOS, 2, Concat({ { 0, 0 }, { 1, 0 } }));
+    AddArray(md20, M2At::TEXTURE_COMBOS, 3, Concat({ { 0, 0 }, { 1, 0 }, { 0, 0 } }));
     AddArray(md20, M2At::COORD_COMBOS, 1, Concat({ { 1, 0 } }));
-    return Md21File(md20);
+    return Md21File(md20, chunks);
 }
 
 static std::vector<uint8_t> SkinOf(std::vector<std::vector<uint8_t>> batches) {
@@ -173,4 +173,84 @@ TEST(EffectBatchesReadUv1AndTheEnvironmentMap) {
     std::vector<uint16_t> coords = U16sAt(model.m2, M2At::COORD_COMBOS);
     uint16_t coord = GetU16(skin, batch + 0x12);
     CHECK(size_t(coord) + 1 < coords.size() && coords[coord] == UV1 && coords[coord + 1] == ENV);
+}
+
+// wow-toolbox-editor downport/transform/shader_effects.rs, after wow.export's ShaderMapper.
+TEST(EffectsBecomeTheirBaseCombiners) {
+    auto shadings = Converted({ { 0x8004, 2 }, { 0x8015, 2 }, { 0x8013, 1 }, { 0x8019, 1 }, { 0x8006, 2 }, { 0x8021, 2 }, { 0x8008, 2 } });
+
+    CHECK(shadings.size() == 7);
+    if (shadings.size() != 7) {
+        return;
+    }
+
+    CHECK(shadings[0] == ClientShading({ { MOD, ADD }, { UV1, ENV } }));        // Combiners_Mod_AddAlpha
+    CHECK(shadings[1] == ClientShading({ { MOD, MOD }, { UV1, UV2 } }));        // Combiners_Mod_Mod
+    CHECK(shadings[2] == ClientShading({ { MOD }, { UV1 } }));                  // Combiners_Mod_Depth
+    CHECK(shadings[3] == ClientShading({ { MOD }, { ENV } }));                  // Combiners_Mod_Depth on Env
+    CHECK(shadings[4] == ClientShading({ { MOD, ADD }, { UV1, UV1 } }));        // Combiners_Mod_AddAlpha on UV1
+    CHECK(shadings[5] == ClientShading({ { MOD, MOD2X }, { UV1, UV2 } }));      // Combiners_Mod_Mod2x
+    CHECK(shadings[6] == ClientShading({ { OPAQUE, MOD }, { UV1, ENV } }));     // Combiners_Opaque_Alpha_Alpha
+}
+
+TEST(EffectsDrawFewerTexturesThanTheySampleWhenTheirBaseHasFewer) {
+    // Illum samples two and draws the first; Guild samples three and draws one.
+    auto shadings = Converted({ { 0x801D, 2 }, { 0x801A, 3 } });
+
+    CHECK(shadings.size() == 2);
+    CHECK(shadings.size() == 2 && shadings[0] == ClientShading({ { OPAQUE }, { UV1 } }));
+    CHECK(shadings.size() == 2 && shadings[1] == ClientShading({ { MOD }, { UV1 } }));
+}
+
+TEST(EffectsPastTheTableDrawTheirFirstTexture) {
+    auto shadings = Converted({ { 0x8028, 2 } });
+
+    CHECK(shadings.size() == 1 && shadings[0] == ClientShading({ { MOD }, { UV1 } }));
+}
+
+TEST(EffectsWithOverlayPassesAreRefusedUntilC5c) {
+    std::vector<uint8_t> skin;
+    std::string error;
+
+    for (uint16_t effect : { 3, 9, 17, 18, 20, 22, 24, 30, 31 }) {
+        bool refused = !ConvertSkin(SkinOf({ SkinBatch(0, static_cast<uint16_t>(0x8000 | effect), 2) }), ShadedModel(), 0, skin, error) && error.find("C5c") != std::string::npos;
+        CHECK(refused);
+    }
+}
+
+static ConvertedModel WithSkin(std::vector<std::vector<uint8_t>> batches) {
+    std::vector<uint8_t> skin = SkinOf(batches);
+    Retail::ModelSources sources;
+    sources.read = [skin](uint32_t, std::vector<uint8_t>& bytes, std::string&) {
+        bytes = skin;
+        return true;
+    };
+
+    ConvertedModel model;
+    std::string error;
+    if (!ConvertModel(ShadedModel({ Chunk("SFID", U32s({ 7001 })) }), sources, model, error)) {
+        std::printf("    (%s)\n", error.c_str());
+    }
+    return model;
+}
+
+static bool Warned(const ConvertedModel& model, std::vector<const char*> parts) {
+    for (const std::string& warning : model.warnings) {
+        bool all = true;
+        for (const char* part : parts) {
+            all &= warning.find(part) != std::string::npos;
+        }
+        if (all) {
+            return true;
+        }
+    }
+    return false;
+}
+
+TEST(ConvertedEffectsAreReportedLikeTheDownporter) {
+    ConvertedModel model = WithSkin({ SkinBatch(0, 0x8015, 2), SkinBatch(0, 0x801D, 2), SkinBatch(0, 0x8015, 2), SkinBatch(0, 0x8028, 2) });
+
+    CHECK(Warned(model, { "skin 0: batches 0, 2", "shader effect 21 (Combiners_Mod_Mod)", "3.3.5 lacks" }));
+    CHECK(Warned(model, { "skin 0: batch 1", "shader effect 29 (Illum)", "Not reproduced: the second texture" }));
+    CHECK(Warned(model, { "skin 0: batch 3", "shader effect 40", "first texture" }));
 }

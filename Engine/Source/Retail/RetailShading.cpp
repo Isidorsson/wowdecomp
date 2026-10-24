@@ -157,28 +157,113 @@ static Shading DecodeShader(uint16_t shader, uint16_t textures) {
     return { { first, SecondOp(shader, first) }, { firstEnv ? ENV : UV1, secondCoord } };
 }
 
+// A retail shader effect in 3.3.5 terms (wow-toolbox-editor downport/transform/shader_effects.rs, after
+// wow.export's ShaderMapper): its base batch is one of the client's effects or one or two combiners, and
+// textures past the base are overlay passes (converter slice C5c) or lost.
+struct Effect {
+    const char* pixelShader;
+    uint16_t textures;          // Of the base batch.
+    Shading base;
+    int16_t clientEffect;       // The client effect (0 to 2) the base is, or -1.
+    uint16_t overlays;
+    const char* lost;
+};
+
+constexpr int16_t NO_CLIENT_EFFECT = -1;
+constexpr const char* UNLIT_GLOW_LOST = "the glow does not darken the base under it";
+constexpr const char* CROSSFADE_LOST = "the crossfade runs on the texture weights of the second and third texture, which the model must animate for it to fade";
+constexpr const char* PRODUCT_LOST = "the effect's constant factor is not applied, and every pass multiplies the diffuse light again";
+constexpr const char* GUILD_LOST = "the tabard's emblem and border textures are not drawn (they depend on the guild's colours, which a 3.3.5 model cannot take)";
+
+static const Effect EFFECTS[] = {
+    { "Combiners_Opaque_Mod2xNA_Alpha", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 0, "" },
+    { "Combiners_Opaque_AddAlpha", 2, { { OP_OPAQUE, OP_ADD }, { UV1, ENV } }, 1, 0, "" },
+    { "Combiners_Opaque_AddAlpha_Alpha", 2, { { OP_OPAQUE, OP_ADD }, { UV1, ENV } }, 2, 0, "" },
+    { "Combiners_Opaque_Mod2xNA_Alpha_Add", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 1, "" },
+    { "Combiners_Mod_AddAlpha", 2, { { OP_MOD, OP_ADD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Opaque_AddAlpha", 2, { { OP_OPAQUE, OP_ADD }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Mod_AddAlpha", 2, { { OP_MOD, OP_ADD }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Mod_AddAlpha_Alpha", 2, { { OP_MOD, OP_ADD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Opaque_Alpha_Alpha", 2, { { OP_OPAQUE, OP_MOD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Opaque_Mod2xNA_Alpha_3s", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 1, "" },
+    { "Combiners_Opaque_AddAlpha_Wgt", 2, { { OP_OPAQUE, OP_ADD }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Mod_Add_Alpha", 2, { { OP_MOD, OP_ADD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Opaque_ModNA_Alpha", 2, { { OP_OPAQUE, OP_MOD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Mod_AddAlpha_Wgt", 2, { { OP_MOD, OP_ADD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Mod_AddAlpha_Wgt", 2, { { OP_MOD, OP_ADD }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Opaque_AddAlpha_Wgt", 2, { { OP_OPAQUE, OP_ADD }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Opaque_Mod_Add_Wgt", 2, { { OP_OPAQUE, OP_MOD }, { UV1, ENV } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 1, UNLIT_GLOW_LOST },
+    { "Combiners_Mod_Dual_Crossfade", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 2, CROSSFADE_LOST },
+    { "Combiners_Mod_Depth", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Opaque_Mod2xNA_Alpha_Alpha", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 1, "" },
+    { "Combiners_Mod_Mod", 2, { { OP_MOD, OP_MOD }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Mod_Masked_Dual_Crossfade", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 2,
+        "the fourth texture, which masks the result's alpha, is not applied, and the crossfade runs on the texture weights of the second and third texture, which the model must animate for it to fade" },
+    { "Combiners_Opaque_Alpha", 2, { { OP_OPAQUE, OP_MOD }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha", 2, { { OP_OPAQUE, OP_MOD2X_NA }, { UV1, ENV } }, 0, 1, UNLIT_GLOW_LOST },
+    { "Combiners_Mod_Depth", 1, { { OP_MOD, OP_OPAQUE }, { ENV, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Guild", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, GUILD_LOST },
+    { "Guild_NoBorder", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, GUILD_LOST },
+    { "Guild_Opaque", 1, { { OP_OPAQUE, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, GUILD_LOST },
+    { "Illum", 1, { { OP_OPAQUE, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "the second texture, which the effect uses as an illumination layer, is not drawn" },
+    { "Combiners_Mod_Mod_Mod_Const", 2, { { OP_MOD, OP_MOD }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 1, PRODUCT_LOST },
+    { "Combiners_Mod_Mod_Mod_Const", 2, { { OP_MOD, OP_MOD }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 1, PRODUCT_LOST },
+    { "Combiners_Opaque", 1, { { OP_OPAQUE, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Mod_Mod2x", 2, { { OP_MOD, OP_MOD2X }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Mod", 1, { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } }, NO_CLIENT_EFFECT, 0, "" },
+    { "Combiners_Mod_Mod_Depth", 2, { { OP_MOD, OP_MOD }, { UV1, UV2 } }, NO_CLIENT_EFFECT, 0, "" },
+};
+
+constexpr uint16_t EFFECT_COUNT = sizeof(EFFECTS) / sizeof(EFFECTS[0]);
+// Effects later builds add: their first texture, which every effect samples.
+constexpr Shading UNKNOWN_EFFECT_BASE = { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } };
+
+// What a retail batch draws in 3.3.5: one of the client's effects, or combiners on coordinate sources.
+struct BaseShading {
+    const Effect* effect;       // Null for a batch without the effect flag or past the table.
+    bool unknownEffect;
+    int16_t clientEffect;
+    uint16_t textures;
+    Shading shading;
+};
+
+static BaseShading ResolveShading(uint16_t shader, uint16_t textures) {
+    if (!(shader & EFFECT_FLAG)) {
+        return { nullptr, false, NO_CLIENT_EFFECT, textures, DecodeShader(shader, textures) };
+    }
+
+    uint16_t id = shader & ~EFFECT_FLAG;
+    if (id >= EFFECT_COUNT) {
+        return { nullptr, true, NO_CLIENT_EFFECT, 1, UNKNOWN_EFFECT_BASE };
+    }
+
+    const Effect& effect = EFFECTS[id];
+    return { &effect, false, effect.clientEffect, std::min(textures, effect.textures), effect.base };
+}
+
 static uint16_t CoordPair(const ShadingTables& tables, uint16_t first, uint16_t second) {
     return static_cast<uint16_t>(tables.coordPairs + (first * COORD_SOURCE_COUNT + second) * 2);
 }
 
 bool ShadeBatch(std::vector<uint8_t>& skin, size_t batch, const ShadingTables& tables, std::string& error) {
     uint16_t shader = Get<uint16_t>(skin, batch + 0x02);
+    BaseShading base = ResolveShading(shader, Get<uint16_t>(skin, batch + 0x0E));
 
-    if (shader & EFFECT_FLAG) {
-        uint16_t effect = shader & ~EFFECT_FLAG;
-        if (effect >= CLIENT_EFFECTS) {
-            return Fail(error, "shader effect " + std::to_string(effect) + " has no 3.3.5 shader (converter slice C5b)");
-        }
+    if (base.effect && base.effect->overlays) {
+        return Fail(error, "shader effect " + std::to_string(shader & ~EFFECT_FLAG) + " (" + base.effect->pixelShader + ") draws its textures past the second as extra passes (converter slice C5c)");
+    }
 
+    if (base.clientEffect != NO_CLIENT_EFFECT) {
         // Retail counts effects from 0; the client's table starts at 1. Its effects are Diffuse_T1_Env.
-        Put<uint16_t>(skin, batch + 0x02, static_cast<uint16_t>(EFFECT_FLAG | (effect + 1)));
+        Put<uint16_t>(skin, batch + 0x02, static_cast<uint16_t>(EFFECT_FLAG | (base.clientEffect + 1)));
         Put<uint16_t>(skin, batch + 0x12, CoordPair(tables, UV1, ENV));
         return true;
     }
 
-    Shading shading = DecodeShader(shader, Get<uint16_t>(skin, batch + 0x0E));
-    Put<uint16_t>(skin, batch + 0x02, static_cast<uint16_t>((shading.ops[0] * COMBINER_OPS + shading.ops[1]) * 2));
-    Put<uint16_t>(skin, batch + 0x12, CoordPair(tables, shading.coords[0], shading.coords[1]));
+    Put<uint16_t>(skin, batch + 0x02, static_cast<uint16_t>((base.shading.ops[0] * COMBINER_OPS + base.shading.ops[1]) * 2));
+    Put<uint16_t>(skin, batch + 0x0E, base.textures);
+    Put<uint16_t>(skin, batch + 0x12, CoordPair(tables, base.shading.coords[0], base.shading.coords[1]));
     return true;
 }
 
@@ -233,15 +318,14 @@ static bool ReadUvBatches(const std::vector<std::vector<uint8_t>>& skins, uint32
 
         for (uint32_t i = 0; i < records.count; i++) {
             size_t at = records.At(i, BATCH_SIZE);
-            uint16_t shader = Get<uint16_t>(skins[view], at + 0x02);
-            uint16_t textures = Get<uint16_t>(skins[view], at + 0x0E);
-            if (shader & EFFECT_FLAG) {
+            BaseShading base = ResolveShading(Get<uint16_t>(skins[view], at + 0x02), Get<uint16_t>(skins[view], at + 0x0E));
+            if (base.clientEffect != NO_CLIENT_EFFECT) {
                 continue;
             }
 
-            Shading shading = DecodeShader(shader, textures);
-            UvBatch batch { view, i, {}, textures == 2 && shading.coords[0] == UV1 && shading.coords[1] == UV1,
-                shading.coords[0] == UV2 || (textures == 2 && shading.coords[1] == UV2) };
+            const Shading& shading = base.shading;
+            UvBatch batch { view, i, {}, base.textures == 2 && shading.coords[0] == UV1 && shading.coords[1] == UV1,
+                shading.coords[0] == UV2 || (base.textures == 2 && shading.coords[1] == UV2) };
             if ((batch.firstSetTwice || batch.readsUv2) && !DrawnVertices(skins[view], at, modelVertices, batch.vertices, error)) {
                 return false;
             }
@@ -253,12 +337,7 @@ static bool ReadUvBatches(const std::vector<std::vector<uint8_t>>& skins, uint32
 }
 
 // "skin 0: batches 3, 4" for the warnings, one per view.
-static std::map<uint32_t, std::string> BatchNames(const std::vector<const UvBatch*>& batches) {
-    std::map<uint32_t, std::vector<uint32_t>> byView;
-    for (const UvBatch* batch : batches) {
-        byView[batch->view].push_back(batch->index);
-    }
-
+static std::map<uint32_t, std::string> BatchNames(const std::map<uint32_t, std::vector<uint32_t>>& byView) {
     std::map<uint32_t, std::string> names;
     for (const auto& view : byView) {
         std::string name = "skin " + std::to_string(view.first) + (view.second.size() == 1 ? ": batch " : ": batches ");
@@ -268,6 +347,65 @@ static std::map<uint32_t, std::string> BatchNames(const std::vector<const UvBatc
         names[view.first] = name;
     }
     return names;
+}
+
+static std::map<uint32_t, std::string> BatchNames(const std::vector<const UvBatch*>& batches) {
+    std::map<uint32_t, std::vector<uint32_t>> byView;
+    for (const UvBatch* batch : batches) {
+        byView[batch->view].push_back(batch->index);
+    }
+    return BatchNames(byView);
+}
+
+static const char* const OP_NAMES[] = { "Opaque", "Mod", "Decal", "Add", "Mod2x", "Fade", "Mod2xNoAlpha", "AddNoAlpha" };
+static const char* const COORD_NAMES[] = { "Uv1", "Uv2", "Env" };
+
+// "combiner [Mod, Add] on coordinates [Uv1, Env]", as the downporter writes it.
+static std::string DescribeBase(const BaseShading& base) {
+    std::string ops;
+    std::string coords;
+    for (uint16_t t = 0; t < base.textures; t++) {
+        ops += std::string(t ? ", " : "") + OP_NAMES[base.shading.ops[t]];
+        coords += std::string(t ? ", " : "") + COORD_NAMES[base.shading.coords[t]];
+    }
+    return "combiner [" + ops + "] on coordinates [" + coords + "]";
+}
+
+bool ReportEffects(const std::vector<std::vector<uint8_t>>& skins, std::vector<std::string>& warnings, std::string& error) {
+    for (uint32_t view = 0; view < skins.size(); view++) {
+        Span records;
+        if (!ReadSpan(skins[view], SkinAt::BATCHES, BATCH_SIZE, "batches", records, error)) {
+            return false;
+        }
+
+        // Effect id -> its batches, for one entry per effect.
+        std::map<uint16_t, std::vector<uint32_t>> byEffect;
+        for (uint32_t i = 0; i < records.count; i++) {
+            uint16_t shader = Get<uint16_t>(skins[view], records.At(i, BATCH_SIZE) + 0x02);
+            if ((shader & EFFECT_FLAG) && (shader & ~EFFECT_FLAG) >= CLIENT_EFFECTS) {
+                byEffect[shader & ~EFFECT_FLAG].push_back(i);
+            }
+        }
+
+        for (const auto& effect : byEffect) {
+            BaseShading base = ResolveShading(EFFECT_FLAG | effect.first, 2);
+            if (base.effect && base.effect->overlays) {
+                continue;
+            }
+
+            std::string batches = BatchNames(std::map<uint32_t, std::vector<uint32_t>> { { view, effect.second } }).at(view);
+            std::string id = "shader effect " + std::to_string(effect.first);
+            if (!base.effect) {
+                warnings.push_back(batches + ": used " + id + ", which no effect table knows; they draw their first texture with " + DescribeBase(base));
+                continue;
+            }
+
+            std::string lost = *base.effect->lost ? std::string(". Not reproduced: ") + base.effect->lost : "";
+            warnings.push_back(batches + ": used " + id + " (" + base.effect->pixelShader + "), which 3.3.5 lacks; they use " + DescribeBase(base) + lost);
+        }
+    }
+
+    return true;
 }
 
 bool CopyFirstUvSet(std::vector<uint8_t>& m2, const std::vector<std::vector<uint8_t>>& skins, std::vector<std::string>& warnings, std::string& error) {

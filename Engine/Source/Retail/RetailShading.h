@@ -25,6 +25,10 @@ bool ShadeBatch(std::vector<uint8_t>& skin, size_t batch, const ShadingTables& t
 // A 3.3.5 two-texture batch draws its second texture with UV2 (Diffuse_T1_T2), so UV1 is copied into UV2 on
 // the vertices of batches that sample UV1 twice, unless a batch of any view reads UV2 on them (those are kept
 // and warned). skins are the original retail skins of every view.
+// One warning per view and retail effect the client lacks: what its batches draw instead and what is lost,
+// as the downporter reports them. skins are the original retail skins of every view.
+bool ReportEffects(const std::vector<std::vector<uint8_t>>& skins, std::vector<std::string>& warnings, std::string& error);
+
 bool CopyFirstUvSet(std::vector<uint8_t>& m2, const std::vector<std::vector<uint8_t>>& skins, std::vector<std::string>& warnings, std::string& error);
 
 }
