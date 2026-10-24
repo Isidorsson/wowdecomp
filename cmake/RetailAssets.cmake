@@ -5,7 +5,8 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/DecodedCache.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/Db2Table.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/AnimationFallbacks.cpp
-    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CreatureSkins.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ModelSkins.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ItemSkins.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailModel.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailAnimation.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailRecords.cpp

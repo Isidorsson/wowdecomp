@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 #include "Engine/Source/Retail/AnimationFallbacks.h"
-#include "Engine/Source/Retail/CreatureSkins.h"
+#include "Engine/Source/Retail/ModelSkins.h"
 
 namespace Retail {
 
@@ -16,7 +16,7 @@ using FileReader = std::function<bool(uint32_t fileDataId, std::vector<uint8_t>&
 struct ModelSources {
     const AnimationFallbacks* fallbacks = nullptr;  // Without them, animation ids past 505 are refused.
     FileReader read;                                 // AFID .anim files. Without it, sequences needing one are emptied.
-    const CreatureSkin* skin = nullptr;              // The model's default skin. Without it, skin slots stay unnamed.
+    const ModelSkin* skin = nullptr;              // The model's default skin. Without it, skin slots stay unnamed.
 };
 
 // A sequence whose retail id 3.3.5 does not know, renumbered to its fallback.

@@ -267,23 +267,42 @@ const AnimationFallbacks* CascSource::Fallbacks() {
     return this->m_hasFallbacks ? &this->m_fallbacks : nullptr;
 }
 
-// The default creature skins, from the same build as the models, read once. Without them, skin slots stay
-// unnamed (drawn white until a display fills them), which the read error explains.
-const CreatureSkins* CascSource::Skins() {
-    std::call_once(this->m_skinsRead, [this] {
+// Each table parsed from its FileDataID, through ReadTable.
+bool CascSource::ReadTables(const std::vector<std::pair<uint32_t, Db2Table*>>& tables, std::string& error) {
+    for (const auto& [fileDataId, table] : tables) {
         std::vector<uint8_t> bytes;
+        if (!this->ReadTable(fileDataId, bytes, error) || !table->Parse(std::move(bytes), error)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The default creature and item skins, from the same build as the models, read once. The halves load apart; one
+// that fails leaves its skin slots unnamed (drawn white until a display fills them), which its warning explains.
+const ModelSkins* CascSource::Skins() {
+    std::call_once(this->m_skinsRead, [this] {
         Db2Table modelData;
         Db2Table displayInfo;
         std::string error;
-
-        bool read = this->ReadTable(CREATURE_MODEL_DATA_FDID, bytes, error) && modelData.Parse(std::move(bytes), error)
-            && this->ReadTable(CREATURE_DISPLAY_INFO_FDID, bytes, error) && displayInfo.Parse(std::move(bytes), error);
-        if (!read || !this->m_skins.Load(modelData, displayInfo, error)) {
+        if (this->ReadTables({ { CREATURE_MODEL_DATA_FDID, &modelData }, { CREATURE_DISPLAY_INFO_FDID, &displayInfo } }, error)
+            && this->m_skins.LoadCreatures(modelData, displayInfo, error)) {
+            this->m_hasSkins = true;
+        } else {
             this->Warn("creature skins: " + error);
-            return;
         }
 
-        this->m_hasSkins = true;
+        Db2Table modelFiles;
+        Db2Table itemDisplays;
+        Db2Table layers;
+        Db2Table textureFiles;
+        if (this->ReadTables({ { MODEL_FILE_DATA_FDID, &modelFiles }, { ITEM_DISPLAY_INFO_FDID, &itemDisplays }, { ITEM_DISPLAY_INFO_MODEL_MAT_RES_FDID, &layers },
+                { TEXTURE_FILE_DATA_FDID, &textureFiles } }, error)
+            && this->m_skins.LoadItems({ modelFiles, itemDisplays, layers, textureFiles }, error)) {
+            this->m_hasSkins = true;
+        } else {
+            this->Warn("item skins: " + error);
+        }
     });
 
     return this->m_hasSkins ? &this->m_skins : nullptr;

@@ -24,6 +24,7 @@ struct Wdc5Section {
     std::vector<uint8_t> records;
     std::vector<uint32_t> ids;
     std::vector<std::pair<uint32_t, uint32_t>> copies;  // New id, source id.
+    std::vector<std::pair<uint32_t, uint32_t>> relations;  // Foreign id, record index in the section.
 };
 
 struct Wdc5Spec {
@@ -96,6 +97,24 @@ inline std::vector<uint8_t> BuildWdc5(const Wdc5Spec& spec) {
         for (const auto& copy : section.copies) {
             AppendU32(file, copy.first);
             AppendU32(file, copy.second);
+        }
+
+        // Relationship map: count, min and max foreign id, then (foreign id, record index) entries.
+        if (!section.relations.empty()) {
+            PutU32(file, header + 28, static_cast<uint32_t>(12 + section.relations.size() * 8));
+            uint32_t low = UINT32_MAX;
+            uint32_t high = 0;
+            for (const auto& relation : section.relations) {
+                low = relation.first < low ? relation.first : low;
+                high = relation.first > high ? relation.first : high;
+            }
+            AppendU32(file, static_cast<uint32_t>(section.relations.size()));
+            AppendU32(file, low);
+            AppendU32(file, high);
+            for (const auto& relation : section.relations) {
+                AppendU32(file, relation.first);
+                AppendU32(file, relation.second);
+            }
         }
     }
 

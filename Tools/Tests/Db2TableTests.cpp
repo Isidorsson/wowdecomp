@@ -128,6 +128,21 @@ TEST(Db2CopyTableAddsRows) {
     CHECK(table.RowCount() == 2 && table.RowId(1) == 99 && table.Value(1, 0) == 42);
 }
 
+TEST(Db2RowsReadTheirRelationFromTheRelationshipMap) {
+    // Records 0 and 2 relate to parents 100 and 200; the copy of record 2 takes its source's relation.
+    Wdc5Spec spec = PlainSpec();
+    Wdc5Section section{ 0, Join({ PlainRecord(1, 1), PlainRecord(2, 2), PlainRecord(3, 3) }), { 10, 20, 30 }, { { 40, 30 } } };
+    section.relations = { { 100, 0 }, { 200, 2 } };
+    spec.sections = { section };
+    Db2Table table;
+    std::string error;
+
+    CHECK(table.Parse(BuildWdc5(spec), error));
+    CHECK(table.RowCount() == 4);
+    CHECK(table.Relation(0) == 100 && table.Relation(1) == 0 && table.Relation(2) == 200);
+    CHECK(table.RowId(3) == 40 && table.Relation(3) == 200);
+}
+
 TEST(Db2EncryptedZeroSectionsAreSkipped) {
     Wdc5Spec spec = PlainSpec();
     spec.sections = {

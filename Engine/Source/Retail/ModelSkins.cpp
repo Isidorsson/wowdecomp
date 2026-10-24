@@ -1,4 +1,4 @@
-#include "Engine/Source/Retail/CreatureSkins.h"
+#include "Engine/Source/Retail/ModelSkins.h"
 #include <algorithm>
 #include <cstdio>
 #include <iterator>
@@ -13,7 +13,7 @@ constexpr size_t DISPLAY_TEXTURE_VARIATIONS = 27;
 // The M2 texture types the variations fill, in order. Retail's fourth fills type 5.
 constexpr uint32_t SKIN_TYPES[] = { 11, 12, 13, 5 };
 
-static bool KnownLayout(const Db2Table& table, uint32_t layout, const char* name, std::string& error) {
+bool KnownLayout(const Db2Table& table, uint32_t layout, const char* name, std::string& error) {
     if (table.LayoutHash() == layout) {
         return true;
     }
@@ -35,7 +35,7 @@ static std::vector<SkinTexture> Variations(const Db2Table& displayInfo, size_t r
     return textures;
 }
 
-bool CreatureSkins::Load(const Db2Table& modelData, const Db2Table& displayInfo, std::string& error) {
+bool ModelSkins::LoadCreatures(const Db2Table& modelData, const Db2Table& displayInfo, std::string& error) {
     if (!KnownLayout(modelData, CREATURE_MODEL_DATA_LAYOUT, "CreatureModelData", error) || !KnownLayout(displayInfo, CREATURE_DISPLAY_INFO_LAYOUT, "CreatureDisplayInfo", error)) {
         return false;
     }
@@ -45,39 +45,45 @@ bool CreatureSkins::Load(const Db2Table& modelData, const Db2Table& displayInfo,
         fileOf[modelData.RowId(row)] = modelData.Value(row, MODEL_DATA_FILE_DATA_ID);
     }
 
-    // Every distinct skin of each model, with the displays showing it.
-    std::map<uint32_t, std::vector<CreatureSkin>> skins;
     for (size_t row = 0; row < displayInfo.RowCount(); row++) {
         auto model = fileOf.find(displayInfo.Value(row, DISPLAY_MODEL_ID));
-        std::vector<SkinTexture> textures = Variations(displayInfo, row);
-        if (model == fileOf.end() || textures.empty()) {
-            continue;
-        }
-
-        uint32_t display = displayInfo.RowId(row);
-        std::vector<CreatureSkin>& variants = skins[model->second];
-        auto same = std::find_if(variants.begin(), variants.end(), [&](const CreatureSkin& skin) { return skin.textures == textures; });
-        if (same == variants.end()) {
-            variants.push_back({ display, 1, 0, textures });
-        } else {
-            same->displays++;
-            same->displayId = std::min(same->displayId, display);
+        if (model != fileOf.end()) {
+            this->Add(model->second, displayInfo.RowId(row), Variations(displayInfo, row));
         }
     }
 
+    this->Rank();
+    return true;
+}
+
+void ModelSkins::Add(uint32_t model, uint32_t display, const std::vector<SkinTexture>& textures) {
+    if (textures.empty()) {
+        return;
+    }
+
+    std::vector<ModelSkin>& variants = this->m_variants[model];
+    auto same = std::find_if(variants.begin(), variants.end(), [&](const ModelSkin& skin) { return skin.textures == textures; });
+    if (same == variants.end()) {
+        variants.push_back({ display, 1, 0, textures });
+        return;
+    }
+
+    same->displays++;
+    same->displayId = std::min(same->displayId, display);
+}
+
+void ModelSkins::Rank() {
     this->m_defaults.clear();
-    for (const auto& [model, variants] : skins) {
-        CreatureSkin best = *std::min_element(variants.begin(), variants.end(), [](const CreatureSkin& a, const CreatureSkin& b) {
+    for (const auto& [model, variants] : this->m_variants) {
+        ModelSkin best = *std::min_element(variants.begin(), variants.end(), [](const ModelSkin& a, const ModelSkin& b) {
             return a.displays != b.displays ? a.displays > b.displays : a.displayId < b.displayId;
         });
         best.others = static_cast<uint32_t>(variants.size() - 1);
         this->m_defaults[model] = best;
     }
-
-    return true;
 }
 
-const CreatureSkin* CreatureSkins::Default(uint32_t modelFileDataId) const {
+const ModelSkin* ModelSkins::Default(uint32_t modelFileDataId) const {
     auto skin = this->m_defaults.find(modelFileDataId);
     return skin == this->m_defaults.end() ? nullptr : &skin->second;
 }

@@ -59,8 +59,26 @@ static void NameTexture(std::vector<uint8_t>& m2, size_t at, uint32_t fileDataId
     Put<uint32_t>(m2, at + 12, offset);
 }
 
-// Type-0 textures named by TXID get retail/<fdid>.blp, appended; types 3.3.5 lacks become blank.
+// Type-0 textures named by TXID get retail/<fdid>.blp, appended.
 static bool ConvertTextures(std::vector<uint8_t>& m2, const std::vector<uint32_t>& ids, std::string& error) {
+    Span textures;
+    if (!ReadSpan(m2, M2At::TEXTURES, TEXTURE_SIZE, "textures", textures, error)) {
+        return false;
+    }
+
+    for (uint32_t i = 0; i < textures.count && i < ids.size(); i++) {
+        size_t at = textures.At(i, TEXTURE_SIZE);
+        if (Get<uint32_t>(m2, at) == 0 && ids[i] != 0) {
+            NameTexture(m2, at, ids[i]);
+        }
+    }
+
+    return true;
+}
+
+// Types 3.3.5 lacks become file textures: named ones keep their file, which no 3.3.5 display replaces, and
+// unnamed ones are blank. Runs after the skin is named, which needs the retail types.
+static bool MaskTextureTypes(std::vector<uint8_t>& m2, std::string& error) {
     Span textures;
     if (!ReadSpan(m2, M2At::TEXTURES, TEXTURE_SIZE, "textures", textures, error)) {
         return false;
@@ -68,26 +86,21 @@ static bool ConvertTextures(std::vector<uint8_t>& m2, const std::vector<uint32_t
 
     for (uint32_t i = 0; i < textures.count; i++) {
         size_t at = textures.At(i, TEXTURE_SIZE);
-        uint32_t type = Get<uint32_t>(m2, at);
+        if (Get<uint32_t>(m2, at) <= LEGACY_MAX_TEXTURE_TYPE) {
+            continue;
+        }
 
-        if (type > LEGACY_MAX_TEXTURE_TYPE) {
-            Put<uint32_t>(m2, at, 0);
+        Put<uint32_t>(m2, at, 0);
+        if (Get<uint32_t>(m2, at + 8) <= 1) {
             Put<uint32_t>(m2, at + 8, 0);
             Put<uint32_t>(m2, at + 12, 0);
-            continue;
         }
-
-        if (type != 0 || i >= ids.size() || ids[i] == 0) {
-            continue;
-        }
-
-        NameTexture(m2, at, ids[i]);
     }
 
     return true;
 }
 
-// The parts of a model every conversion needs, skins included: header checks, masks, texture names and the
+// The parts of a model every conversion needs, skins included: header checks, masks, TXID texture names and the
 // shading tables. Animation and records come after it in ConvertModel only.
 static bool ConvertGeometry(const std::map<std::string, std::vector<uint8_t>>& chunks, std::vector<uint8_t>& m2, std::string& error) {
     auto md21 = chunks.find("MD21");
@@ -119,9 +132,10 @@ static bool ConvertGeometry(const std::map<std::string, std::vector<uint8_t>>& c
     return AppendShadingTables(m2, error) && MaskBonesAndMaterials(m2, error) && ConvertTextures(m2, textureIds, error);
 }
 
-// Unnamed skin slots name the model's default skin and keep their type: the client loads a named file for any
-// texture (M2Shared.cpp) until a display replaces it (CM2Model::ReplaceTexture).
-static bool NameCreatureSkin(std::vector<uint8_t>& m2, const CreatureSkin* skin, std::vector<std::string>& warnings, std::string& error) {
+// Unnamed slots of a type the model's default skin supplies name its file (the lowest, when it has several) and keep
+// their type: the client loads a named file for any texture (M2Shared.cpp) until a display replaces it
+// (CM2Model::ReplaceTexture).
+static bool NameModelSkin(std::vector<uint8_t>& m2, const ModelSkin* skin, std::vector<std::string>& warnings, std::string& error) {
     Span textures;
     if (!skin || !ReadSpan(m2, M2At::TEXTURES, TEXTURE_SIZE, "textures", textures, error)) {
         return !skin;
@@ -131,12 +145,18 @@ static bool NameCreatureSkin(std::vector<uint8_t>& m2, const CreatureSkin* skin,
     for (uint32_t i = 0; i < textures.count; i++) {
         size_t at = textures.At(i, TEXTURE_SIZE);
         uint32_t type = Get<uint32_t>(m2, at);
-        auto texture = std::find_if(skin->textures.begin(), skin->textures.end(), [&](const SkinTexture& t) { return t.type == type; });
-        if (texture == skin->textures.end() || Get<uint32_t>(m2, at + 8) > 1) {
+        uint32_t file = 0;
+        for (const SkinTexture& texture : skin->textures) {
+            if (texture.type == type && (!file || texture.fileDataId < file)) {
+                file = texture.fileDataId;
+            }
+        }
+
+        if (!file || Get<uint32_t>(m2, at + 8) > 1) {
             continue;
         }
 
-        NameTexture(m2, at, texture->fileDataId);
+        NameTexture(m2, at, file);
         named += (named.empty() ? "" : ", ") + std::to_string(i);
     }
 
@@ -144,7 +164,7 @@ static bool NameCreatureSkin(std::vector<uint8_t>& m2, const CreatureSkin* skin,
         std::string shown = skin->displays == 1 ? "1 display shows" : std::to_string(skin->displays) + " displays show";
         std::string others = skin->others == 1 ? "; 1 other skin of the model shows only through its own displays"
             : skin->others ? "; " + std::to_string(skin->others) + " other skins of the model show only through their own displays" : "";
-        warnings.push_back("textures " + named + " (creature skin slots) name the skin of display " + std::to_string(skin->displayId) + ", which "
+        warnings.push_back("textures " + named + " (skin slots) name the skin of display " + std::to_string(skin->displayId) + ", which "
             + shown + ", until a display replaces it" + others);
     }
 
@@ -203,7 +223,7 @@ bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources,
     }
 
     WarnParticleModels(chunks, converted.warnings);
-    if (!NameCreatureSkin(m2, sources.skin, converted.warnings, error)) {
+    if (!NameModelSkin(m2, sources.skin, converted.warnings, error) || !MaskTextureTypes(m2, error)) {
         return false;
     }
 

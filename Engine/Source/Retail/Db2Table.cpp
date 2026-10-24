@@ -151,12 +151,14 @@ bool Db2Table::ParseSection(size_t header, size_t recordSize, size_t idIndex, st
     size_t records = Read<uint32_t>(data, header + 12);
     size_t strings = Read<uint32_t>(data, header + 16);
     size_t idListSize = Read<uint32_t>(data, header + 24);
+    size_t relationSize = Read<uint32_t>(data, header + 28);
     size_t copies = Read<uint32_t>(data, header + 36);
 
     size_t idList = offset + records * recordSize + strings;
     size_t copyTable = idList + idListSize;
+    size_t relationMap = copyTable + copies * 8;
 
-    if (!Fits(data, offset, records * recordSize) || !Fits(data, idList, idListSize) || !Fits(data, copyTable, copies * 8)) {
+    if (!Fits(data, offset, records * recordSize) || !Fits(data, idList, idListSize) || !Fits(data, copyTable, copies * 8) || !Fits(data, relationMap, relationSize)) {
         return Fail(error, "a section runs past the end of the file");
     }
 
@@ -181,6 +183,17 @@ bool Db2Table::ParseSection(size_t header, size_t recordSize, size_t idIndex, st
         return Fail(error, "the id column is missing");
     }
 
+    // Relationship map: a count, the lowest and highest foreign id, then (foreign id, record index) entries.
+    std::map<uint32_t, uint32_t> relations;
+    size_t relationCount = relationSize >= 12 ? Read<uint32_t>(data, relationMap) : 0;
+    if (relationSize && relationSize < 12 + relationCount * 8) {
+        return Fail(error, "the relationship map runs past its size");
+    }
+
+    for (size_t r = 0; r < relationCount; r++) {
+        relations[Read<uint32_t>(data, relationMap + 12 + r * 8 + 4)] = Read<uint32_t>(data, relationMap + 12 + r * 8);
+    }
+
     size_t first = this->m_rows.size();
 
     for (size_t i = 0; i < records; i++) {
@@ -194,19 +207,21 @@ bool Db2Table::ParseSection(size_t header, size_t recordSize, size_t idIndex, st
             id = ReadBits(data, record * 8 + column.offsetBits, column.sizeBits < 32 ? column.sizeBits : 32);
         }
 
-        this->m_rows.push_back({ id, record });
+        auto relation = relations.find(static_cast<uint32_t>(i));
+        this->m_rows.push_back({ id, record, relation == relations.end() ? 0 : relation->second });
     }
 
-    std::map<uint32_t, size_t> byId;
+    // A copy takes its source's record and relation.
+    std::map<uint32_t, Row> byId;
     for (size_t i = first; i < this->m_rows.size(); i++) {
-        byId[this->m_rows[i].id] = this->m_rows[i].offset;
+        byId[this->m_rows[i].id] = this->m_rows[i];
     }
 
     for (size_t c = 0; c < copies; c++) {
         auto source = byId.find(Read<uint32_t>(data, copyTable + c * 8 + 4));
 
         if (source != byId.end()) {
-            this->m_rows.push_back({ Read<uint32_t>(data, copyTable + c * 8), source->second });
+            this->m_rows.push_back({ Read<uint32_t>(data, copyTable + c * 8), source->second.offset, source->second.relation });
         }
     }
 

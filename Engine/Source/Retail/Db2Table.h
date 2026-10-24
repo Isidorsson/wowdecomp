@@ -12,7 +12,7 @@ namespace Retail {
 // A read-only WDC5 (.db2) table: retail DBFilesClient tables. Integer columns by physical column number
 // (WoWDBDefs order, noninline fields excluded), row ids from the id list or inline, copied rows. Sections
 // encrypted for unreleased content arrive zero-filled and are skipped, as the retail client does without the
-// key. Sparse tables, strings and relationship maps are not read yet.
+// key. Sparse tables and strings are not read yet.
 class Db2Table {
     public:
     bool Parse(std::vector<uint8_t> bytes, std::string& error);
@@ -20,6 +20,9 @@ class Db2Table {
     uint32_t LayoutHash() const { return this->m_layoutHash; }
     size_t RowCount() const { return this->m_rows.size(); }
     uint32_t RowId(size_t row) const { return this->m_rows[row].id; }
+
+    // The id the section's relationship map relates row to (a table's noninline foreign key), 0 for none.
+    uint32_t Relation(size_t row) const { return this->m_rows[row].relation; }
 
     // The first (or only) value of column. Signed bit-packed columns come sign-extended.
     uint32_t Value(size_t row, size_t column) const;
@@ -51,6 +54,7 @@ class Db2Table {
     struct Row {
         uint32_t id;
         size_t offset;
+        uint32_t relation = 0;
     };
 
     bool ParseSection(size_t header, size_t recordSize, size_t idIndex, std::string& error);
