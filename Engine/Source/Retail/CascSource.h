@@ -3,12 +3,14 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <vector>
+#include "Engine/Source/Retail/AnimationFallbacks.h"
 #include "Engine/Source/Retail/RetailConfig.h"
 #include "Engine/Source/Retail/RetailPath.h"
 
@@ -38,6 +40,9 @@ class CascSource {
     bool IsCached(const char* name, uint32_t& size);
     bool Read(const char* name, std::vector<uint8_t>& bytes, std::string& error);
 
+    // Where a read reports data it dropped but did not fail on, such as a missing .anim file.
+    void SetWarningSink(std::function<void(const std::string&)> sink) { this->m_warn = std::move(sink); }
+
     private:
     // A skin the client names after a converted model.
     struct Dependency {
@@ -51,6 +56,8 @@ class CascSource {
     bool ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error);
     bool ReadSkin(const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error);
     bool ReadOriginal(uint32_t fileDataId, std::vector<uint8_t>& bytes, std::string& error);
+    const AnimationFallbacks* Fallbacks();
+    void Warn(const std::string& message) const;
     bool OpenStorage(std::string& error);
     bool ReadStorage(uint32_t fileDataId, std::vector<uint8_t>& bytes, std::string& error);
 
@@ -62,6 +69,10 @@ class CascSource {
     void* m_storage = nullptr;
     mutable std::shared_mutex m_dependencyMutex;
     std::map<std::string, Dependency> m_dependencies;
+    std::once_flag m_fallbacksRead;
+    AnimationFallbacks m_fallbacks;
+    bool m_hasFallbacks = false;
+    std::function<void(const std::string&)> m_warn;
 };
 
 }

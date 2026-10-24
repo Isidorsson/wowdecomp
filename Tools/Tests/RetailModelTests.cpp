@@ -8,7 +8,7 @@ using Retail::ConvertSkin;
 
 static bool Convert(const std::vector<uint8_t>& file, ConvertedModel& model) {
     std::string error;
-    bool converted = ConvertModel(file, model, error);
+    bool converted = ConvertModel(file, {}, model, error);
     if (!converted) {
         std::printf("    (%s)\n", error.c_str());
     }
@@ -18,7 +18,7 @@ static bool Convert(const std::vector<uint8_t>& file, ConvertedModel& model) {
 static bool Refused(const std::vector<uint8_t>& file, const char* reason) {
     ConvertedModel model;
     std::string error;
-    return !ConvertModel(file, model, error) && error.find(reason) != std::string::npos;
+    return !ConvertModel(file, {}, model, error) && error.find(reason) != std::string::npos;
 }
 
 TEST(ModelsUnwrapToMd20Version264) {
@@ -91,20 +91,12 @@ TEST(FlagsAre3_3_5Masked) {
 TEST(LaterSliceFeaturesAreRefusedByName) {
     std::vector<uint8_t> md20 = MinimalMd20();
 
-    CHECK(Refused(Md21File(md20, { Chunk("AFID", U32s({ 0, 1 })) }), "AFID"));
     CHECK(Refused(Md21File(md20, { Chunk("SKID", U32s({ 1 })) }), "SKID"));
 
-    std::vector<uint8_t> newAnimation = NewMd20();
-    AddArray(newAnimation, M2At::SEQUENCES, 1, Sequence(506, 0x20));
-    CHECK(Refused(Md21File(newAnimation), "506"));
 
     std::vector<uint8_t> particles = MinimalMd20();
     AddArray(particles, M2At::PARTICLES, 1, std::vector<uint8_t>(492, 0));
     CHECK(Refused(Md21File(particles), "particle"));
-
-    std::vector<uint8_t> cameras = MinimalMd20();
-    AddArray(cameras, M2At::CAMERAS, 1, std::vector<uint8_t>(116, 0));
-    CHECK(Refused(Md21File(cameras), "camera"));
 }
 
 TEST(ArraysPastTheBlobAreRefused) {
@@ -125,7 +117,7 @@ TEST(ModelsGetTheEffectCoordWindow) {
     CHECK(U16sAt(model.m2, M2At::COORD_COMBOS) == std::vector<uint16_t>({ 1, 0, 0xFFFF }));
 }
 
-// A converted model with vertices weighing one bone and two bones, two texture combos and one coord
+// A retail model file with vertices weighing one bone and two bones, two texture combos and one coord
 // combo, and its retail skin.
 static std::vector<uint8_t> WeightedModel(uint32_t views) {
     std::vector<uint8_t> md20 = NewMd20();
@@ -134,10 +126,7 @@ static std::vector<uint8_t> WeightedModel(uint32_t views) {
     AddArray(md20, M2At::VERTICES, 2, Concat({ Vertex(255, 0, 0, 0), Vertex(128, 127, 0, 0) }));
     AddArray(md20, M2At::TEXTURE_COMBOS, 2, Concat({ { 0, 0 }, { 1, 0 } }));
     AddArray(md20, M2At::COORD_COMBOS, 1, Concat({ { 1, 0 } }));
-    ConvertedModel model;
-    std::string error;
-    CHECK(ConvertModel(Md21File(md20), model, error));
-    return model.m2;
+    return Md21File(md20);
 }
 
 static std::vector<uint8_t> RetailSkin(std::vector<std::vector<uint8_t>> batches, uint16_t influences = 0, uint16_t level = 0) {
@@ -200,10 +189,16 @@ TEST(SkinBatchFlagsAre3_3_5Masked) {
     std::vector<uint8_t> out;
     std::string error;
 
-    CHECK(ConvertSkin(RetailSkin({ SkinBatch(0x80 | 0x10, 0, 1, 0x8) }), WeightedModel(1), 0, out, error));
+    std::vector<uint8_t> secondSection = SkinBatch(0x80 | 0x10, 0, 1, 0x8);
+    PutU16(secondSection, 0x04, 1);
+    std::vector<uint8_t> skin = RetailSkin({ secondSection });
+    AddArray(skin, SkinAt::SECTIONS, 2, Concat({ SkinSection(1, 0, 0, 3), SkinSection(1, 0, 0, 3) }));
+
+    // Stock 3.3.5 files keep the old geosetIndex equal to the submesh index; retail reuses it as flags2.
+    CHECK(ConvertSkin(skin, WeightedModel(1), 0, out, error));
     size_t batch = RecordAt(out, SkinAt::BATCHES, 0, 0x18);
     CHECK(out[batch] == 0x10);
-    CHECK(GetU16(out, batch + 6) == 0);
+    CHECK(GetU16(out, batch + 6) == 1);
 }
 
 TEST(BoneInfluencesFitTheVertices) {

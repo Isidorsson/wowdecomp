@@ -1,4 +1,6 @@
 #include "Engine/Source/Retail/RetailModel.h"
+#include "Engine/Source/Retail/RetailAnimation.h"
+#include "Engine/Source/Retail/RetailModelData.h"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -6,148 +8,26 @@
 
 namespace Retail {
 
-// MD20 header (M2Data.h). Versions 272 to 274 keep the 264 layout of every field read here.
-namespace M2At {
-    constexpr size_t VERSION = 0x04;
-    constexpr size_t FLAGS = 0x10;
-    constexpr size_t SEQUENCES = 0x1C;
-    constexpr size_t BONES = 0x2C;
-    constexpr size_t VERTICES = 0x3C;
-    constexpr size_t VIEWS = 0x44;
-    constexpr size_t TEXTURES = 0x50;
-    constexpr size_t MATERIALS = 0x70;
-    constexpr size_t TEXTURE_COMBOS = 0x80;
-    constexpr size_t COORD_COMBOS = 0x88;
-    constexpr size_t CAMERAS = 0x110;
-    constexpr size_t PARTICLES = 0x128;
-    constexpr size_t HEADER = 0x130;
-}
-
-namespace SkinAt {
-    constexpr size_t VERTICES = 0x04;
-    constexpr size_t INDICES = 0x0C;
-    constexpr size_t SECTIONS = 0x1C;
-    constexpr size_t BATCHES = 0x24;
-    constexpr size_t BONE_COUNT_MAX = 0x2C;
-    constexpr size_t HEADER = 0x30;
-}
-
-constexpr size_t SEQUENCE_SIZE = 0x40;
-constexpr size_t BONE_SIZE = 0x58;
-constexpr size_t VERTEX_SIZE = 0x30;
-constexpr size_t TEXTURE_SIZE = 0x10;
-constexpr size_t MATERIAL_SIZE = 4;
-constexpr size_t SECTION_SIZE = 0x30;
-constexpr size_t BATCH_SIZE = 0x18;
-
 constexpr uint32_t FIRST_VERSION = 272;
 constexpr uint32_t LAST_VERSION = 274;
 constexpr uint32_t LEGACY_VERSION = 264;
-constexpr uint32_t LEGACY_MAX_ANIMATION = 505;
 constexpr uint32_t LEGACY_MAX_TEXTURE_TYPE = 14;
-
 // The bits the stock 3.3.5 models carry (wow-toolbox-editor downport/limits.rs, measured on 22,112 models).
 constexpr uint32_t GLOBAL_FLAGS_MASK = 0x1F;
 constexpr uint32_t BONE_FLAGS_MASK = 0x27F;
 constexpr uint16_t RENDER_FLAGS_MASK = 0x1DF;
-constexpr uint32_t SEQUENCE_EMBEDDED = 0x20;
 constexpr uint16_t BLEND_BLEND_ADD = 7;
 constexpr uint16_t BLEND_ADD = 4;
 constexpr uint8_t BATCH_HIDDEN_IN_335 = 0x80;
 constexpr uint16_t EFFECT_FLAG = 0x8000;
 constexpr uint16_t CLIENT_EFFECTS = 3;
 constexpr uint16_t CLIENT_MAX_TEXTURES = 2;
-
 // Coordinate combos for the client effects (Diffuse_T1_Env): UV1, then the environment map. Retail effects
 // carry their own coordinates and often ship no combos, but the client indexes the table unchecked.
 constexpr uint16_t EFFECT_COORD_WINDOW[] = { 0, 0xFFFF };
-
 // The bone palette the client assumes for each view position (Wow.exe 12340 0xA45644, M2Shared.cpp).
 constexpr uint32_t VIEW_BONE_PALETTES[] = { 256, 64, 53, 21 };
 constexpr uint32_t MAX_VIEWS = 4;
-
-template <typename T>
-static T Get(const std::vector<uint8_t>& data, size_t at) {
-    T value;
-    std::memcpy(&value, data.data() + at, sizeof(T));
-    return value;
-}
-
-template <typename T>
-static void Put(std::vector<uint8_t>& data, size_t at, T value) {
-    std::memcpy(data.data() + at, &value, sizeof(T));
-}
-
-static bool Fail(std::string& error, const std::string& message) {
-    error = "retail model: " + message;
-    return false;
-}
-
-struct Span {
-    uint32_t count = 0;
-    uint32_t offset = 0;
-
-    size_t At(size_t index, size_t size) const { return this->offset + index * size; }
-};
-
-// The M2Array at header, refused when its records run past the blob.
-static bool ReadSpan(const std::vector<uint8_t>& data, size_t header, size_t size, const char* name, Span& span, std::string& error) {
-    span.count = Get<uint32_t>(data, header);
-    span.offset = Get<uint32_t>(data, header + 4);
-
-    if (uint64_t(span.offset) + uint64_t(span.count) * size > data.size()) {
-        return Fail(error, std::string(name) + " run past the end of the file");
-    }
-
-    return true;
-}
-
-static std::map<std::string, std::vector<uint8_t>> ReadChunks(const std::vector<uint8_t>& file) {
-    std::map<std::string, std::vector<uint8_t>> chunks;
-
-    for (size_t at = 0; at + 8 <= file.size();) {
-        std::string tag(reinterpret_cast<const char*>(file.data() + at), 4);
-        size_t size = Get<uint32_t>(file, at + 4);
-
-        if (size > file.size() - at - 8) {
-            break;
-        }
-
-        chunks[tag].assign(file.begin() + at + 8, file.begin() + at + 8 + size);
-        at += 8 + size;
-    }
-
-    return chunks;
-}
-
-static std::vector<uint32_t> U32s(const std::vector<uint8_t>& chunk) {
-    std::vector<uint32_t> values(chunk.size() / 4);
-    if (!values.empty()) {
-        std::memcpy(values.data(), chunk.data(), values.size() * 4);
-    }
-    return values;
-}
-
-static bool ConvertSequences(std::vector<uint8_t>& m2, std::string& error) {
-    Span sequences;
-    if (!ReadSpan(m2, M2At::SEQUENCES, SEQUENCE_SIZE, "sequences", sequences, error)) {
-        return false;
-    }
-
-    for (uint32_t i = 0; i < sequences.count; i++) {
-        size_t at = sequences.At(i, SEQUENCE_SIZE);
-        uint16_t id = Get<uint16_t>(m2, at);
-
-        if (id > LEGACY_MAX_ANIMATION) {
-            return Fail(error, "animation " + std::to_string(id) + " needs AnimationData fallbacks (converter slice C2)");
-        }
-
-        // Without AFID nothing is external: the data is in the model.
-        Put<uint32_t>(m2, at + 0x0C, Get<uint32_t>(m2, at + 0x0C) | SEQUENCE_EMBEDDED);
-    }
-
-    return true;
-}
 
 static bool MaskBonesAndMaterials(std::vector<uint8_t>& m2, std::string& error) {
     Span bones;
@@ -228,41 +108,19 @@ static bool AppendCoordWindow(std::vector<uint8_t>& m2, std::string& error) {
     return true;
 }
 
-static bool RefuseLaterSlices(const std::vector<uint8_t>& m2, std::string& error) {
-    Span particles;
-    Span cameras;
-    if (!ReadSpan(m2, M2At::PARTICLES, 1, "particles", particles, error) || !ReadSpan(m2, M2At::CAMERAS, 1, "cameras", cameras, error)) {
-        return false;
-    }
-
-    if (particles.count) {
-        return Fail(error, "particle emitters change record size (converter slice C4)");
-    }
-
-    if (cameras.count) {
-        return Fail(error, "cameras change record size (converter slice C4)");
-    }
-
-    return true;
-}
-
-bool ConvertModel(const std::vector<uint8_t>& file, ConvertedModel& model, std::string& error) {
-    auto chunks = ReadChunks(file);
+// The parts of a model every conversion needs, skins included: header checks, masks, texture names and the
+// coordinate window. Animation and records come after it in ConvertModel only.
+static bool ConvertGeometry(const std::map<std::string, std::vector<uint8_t>>& chunks, std::vector<uint8_t>& m2, std::string& error) {
     auto md21 = chunks.find("MD21");
-
     if (md21 == chunks.end()) {
         return Fail(error, "no MD21 chunk");
-    }
-
-    if (chunks.count("AFID")) {
-        return Fail(error, "external animations (AFID) are inlined by converter slice C2");
     }
 
     if (chunks.count("SKID")) {
         return Fail(error, "shared skeletons (SKID) are merged by converter slice C3");
     }
 
-    std::vector<uint8_t> m2 = md21->second;
+    m2 = md21->second;
     if (m2.size() < M2At::HEADER || std::memcmp(m2.data(), "MD20", 4) != 0) {
         return Fail(error, "the MD20 header is missing or truncated");
     }
@@ -273,12 +131,28 @@ bool ConvertModel(const std::vector<uint8_t>& file, ConvertedModel& model, std::
     }
 
     Span vertices;
-    if (!ReadSpan(m2, M2At::VERTICES, VERTEX_SIZE, "vertices", vertices, error) || !RefuseLaterSlices(m2, error)) {
+    Span particles;
+    if (!ReadSpan(m2, M2At::VERTICES, VERTEX_SIZE, "vertices", vertices, error) || !ReadSpan(m2, M2At::PARTICLES, 1, "particles", particles, error)) {
         return false;
     }
 
-    if (!ConvertSequences(m2, error) || !MaskBonesAndMaterials(m2, error) || !ConvertTextures(m2, U32s(chunks["TXID"]), error)
-        || !AppendCoordWindow(m2, error)) {
+    if (particles.count) {
+        return Fail(error, "particle emitters change record size (converter slice C4)");
+    }
+
+    auto txid = chunks.find("TXID");
+    std::vector<uint32_t> textureIds = txid == chunks.end() ? std::vector<uint32_t>() : U32s(txid->second);
+    return MaskBonesAndMaterials(m2, error) && ConvertTextures(m2, textureIds, error) && AppendCoordWindow(m2, error);
+}
+
+bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources, ConvertedModel& model, std::string& error) {
+    auto chunks = ReadChunks(file);
+    std::vector<uint8_t> m2;
+    ConvertedModel converted;
+
+    if (!ConvertGeometry(chunks, m2, error) || !ConvertCameras(m2, error)
+        || !InlineAnimations(m2, chunks["AFID"], sources.read, converted.warnings, error) || !EmbedAliases(m2, error)
+        || !RemapSequences(m2, sources.fallbacks, converted.remapped, error)) {
         return false;
     }
 
@@ -293,8 +167,9 @@ bool ConvertModel(const std::vector<uint8_t>& file, ConvertedModel& model, std::
     Put<uint32_t>(m2, M2At::VERSION, LEGACY_VERSION);
     Put<uint32_t>(m2, M2At::FLAGS, Get<uint32_t>(m2, M2At::FLAGS) & GLOBAL_FLAGS_MASK);
 
-    model.m2 = std::move(m2);
-    model.skins = std::move(skins);
+    converted.m2 = std::move(m2);
+    converted.skins = std::move(skins);
+    model = std::move(converted);
     return true;
 }
 
@@ -364,8 +239,9 @@ static bool ReadBatchTables(const std::vector<uint8_t>& m2, BatchTables& tables,
 }
 
 static bool ConvertBatch(std::vector<uint8_t>& skin, size_t batch, const BatchTables& tables, std::string& error) {
+    // Retail reuses geosetIndex as flags2; stock 3.3.5 files keep it equal to the submesh index.
     skin[batch] &= static_cast<uint8_t>(~BATCH_HIDDEN_IN_335);
-    Put<uint16_t>(skin, batch + 0x06, 0);
+    Put<uint16_t>(skin, batch + 0x06, Get<uint16_t>(skin, batch + 0x04));
 
     uint16_t shader = Get<uint16_t>(skin, batch + 0x02);
     uint16_t textures = Get<uint16_t>(skin, batch + 0x0E);
@@ -407,13 +283,14 @@ static bool ConvertBatch(std::vector<uint8_t>& skin, size_t batch, const BatchTa
     return true;
 }
 
-bool ConvertSkin(const std::vector<uint8_t>& skin, const std::vector<uint8_t>& m2, uint32_t view, std::vector<uint8_t>& out, std::string& error) {
+bool ConvertSkin(const std::vector<uint8_t>& skin, const std::vector<uint8_t>& modelFile, uint32_t view, std::vector<uint8_t>& out, std::string& error) {
     if (skin.size() < SkinAt::HEADER || std::memcmp(skin.data(), "SKIN", 4) != 0) {
         return Fail(error, "not a skin file");
     }
 
-    if (m2.size() < M2At::HEADER) {
-        return Fail(error, "the skin's model is not converted");
+    std::vector<uint8_t> m2;
+    if (!ConvertGeometry(ReadChunks(modelFile), m2, error)) {
+        return false;
     }
 
     uint32_t views = Get<uint32_t>(m2, M2At::VIEWS);

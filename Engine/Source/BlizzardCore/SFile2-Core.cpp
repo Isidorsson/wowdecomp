@@ -37,6 +37,10 @@ static Retail::CascSource& RetailSource() {
         if (!source.ConfigError().empty()) {
             Blizzard::Log::Printf(1, RETAIL_LOG, "%s\n", source.ConfigError().c_str());
         }
+
+        source.SetWarningSink([](const std::string& warning) {
+            Blizzard::Log::Printf(1, RETAIL_LOG, "%s\n", warning.c_str());
+        });
     });
 
     return source;

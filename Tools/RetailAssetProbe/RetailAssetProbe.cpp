@@ -91,6 +91,10 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    source.SetWarningSink([](const std::string& warning) {
+        std::printf("  warning: %s\n", warning.c_str());
+    });
+
     if (!std::strcmp(argv[2], "--animation-fallbacks")) {
         return PrintAnimationFallbacks(source);
     }

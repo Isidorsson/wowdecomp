@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include "Engine/Source/Retail/DecodedCache.h"
+#include "Engine/Source/Retail/Db2Table.h"
 #include "Engine/Source/Retail/RetailModel.h"
 #include <cstring>
 
@@ -21,6 +22,22 @@ static bool ReadText(const std::filesystem::path& path, std::string& text) {
     contents << input.rdbuf();
     text = contents.str();
     return true;
+}
+
+// Remapped sequences keep their retail ids here, for a later step that plays them by their own id.
+static void WriteRemapped(const std::filesystem::path& path, const std::vector<RemappedSequence>& remapped) {
+    std::error_code ec;
+    if (std::filesystem::exists(path, ec)) {
+        return;
+    }
+
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::ofstream output(path);
+    output << "# sequence index;retail id;retail variation;3.3.5 id\n";
+
+    for (const RemappedSequence& sequence : remapped) {
+        output << sequence.index << ';' << sequence.originalId << ';' << sequence.originalVariation << ';' << sequence.id << '\n';
+    }
 }
 
 static bool CascFail(std::string& error, const std::string& message) {
@@ -186,9 +203,23 @@ bool CascSource::ReadModel(const std::string& normalized, std::vector<uint8_t>& 
         return true;
     }
 
+    ModelSources sources;
+    sources.fallbacks = this->Fallbacks();
+    sources.read = [this](uint32_t file, std::vector<uint8_t>& data, std::string& readError) {
+        return this->ReadOriginal(file, data, readError);
+    };
+
     ConvertedModel model;
-    if (!ConvertModel(bytes, model, error)) {
+    if (!ConvertModel(bytes, sources, model, error)) {
         return false;
+    }
+
+    for (const std::string& warning : model.warnings) {
+        this->Warn(normalized + ": " + warning);
+    }
+
+    if (!model.remapped.empty()) {
+        WriteRemapped(DecodedCachePath(this->m_config, id).parent_path().parent_path() / "sequences" / (std::to_string(id) + ".csv"), model.remapped);
     }
 
     {
@@ -205,13 +236,34 @@ bool CascSource::ReadModel(const std::string& normalized, std::vector<uint8_t>& 
 bool CascSource::ReadSkin(const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error) {
     std::vector<uint8_t> original;
     std::vector<uint8_t> file;
-    ConvertedModel model;
 
-    if (!this->ReadOriginal(dependency.model, file, error) || !ConvertModel(file, model, error)) {
-        return false;
+    return this->ReadOriginal(dependency.model, file, error) && this->ReadOriginal(dependency.skin, original, error)
+        && ConvertSkin(original, file, dependency.view, bytes, error);
+}
+
+// AnimationData from the same build as the models, read once. Without it, models with new animation ids are
+// refused, which the read error explains.
+const AnimationFallbacks* CascSource::Fallbacks() {
+    std::call_once(this->m_fallbacksRead, [this] {
+        std::vector<uint8_t> bytes;
+        Db2Table table;
+        std::string error;
+
+        if (!this->ReadOriginal(ANIMATION_DATA_FDID, bytes, error) || !table.Parse(std::move(bytes), error) || !this->m_fallbacks.Load(table, error)) {
+            this->Warn("AnimationData (" + std::to_string(ANIMATION_DATA_FDID) + "): " + error);
+            return;
+        }
+
+        this->m_hasFallbacks = true;
+    });
+
+    return this->m_hasFallbacks ? &this->m_fallbacks : nullptr;
+}
+
+void CascSource::Warn(const std::string& message) const {
+    if (this->m_warn) {
+        this->m_warn(message);
     }
-
-    return this->ReadOriginal(dependency.skin, original, error) && ConvertSkin(original, model.m2, dependency.view, bytes, error);
 }
 
 bool CascSource::ReadOriginal(uint32_t id, std::vector<uint8_t>& bytes, std::string& error) {

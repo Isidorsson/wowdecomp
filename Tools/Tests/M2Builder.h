@@ -14,6 +14,7 @@ namespace M2At {
     constexpr size_t VERSION = 0x04;
     constexpr size_t FLAGS = 0x10;
     constexpr size_t SEQUENCES = 0x1C;
+    constexpr size_t SEQUENCE_LOOKUP = 0x24;
     constexpr size_t BONES = 0x2C;
     constexpr size_t VERTICES = 0x3C;
     constexpr size_t VIEWS = 0x44;
@@ -21,6 +22,7 @@ namespace M2At {
     constexpr size_t MATERIALS = 0x70;
     constexpr size_t TEXTURE_COMBOS = 0x80;
     constexpr size_t COORD_COMBOS = 0x88;
+    constexpr size_t EVENTS = 0x100;
     constexpr size_t CAMERAS = 0x110;
     constexpr size_t PARTICLES = 0x128;
     constexpr size_t HEADER = 0x138;
@@ -77,12 +79,71 @@ inline std::vector<uint8_t> Concat(std::vector<std::vector<uint8_t>> parts) {
     return joined;
 }
 
-inline std::vector<uint8_t> Sequence(uint16_t id, uint32_t flags) {
+inline std::vector<uint8_t> Sequence(uint16_t id, uint32_t flags, uint16_t variation = 0, uint32_t frequency = 0x7FFF, uint16_t aliasNext = 0xFFFF) {
     std::vector<uint8_t> record(0x40, 0);
     PutU16(record, 0x00, id);
+    PutU16(record, 0x02, variation);
     PutU32(record, 0x0C, flags);
+    PutU32(record, 0x10, frequency);
     PutU16(record, 0x3C, 0xFFFF);
-    PutU16(record, 0x3E, 0xFFFF);
+    PutU16(record, 0x3E, aliasNext);
+    return record;
+}
+
+namespace SeqAt {
+    constexpr size_t ID = 0x00;
+    constexpr size_t VARIATION = 0x02;
+    constexpr size_t FLAGS = 0x0C;
+    constexpr size_t FREQUENCY = 0x10;
+    constexpr size_t VARIATION_NEXT = 0x3C;
+}
+
+// One AFID row: animation id, variation, the .anim FileDataID.
+inline std::vector<uint8_t> AfidRow(uint16_t id, uint16_t variation, uint32_t fileDataId) {
+    std::vector<uint8_t> row(8, 0);
+    PutU16(row, 0, id);
+    PutU16(row, 2, variation);
+    PutU32(row, 4, fileDataId);
+    return row;
+}
+
+// An M2Track at track: per-sequence (count, offset) entries for timestamps, and for keys unless keyless.
+struct TrackEntries {
+    std::vector<std::pair<uint32_t, uint32_t>> times;
+    std::vector<std::pair<uint32_t, uint32_t>> keys;
+};
+
+inline void SetTrack(std::vector<uint8_t>& blob, size_t track, const TrackEntries& entries, bool keyless = false, uint16_t loop = 0xFFFF) {
+    auto table = [](const std::vector<std::pair<uint32_t, uint32_t>>& rows) {
+        std::vector<uint8_t> bytes;
+        for (const auto& row : rows) {
+            AppendU32(bytes, row.first);
+            AppendU32(bytes, row.second);
+        }
+        return bytes;
+    };
+
+    PutU16(blob, track + 2, loop);
+    AddArray(blob, track + 4, static_cast<uint32_t>(entries.times.size()), table(entries.times));
+    if (!keyless) {
+        AddArray(blob, track + 0x0C, static_cast<uint32_t>(entries.keys.size()), table(entries.keys));
+    }
+}
+
+// The (count, offset) a track holds for sequence s, from its times (keys = false) or keys table.
+inline std::pair<uint32_t, uint32_t> TrackEntry(const std::vector<uint8_t>& blob, size_t track, size_t s, bool keys) {
+    size_t table = GetU32(blob, track + (keys ? 0x10 : 0x08)) + s * 8;
+    return { GetU32(blob, table), GetU32(blob, table + 4) };
+}
+
+// A retail camera (116 bytes): type, far, near, positions, base, targets, base, roll, then an FoV track.
+inline std::vector<uint8_t> RetailCamera(uint32_t type, float farClip, float nearClip) {
+    std::vector<uint8_t> record(116, 0);
+    PutU32(record, 0x00, type);
+    std::memcpy(record.data() + 0x04, &farClip, 4);
+    std::memcpy(record.data() + 0x08, &nearClip, 4);
+    PutU32(record, 0x0C + 4, 3);     // positions: 3 per-sequence entries, a marker the conversion must carry over.
+    PutU32(record, 0x0C + 8, 0x1234);
     return record;
 }
 
