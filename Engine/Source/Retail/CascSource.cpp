@@ -205,6 +205,7 @@ bool CascSource::ReadModel(const std::string& normalized, std::vector<uint8_t>& 
 
     ModelSources sources;
     sources.fallbacks = this->Fallbacks();
+    sources.skin = this->Skins() ? this->Skins()->Default(id) : nullptr;
     sources.read = [this](uint32_t file, std::vector<uint8_t>& data, std::string& readError) {
         return this->ReadOriginal(file, data, readError);
     };
@@ -255,7 +256,7 @@ const AnimationFallbacks* CascSource::Fallbacks() {
         Db2Table table;
         std::string error;
 
-        if (!this->ReadOriginal(ANIMATION_DATA_FDID, bytes, error) || !table.Parse(std::move(bytes), error) || !this->m_fallbacks.Load(table, error)) {
+        if (!this->ReadTable(ANIMATION_DATA_FDID, bytes, error) || !table.Parse(std::move(bytes), error) || !this->m_fallbacks.Load(table, error)) {
             this->Warn("AnimationData (" + std::to_string(ANIMATION_DATA_FDID) + "): " + error);
             return;
         }
@@ -266,6 +267,28 @@ const AnimationFallbacks* CascSource::Fallbacks() {
     return this->m_hasFallbacks ? &this->m_fallbacks : nullptr;
 }
 
+// The default creature skins, from the same build as the models, read once. Without them, skin slots stay
+// unnamed (drawn white until a display fills them), which the read error explains.
+const CreatureSkins* CascSource::Skins() {
+    std::call_once(this->m_skinsRead, [this] {
+        std::vector<uint8_t> bytes;
+        Db2Table modelData;
+        Db2Table displayInfo;
+        std::string error;
+
+        bool read = this->ReadTable(CREATURE_MODEL_DATA_FDID, bytes, error) && modelData.Parse(std::move(bytes), error)
+            && this->ReadTable(CREATURE_DISPLAY_INFO_FDID, bytes, error) && displayInfo.Parse(std::move(bytes), error);
+        if (!read || !this->m_skins.Load(modelData, displayInfo, error)) {
+            this->Warn("creature skins: " + error);
+            return;
+        }
+
+        this->m_hasSkins = true;
+    });
+
+    return this->m_hasSkins ? &this->m_skins : nullptr;
+}
+
 void CascSource::Warn(const std::string& message) const {
     if (this->m_warn) {
         this->m_warn(message);
@@ -273,6 +296,14 @@ void CascSource::Warn(const std::string& message) const {
 }
 
 bool CascSource::ReadOriginal(uint32_t id, std::vector<uint8_t>& bytes, std::string& error) {
+    return this->ReadCached(id, CASC_STRICT_DATA_CHECK, bytes, error);
+}
+
+bool CascSource::ReadTable(uint32_t id, std::vector<uint8_t>& bytes, std::string& error) {
+    return this->ReadCached(id, CASC_STRICT_DATA_CHECK | CASC_OVERCOME_ENCRYPTED, bytes, error);
+}
+
+bool CascSource::ReadCached(uint32_t id, uint32_t openFlags, std::vector<uint8_t>& bytes, std::string& error) {
     std::filesystem::path cachePath = DecodedCachePath(this->m_config, id);
     if (ReadDecodedCache(cachePath, bytes)) {
         return true;
@@ -285,7 +316,7 @@ bool CascSource::ReadOriginal(uint32_t id, std::vector<uint8_t>& bytes, std::str
         return true;
     }
 
-    if (!this->ReadStorage(id, bytes, error)) {
+    if (!this->ReadStorage(id, openFlags, bytes, error)) {
         return false;
     }
 
@@ -325,13 +356,13 @@ bool CascSource::OpenStorage(std::string& error) {
     return true;
 }
 
-bool CascSource::ReadStorage(uint32_t fileDataId, std::vector<uint8_t>& bytes, std::string& error) {
+bool CascSource::ReadStorage(uint32_t fileDataId, uint32_t openFlags, std::vector<uint8_t>& bytes, std::string& error) {
     if (!this->OpenStorage(error)) {
         return false;
     }
 
     HANDLE file = nullptr;
-    if (!CascOpenFile(this->m_storage, CASC_FILE_DATA_ID(fileDataId), this->m_config.locale, CASC_OPEN_BY_FILEID | CASC_STRICT_DATA_CHECK, &file)) {
+    if (!CascOpenFile(this->m_storage, CASC_FILE_DATA_ID(fileDataId), this->m_config.locale, CASC_OPEN_BY_FILEID | openFlags, &file)) {
         return CascFail(error, "FileDataID " + std::to_string(fileDataId) + " is not in this build");
     }
 

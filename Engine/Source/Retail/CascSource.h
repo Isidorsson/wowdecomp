@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include "Engine/Source/Retail/AnimationFallbacks.h"
+#include "Engine/Source/Retail/CreatureSkins.h"
 #include "Engine/Source/Retail/RetailConfig.h"
 #include "Engine/Source/Retail/RetailPath.h"
 
@@ -56,10 +57,14 @@ class CascSource {
     bool ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error);
     bool ReadSkin(const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error);
     bool ReadOriginal(uint32_t fileDataId, std::vector<uint8_t>& bytes, std::string& error);
+    // A .db2 table: blocks encrypted with a missing key come back zero-filled, which Db2Table skips by section.
+    bool ReadTable(uint32_t fileDataId, std::vector<uint8_t>& bytes, std::string& error);
+    bool ReadCached(uint32_t fileDataId, uint32_t openFlags, std::vector<uint8_t>& bytes, std::string& error);
     const AnimationFallbacks* Fallbacks();
+    const CreatureSkins* Skins();
     void Warn(const std::string& message) const;
     bool OpenStorage(std::string& error);
-    bool ReadStorage(uint32_t fileDataId, std::vector<uint8_t>& bytes, std::string& error);
+    bool ReadStorage(uint32_t fileDataId, uint32_t openFlags, std::vector<uint8_t>& bytes, std::string& error);
 
     bool m_configured = false;
     std::string m_configError;
@@ -72,6 +77,9 @@ class CascSource {
     std::once_flag m_fallbacksRead;
     AnimationFallbacks m_fallbacks;
     bool m_hasFallbacks = false;
+    std::once_flag m_skinsRead;
+    CreatureSkins m_skins;
+    bool m_hasSkins = false;
     std::function<void(const std::string&)> m_warn;
 };
 

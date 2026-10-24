@@ -48,6 +48,17 @@ static bool MaskBonesAndMaterials(std::vector<uint8_t>& m2, std::string& error) 
     return true;
 }
 
+// Points the texture record at to retail/<fdid>.blp, appended.
+static void NameTexture(std::vector<uint8_t>& m2, size_t at, uint32_t fileDataId) {
+    std::string name = "retail/" + std::to_string(fileDataId) + ".blp";
+    m2.resize((m2.size() + 15) & ~size_t(15), 0);
+    uint32_t offset = static_cast<uint32_t>(m2.size());
+    m2.insert(m2.end(), name.begin(), name.end());
+    m2.push_back(0);
+    Put<uint32_t>(m2, at + 8, static_cast<uint32_t>(name.size() + 1));
+    Put<uint32_t>(m2, at + 12, offset);
+}
+
 // Type-0 textures named by TXID get retail/<fdid>.blp, appended; types 3.3.5 lacks become blank.
 static bool ConvertTextures(std::vector<uint8_t>& m2, const std::vector<uint32_t>& ids, std::string& error) {
     Span textures;
@@ -70,13 +81,7 @@ static bool ConvertTextures(std::vector<uint8_t>& m2, const std::vector<uint32_t
             continue;
         }
 
-        std::string name = "retail/" + std::to_string(ids[i]) + ".blp";
-        m2.resize((m2.size() + 15) & ~size_t(15), 0);
-        uint32_t offset = static_cast<uint32_t>(m2.size());
-        m2.insert(m2.end(), name.begin(), name.end());
-        m2.push_back(0);
-        Put<uint32_t>(m2, at + 8, static_cast<uint32_t>(name.size() + 1));
-        Put<uint32_t>(m2, at + 12, offset);
+        NameTexture(m2, at, ids[i]);
     }
 
     return true;
@@ -112,6 +117,38 @@ static bool ConvertGeometry(const std::map<std::string, std::vector<uint8_t>>& c
     auto txid = chunks.find("TXID");
     std::vector<uint32_t> textureIds = txid == chunks.end() ? std::vector<uint32_t>() : U32s(txid->second);
     return AppendShadingTables(m2, error) && MaskBonesAndMaterials(m2, error) && ConvertTextures(m2, textureIds, error);
+}
+
+// Unnamed skin slots name the model's default skin and keep their type: the client loads a named file for any
+// texture (M2Shared.cpp) until a display replaces it (CM2Model::ReplaceTexture).
+static bool NameCreatureSkin(std::vector<uint8_t>& m2, const CreatureSkin* skin, std::vector<std::string>& warnings, std::string& error) {
+    Span textures;
+    if (!skin || !ReadSpan(m2, M2At::TEXTURES, TEXTURE_SIZE, "textures", textures, error)) {
+        return !skin;
+    }
+
+    std::string named;
+    for (uint32_t i = 0; i < textures.count; i++) {
+        size_t at = textures.At(i, TEXTURE_SIZE);
+        uint32_t type = Get<uint32_t>(m2, at);
+        auto texture = std::find_if(skin->textures.begin(), skin->textures.end(), [&](const SkinTexture& t) { return t.type == type; });
+        if (texture == skin->textures.end() || Get<uint32_t>(m2, at + 8) > 1) {
+            continue;
+        }
+
+        NameTexture(m2, at, texture->fileDataId);
+        named += (named.empty() ? "" : ", ") + std::to_string(i);
+    }
+
+    if (!named.empty()) {
+        std::string shown = skin->displays == 1 ? "1 display shows" : std::to_string(skin->displays) + " displays show";
+        std::string others = skin->others == 1 ? "; 1 other skin of the model shows only through its own displays"
+            : skin->others ? "; " + std::to_string(skin->others) + " other skins of the model show only through their own displays" : "";
+        warnings.push_back("textures " + named + " (creature skin slots) name the skin of display " + std::to_string(skin->displayId) + ", which "
+            + shown + ", until a display replaces it" + others);
+    }
+
+    return true;
 }
 
 // Retail names particle models by FileDataID (GPID geometry, RPID recursion); the client loads names only.
@@ -166,6 +203,9 @@ bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources,
     }
 
     WarnParticleModels(chunks, converted.warnings);
+    if (!NameCreatureSkin(m2, sources.skin, converted.warnings, error)) {
+        return false;
+    }
 
     std::vector<uint32_t> skins = U32s(chunks["SFID"]);
     uint32_t views = Get<uint32_t>(m2, M2At::VIEWS);
