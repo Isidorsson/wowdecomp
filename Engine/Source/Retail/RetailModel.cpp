@@ -131,6 +131,21 @@ static void WarnParticleModels(const std::map<std::string, std::vector<uint8_t>>
     }
 }
 
+// The original skin of every view. UV1 is copied only when all of them were read: any view may read UV2.
+static bool CopyFirstUvSetOfViews(std::vector<uint8_t>& m2, const std::vector<uint32_t>& skins, const FileReader& read, std::vector<std::string>& warnings, std::string& error) {
+    std::vector<std::vector<uint8_t>> originals(skins.size());
+
+    for (uint32_t view = 0; view < skins.size(); view++) {
+        std::string readError;
+        if (!read || !read(skins[view], originals[view], readError)) {
+            warnings.push_back("skin " + std::to_string(view) + " (" + std::to_string(skins[view]) + ") not read, so no batch gets UV1 copied into UV2 (" + readError + ")");
+            return true;
+        }
+    }
+
+    return CopyFirstUvSet(m2, originals, warnings, error);
+}
+
 bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources, ConvertedModel& model, std::string& error) {
     auto chunks = ReadChunks(file);
     std::vector<uint8_t> m2;
@@ -153,6 +168,10 @@ bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources,
     }
 
     skins.resize(skins.empty() ? 0 : views);
+    if (!CopyFirstUvSetOfViews(m2, skins, sources.read, converted.warnings, error)) {
+        return false;
+    }
+
     Put<uint32_t>(m2, M2At::VERSION, LEGACY_VERSION);
     Put<uint32_t>(m2, M2At::FLAGS, Get<uint32_t>(m2, M2At::FLAGS) & GLOBAL_FLAGS_MASK);
 

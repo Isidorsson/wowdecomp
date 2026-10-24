@@ -22,6 +22,11 @@ bool ReadShadingTables(const std::vector<uint8_t>& m2, ShadingTables& tables, st
 // client's own, reading UV1 and the environment map; later effects are refused (converter slice C5b).
 bool ShadeBatch(std::vector<uint8_t>& skin, size_t batch, const ShadingTables& tables, std::string& error);
 
+// A 3.3.5 two-texture batch draws its second texture with UV2 (Diffuse_T1_T2), so UV1 is copied into UV2 on
+// the vertices of batches that sample UV1 twice, unless a batch of any view reads UV2 on them (those are kept
+// and warned). skins are the original retail skins of every view.
+bool CopyFirstUvSet(std::vector<uint8_t>& m2, const std::vector<std::vector<uint8_t>>& skins, std::vector<std::string>& warnings, std::string& error);
+
 }
 
 #endif
