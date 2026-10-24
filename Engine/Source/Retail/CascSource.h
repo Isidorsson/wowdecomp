@@ -3,8 +3,10 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 #include "Engine/Source/Retail/RetailConfig.h"
@@ -14,6 +16,8 @@ namespace Retail {
 
 // Serves retail/<FileDataID> paths and aliased stock paths from one pinned CASC build. Reads come from the
 // decoded cache when possible; a miss opens the storage (online: downloads build metadata) and blocks.
+// Retail models (MD21) are converted to 3.3.5 on every read, and the skin names the client derives from
+// them (MakeSkinFileName) are routed to the skins their SFID lists.
 class CascSource {
     public:
     // Process-wide source configured from WOW_RETAIL_CONFIG, else Data/Retail/RetailCasc.ini. Without a
@@ -35,7 +39,18 @@ class CascSource {
     bool Read(const char* name, std::vector<uint8_t>& bytes, std::string& error);
 
     private:
-    bool Resolve(const char* name, uint32_t& fileDataId, std::string& error) const;
+    // A skin the client names after a converted model.
+    struct Dependency {
+        uint32_t skin;
+        uint32_t model;
+        uint32_t view;
+    };
+
+    bool Resolve(const std::string& normalized, uint32_t& fileDataId, std::string& error) const;
+    bool FindDependency(const std::string& normalized, Dependency& dependency) const;
+    bool ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error);
+    bool ReadSkin(const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error);
+    bool ReadOriginal(uint32_t fileDataId, std::vector<uint8_t>& bytes, std::string& error);
     bool OpenStorage(std::string& error);
     bool ReadStorage(uint32_t fileDataId, std::vector<uint8_t>& bytes, std::string& error);
 
@@ -45,6 +60,8 @@ class CascSource {
     AliasTable m_aliases;
     std::mutex m_storageMutex;
     void* m_storage = nullptr;
+    mutable std::shared_mutex m_dependencyMutex;
+    std::map<std::string, Dependency> m_dependencies;
 };
 
 }

@@ -1,5 +1,7 @@
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 #include "Engine/Source/Retail/AnimationFallbacks.h"
@@ -9,8 +11,19 @@
 // instead of stalling the game.
 //   RetailAssetProbe <RetailCasc.ini> <retail/123.m2|aliased path>...
 //   RetailAssetProbe <RetailCasc.ini> --animation-fallbacks   (id;fallback;resolved for ids past 3.3.5)
+//   RetailAssetProbe <RetailCasc.ini> --save <dir> <path>...  (also writes what the client would read)
 
-static int ProbePaths(Retail::CascSource& source, int count, char** paths) {
+static void Save(const char* dir, const char* path, const std::vector<uint8_t>& bytes) {
+    std::string name = path;
+    for (char& c : name) {
+        c = c == '/' || c == '\\' ? '_' : c;
+    }
+
+    std::filesystem::create_directories(dir);
+    std::ofstream(std::filesystem::path(dir) / name, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+static int ProbePaths(Retail::CascSource& source, int count, char** paths, const char* saveDir) {
     int failures = 0;
 
     for (int i = 0; i < count; i++) {
@@ -31,6 +44,10 @@ static int ProbePaths(Retail::CascSource& source, int count, char** paths) {
         }
 
         std::printf("%s: %zu bytes, magic %s, %s\n", paths[i], bytes.size(), magic, cached ? "cached" : "fetched");
+
+        if (saveDir) {
+            Save(saveDir, paths[i], bytes);
+        }
     }
 
     return failures ? 1 : 0;
@@ -78,5 +95,9 @@ int main(int argc, char** argv) {
         return PrintAnimationFallbacks(source);
     }
 
-    return ProbePaths(source, argc - 2, argv + 2);
+    if (!std::strcmp(argv[2], "--save") && argc >= 5) {
+        return ProbePaths(source, argc - 4, argv + 4, argv[3]);
+    }
+
+    return ProbePaths(source, argc - 2, argv + 2, nullptr);
 }

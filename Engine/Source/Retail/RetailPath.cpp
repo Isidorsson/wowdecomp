@@ -1,5 +1,6 @@
 #include "Engine/Source/Retail/RetailPath.h"
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 #include <sstream>
 
@@ -78,6 +79,12 @@ bool AliasTable::Parse(const std::string& text, std::string& error) {
 bool ClaimsPath(const std::string& normalized, const AliasTable& aliases) {
     uint32_t id;
     return ParseRetailPath(normalized, id) || (aliases.Size() && aliases.Find(normalized, id));
+}
+
+std::string SkinPathFor(const std::string& model, uint32_t view) {
+    char suffix[16];
+    std::snprintf(suffix, sizeof(suffix), "%02u.skin", view);
+    return model.substr(0, model.rfind('.')) + suffix;
 }
 
 bool AliasTable::Find(const std::string& normalized, uint32_t& fileDataId) const {

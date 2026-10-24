@@ -32,6 +32,10 @@ class AliasTable {
 // under retail/ stay with the MPQs, where downported content already lives.
 bool ClaimsPath(const std::string& normalized, const AliasTable& aliases);
 
+// The skin the client asks for for view of model, as MakeSkinFileName builds it: the path without its
+// extension, then the two-digit view and ".skin".
+std::string SkinPathFor(const std::string& model, uint32_t view);
+
 }
 
 #endif

@@ -4,6 +4,8 @@
 #include <fstream>
 #include <sstream>
 #include "Engine/Source/Retail/DecodedCache.h"
+#include "Engine/Source/Retail/RetailModel.h"
+#include <cstring>
 
 namespace Retail {
 
@@ -104,16 +106,29 @@ bool CascSource::Handles(const char* name) const {
         return false;
     }
 
-    return ClaimsPath(NormalizePath(name), this->m_aliases);
+    std::string normalized = NormalizePath(name);
+    Dependency dependency;
+    return this->FindDependency(normalized, dependency) || ClaimsPath(normalized, this->m_aliases);
 }
 
-bool CascSource::Resolve(const char* name, uint32_t& fileDataId, std::string& error) const {
+bool CascSource::FindDependency(const std::string& normalized, Dependency& dependency) const {
+    std::shared_lock<std::shared_mutex> lock(this->m_dependencyMutex);
+    auto found = this->m_dependencies.find(normalized);
+
+    if (found == this->m_dependencies.end()) {
+        return false;
+    }
+
+    dependency = found->second;
+    return true;
+}
+
+bool CascSource::Resolve(const std::string& normalized, uint32_t& fileDataId, std::string& error) const {
     if (!this->m_configured) {
         error = this->m_configError.empty() ? std::string("no ") + DEFAULT_CONFIG + " (or WOW_RETAIL_CONFIG)" : this->m_configError;
         return false;
     }
 
-    std::string normalized = NormalizePath(name);
     if (this->m_aliases.Find(normalized, fileDataId) || ParseRetailPath(normalized, fileDataId)) {
         return true;
     }
@@ -123,11 +138,19 @@ bool CascSource::Resolve(const char* name, uint32_t& fileDataId, std::string& er
 }
 
 bool CascSource::IsCached(const char* name, uint32_t& size) {
+    std::string normalized = NormalizePath(name);
+    Dependency dependency;
     uint32_t id;
     std::string error;
     std::vector<uint8_t> bytes;
 
-    if (!this->Resolve(name, id, error) || !ReadDecodedCache(DecodedCachePath(this->m_config, id), bytes)) {
+    if (this->FindDependency(normalized, dependency)) {
+        id = dependency.skin;
+    } else if (!this->Resolve(normalized, id, error)) {
+        return false;
+    }
+
+    if (!ReadDecodedCache(DecodedCachePath(this->m_config, id), bytes)) {
         return false;
     }
 
@@ -141,11 +164,57 @@ bool CascSource::Exists(const char* name, std::string& error) {
 }
 
 bool CascSource::Read(const char* name, std::vector<uint8_t>& bytes, std::string& error) {
+    std::string normalized = NormalizePath(name);
+    Dependency dependency;
+
+    // Before the FileDataID rule: retail/91654100.skin is view 0 of model 916541, not FileDataID 91654100.
+    if (this->FindDependency(normalized, dependency)) {
+        return this->ReadSkin(dependency, bytes, error);
+    }
+
+    return this->ReadModel(normalized, bytes, error);
+}
+
+// Any claimed file; a retail model comes back converted, its skins registered under the client's names.
+bool CascSource::ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error) {
     uint32_t id;
-    if (!this->Resolve(name, id, error)) {
+    if (!this->Resolve(normalized, id, error) || !this->ReadOriginal(id, bytes, error)) {
         return false;
     }
 
+    if (bytes.size() < 4 || std::memcmp(bytes.data(), "MD21", 4) != 0) {
+        return true;
+    }
+
+    ConvertedModel model;
+    if (!ConvertModel(bytes, model, error)) {
+        return false;
+    }
+
+    {
+        std::unique_lock<std::shared_mutex> lock(this->m_dependencyMutex);
+        for (uint32_t view = 0; view < model.skins.size(); view++) {
+            this->m_dependencies[SkinPathFor(normalized, view)] = { model.skins[view], id, view };
+        }
+    }
+
+    bytes = std::move(model.m2);
+    return true;
+}
+
+bool CascSource::ReadSkin(const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error) {
+    std::vector<uint8_t> original;
+    std::vector<uint8_t> file;
+    ConvertedModel model;
+
+    if (!this->ReadOriginal(dependency.model, file, error) || !ConvertModel(file, model, error)) {
+        return false;
+    }
+
+    return this->ReadOriginal(dependency.skin, original, error) && ConvertSkin(original, model.m2, dependency.view, bytes, error);
+}
+
+bool CascSource::ReadOriginal(uint32_t id, std::vector<uint8_t>& bytes, std::string& error) {
     std::filesystem::path cachePath = DecodedCachePath(this->m_config, id);
     if (ReadDecodedCache(cachePath, bytes)) {
         return true;

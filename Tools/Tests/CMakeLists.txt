@@ -12,6 +12,7 @@ if (TARGET RetailCore)
         DecodedCacheTests.cpp
         Db2TableTests.cpp
         AnimationFallbacksTests.cpp
+        RetailModelTests.cpp
     )
     target_link_libraries(WowdecompTests PRIVATE RetailCore)
 endif ()

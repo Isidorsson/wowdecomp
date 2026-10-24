@@ -67,6 +67,12 @@ TEST(NamedRetailFoldersStayInTheMpqs) {
     CHECK(!Retail::ClaimsPath("retail/4294967296.blp", aliases));
 }
 
+TEST(SkinPathsFollowTheClientsNaming) {
+    CHECK(Retail::SkinPathFor("retail/916541.m2", 0) == "retail/91654100.skin");
+    CHECK(Retail::SkinPathFor("retail/916541.m2", 3) == "retail/91654103.skin");
+    CHECK(Retail::SkinPathFor("interface/icons/inv_misc_coin_01.m2", 1) == "interface/icons/inv_misc_coin_0101.skin");
+}
+
 TEST(BrokenAliasRowsAreRefused) {
     AliasTable aliases;
     std::string error;

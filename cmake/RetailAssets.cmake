@@ -5,6 +5,7 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/DecodedCache.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/Db2Table.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/AnimationFallbacks.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailModel.cpp
 )
 target_include_directories(RetailCore PUBLIC ${CMAKE_SOURCE_DIR})
 

@@ -1,0 +1,457 @@
+#include "Engine/Source/Retail/RetailModel.h"
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <map>
+
+namespace Retail {
+
+// MD20 header (M2Data.h). Versions 272 to 274 keep the 264 layout of every field read here.
+namespace M2At {
+    constexpr size_t VERSION = 0x04;
+    constexpr size_t FLAGS = 0x10;
+    constexpr size_t SEQUENCES = 0x1C;
+    constexpr size_t BONES = 0x2C;
+    constexpr size_t VERTICES = 0x3C;
+    constexpr size_t VIEWS = 0x44;
+    constexpr size_t TEXTURES = 0x50;
+    constexpr size_t MATERIALS = 0x70;
+    constexpr size_t TEXTURE_COMBOS = 0x80;
+    constexpr size_t COORD_COMBOS = 0x88;
+    constexpr size_t CAMERAS = 0x110;
+    constexpr size_t PARTICLES = 0x128;
+    constexpr size_t HEADER = 0x130;
+}
+
+namespace SkinAt {
+    constexpr size_t VERTICES = 0x04;
+    constexpr size_t INDICES = 0x0C;
+    constexpr size_t SECTIONS = 0x1C;
+    constexpr size_t BATCHES = 0x24;
+    constexpr size_t BONE_COUNT_MAX = 0x2C;
+    constexpr size_t HEADER = 0x30;
+}
+
+constexpr size_t SEQUENCE_SIZE = 0x40;
+constexpr size_t BONE_SIZE = 0x58;
+constexpr size_t VERTEX_SIZE = 0x30;
+constexpr size_t TEXTURE_SIZE = 0x10;
+constexpr size_t MATERIAL_SIZE = 4;
+constexpr size_t SECTION_SIZE = 0x30;
+constexpr size_t BATCH_SIZE = 0x18;
+
+constexpr uint32_t FIRST_VERSION = 272;
+constexpr uint32_t LAST_VERSION = 274;
+constexpr uint32_t LEGACY_VERSION = 264;
+constexpr uint32_t LEGACY_MAX_ANIMATION = 505;
+constexpr uint32_t LEGACY_MAX_TEXTURE_TYPE = 14;
+
+// The bits the stock 3.3.5 models carry (wow-toolbox-editor downport/limits.rs, measured on 22,112 models).
+constexpr uint32_t GLOBAL_FLAGS_MASK = 0x1F;
+constexpr uint32_t BONE_FLAGS_MASK = 0x27F;
+constexpr uint16_t RENDER_FLAGS_MASK = 0x1DF;
+constexpr uint32_t SEQUENCE_EMBEDDED = 0x20;
+constexpr uint16_t BLEND_BLEND_ADD = 7;
+constexpr uint16_t BLEND_ADD = 4;
+constexpr uint8_t BATCH_HIDDEN_IN_335 = 0x80;
+constexpr uint16_t EFFECT_FLAG = 0x8000;
+constexpr uint16_t CLIENT_EFFECTS = 3;
+constexpr uint16_t CLIENT_MAX_TEXTURES = 2;
+
+// Coordinate combos for the client effects (Diffuse_T1_Env): UV1, then the environment map. Retail effects
+// carry their own coordinates and often ship no combos, but the client indexes the table unchecked.
+constexpr uint16_t EFFECT_COORD_WINDOW[] = { 0, 0xFFFF };
+
+// The bone palette the client assumes for each view position (Wow.exe 12340 0xA45644, M2Shared.cpp).
+constexpr uint32_t VIEW_BONE_PALETTES[] = { 256, 64, 53, 21 };
+constexpr uint32_t MAX_VIEWS = 4;
+
+template <typename T>
+static T Get(const std::vector<uint8_t>& data, size_t at) {
+    T value;
+    std::memcpy(&value, data.data() + at, sizeof(T));
+    return value;
+}
+
+template <typename T>
+static void Put(std::vector<uint8_t>& data, size_t at, T value) {
+    std::memcpy(data.data() + at, &value, sizeof(T));
+}
+
+static bool Fail(std::string& error, const std::string& message) {
+    error = "retail model: " + message;
+    return false;
+}
+
+struct Span {
+    uint32_t count = 0;
+    uint32_t offset = 0;
+
+    size_t At(size_t index, size_t size) const { return this->offset + index * size; }
+};
+
+// The M2Array at header, refused when its records run past the blob.
+static bool ReadSpan(const std::vector<uint8_t>& data, size_t header, size_t size, const char* name, Span& span, std::string& error) {
+    span.count = Get<uint32_t>(data, header);
+    span.offset = Get<uint32_t>(data, header + 4);
+
+    if (uint64_t(span.offset) + uint64_t(span.count) * size > data.size()) {
+        return Fail(error, std::string(name) + " run past the end of the file");
+    }
+
+    return true;
+}
+
+static std::map<std::string, std::vector<uint8_t>> ReadChunks(const std::vector<uint8_t>& file) {
+    std::map<std::string, std::vector<uint8_t>> chunks;
+
+    for (size_t at = 0; at + 8 <= file.size();) {
+        std::string tag(reinterpret_cast<const char*>(file.data() + at), 4);
+        size_t size = Get<uint32_t>(file, at + 4);
+
+        if (size > file.size() - at - 8) {
+            break;
+        }
+
+        chunks[tag].assign(file.begin() + at + 8, file.begin() + at + 8 + size);
+        at += 8 + size;
+    }
+
+    return chunks;
+}
+
+static std::vector<uint32_t> U32s(const std::vector<uint8_t>& chunk) {
+    std::vector<uint32_t> values(chunk.size() / 4);
+    if (!values.empty()) {
+        std::memcpy(values.data(), chunk.data(), values.size() * 4);
+    }
+    return values;
+}
+
+static bool ConvertSequences(std::vector<uint8_t>& m2, std::string& error) {
+    Span sequences;
+    if (!ReadSpan(m2, M2At::SEQUENCES, SEQUENCE_SIZE, "sequences", sequences, error)) {
+        return false;
+    }
+
+    for (uint32_t i = 0; i < sequences.count; i++) {
+        size_t at = sequences.At(i, SEQUENCE_SIZE);
+        uint16_t id = Get<uint16_t>(m2, at);
+
+        if (id > LEGACY_MAX_ANIMATION) {
+            return Fail(error, "animation " + std::to_string(id) + " needs AnimationData fallbacks (converter slice C2)");
+        }
+
+        // Without AFID nothing is external: the data is in the model.
+        Put<uint32_t>(m2, at + 0x0C, Get<uint32_t>(m2, at + 0x0C) | SEQUENCE_EMBEDDED);
+    }
+
+    return true;
+}
+
+static bool MaskBonesAndMaterials(std::vector<uint8_t>& m2, std::string& error) {
+    Span bones;
+    Span materials;
+    if (!ReadSpan(m2, M2At::BONES, BONE_SIZE, "bones", bones, error) || !ReadSpan(m2, M2At::MATERIALS, MATERIAL_SIZE, "materials", materials, error)) {
+        return false;
+    }
+
+    for (uint32_t i = 0; i < bones.count; i++) {
+        size_t at = bones.At(i, BONE_SIZE) + 4;
+        Put<uint32_t>(m2, at, Get<uint32_t>(m2, at) & BONE_FLAGS_MASK);
+    }
+
+    for (uint32_t i = 0; i < materials.count; i++) {
+        size_t at = materials.At(i, MATERIAL_SIZE);
+        Put<uint16_t>(m2, at, Get<uint16_t>(m2, at) & RENDER_FLAGS_MASK);
+
+        if (Get<uint16_t>(m2, at + 2) == BLEND_BLEND_ADD) {
+            Put<uint16_t>(m2, at + 2, BLEND_ADD);
+        }
+    }
+
+    return true;
+}
+
+// Type-0 textures named by TXID get retail/<fdid>.blp, appended; types 3.3.5 lacks become blank.
+static bool ConvertTextures(std::vector<uint8_t>& m2, const std::vector<uint32_t>& ids, std::string& error) {
+    Span textures;
+    if (!ReadSpan(m2, M2At::TEXTURES, TEXTURE_SIZE, "textures", textures, error)) {
+        return false;
+    }
+
+    for (uint32_t i = 0; i < textures.count; i++) {
+        size_t at = textures.At(i, TEXTURE_SIZE);
+        uint32_t type = Get<uint32_t>(m2, at);
+
+        if (type > LEGACY_MAX_TEXTURE_TYPE) {
+            Put<uint32_t>(m2, at, 0);
+            Put<uint32_t>(m2, at + 8, 0);
+            Put<uint32_t>(m2, at + 12, 0);
+            continue;
+        }
+
+        if (type != 0 || i >= ids.size() || ids[i] == 0) {
+            continue;
+        }
+
+        std::string name = "retail/" + std::to_string(ids[i]) + ".blp";
+        m2.resize((m2.size() + 15) & ~size_t(15), 0);
+        uint32_t offset = static_cast<uint32_t>(m2.size());
+        m2.insert(m2.end(), name.begin(), name.end());
+        m2.push_back(0);
+        Put<uint32_t>(m2, at + 8, static_cast<uint32_t>(name.size() + 1));
+        Put<uint32_t>(m2, at + 12, offset);
+    }
+
+    return true;
+}
+
+// The model's coordinate combos with EFFECT_COORD_WINDOW appended, which ConvertSkin points batches at.
+static bool AppendCoordWindow(std::vector<uint8_t>& m2, std::string& error) {
+    Span combos;
+    if (!ReadSpan(m2, M2At::COORD_COMBOS, 2, "coordinate combos", combos, error)) {
+        return false;
+    }
+
+    std::vector<uint8_t> values(m2.begin() + combos.offset, m2.begin() + combos.offset + combos.count * 2);
+    for (uint16_t coord : EFFECT_COORD_WINDOW) {
+        values.push_back(static_cast<uint8_t>(coord));
+        values.push_back(static_cast<uint8_t>(coord >> 8));
+    }
+
+    m2.resize((m2.size() + 15) & ~size_t(15), 0);
+    uint32_t offset = static_cast<uint32_t>(m2.size());
+    m2.insert(m2.end(), values.begin(), values.end());
+    Put<uint32_t>(m2, M2At::COORD_COMBOS, static_cast<uint32_t>(values.size() / 2));
+    Put<uint32_t>(m2, M2At::COORD_COMBOS + 4, offset);
+    return true;
+}
+
+static bool RefuseLaterSlices(const std::vector<uint8_t>& m2, std::string& error) {
+    Span particles;
+    Span cameras;
+    if (!ReadSpan(m2, M2At::PARTICLES, 1, "particles", particles, error) || !ReadSpan(m2, M2At::CAMERAS, 1, "cameras", cameras, error)) {
+        return false;
+    }
+
+    if (particles.count) {
+        return Fail(error, "particle emitters change record size (converter slice C4)");
+    }
+
+    if (cameras.count) {
+        return Fail(error, "cameras change record size (converter slice C4)");
+    }
+
+    return true;
+}
+
+bool ConvertModel(const std::vector<uint8_t>& file, ConvertedModel& model, std::string& error) {
+    auto chunks = ReadChunks(file);
+    auto md21 = chunks.find("MD21");
+
+    if (md21 == chunks.end()) {
+        return Fail(error, "no MD21 chunk");
+    }
+
+    if (chunks.count("AFID")) {
+        return Fail(error, "external animations (AFID) are inlined by converter slice C2");
+    }
+
+    if (chunks.count("SKID")) {
+        return Fail(error, "shared skeletons (SKID) are merged by converter slice C3");
+    }
+
+    std::vector<uint8_t> m2 = md21->second;
+    if (m2.size() < M2At::HEADER || std::memcmp(m2.data(), "MD20", 4) != 0) {
+        return Fail(error, "the MD20 header is missing or truncated");
+    }
+
+    uint32_t version = Get<uint32_t>(m2, M2At::VERSION);
+    if (version < FIRST_VERSION || version > LAST_VERSION) {
+        return Fail(error, "version " + std::to_string(version) + " is not converted (272 to 274 are)");
+    }
+
+    Span vertices;
+    if (!ReadSpan(m2, M2At::VERTICES, VERTEX_SIZE, "vertices", vertices, error) || !RefuseLaterSlices(m2, error)) {
+        return false;
+    }
+
+    if (!ConvertSequences(m2, error) || !MaskBonesAndMaterials(m2, error) || !ConvertTextures(m2, U32s(chunks["TXID"]), error)
+        || !AppendCoordWindow(m2, error)) {
+        return false;
+    }
+
+    std::vector<uint32_t> skins = U32s(chunks["SFID"]);
+    uint32_t views = Get<uint32_t>(m2, M2At::VIEWS);
+
+    if (!skins.empty() && skins.size() < views) {
+        return Fail(error, "SFID lists " + std::to_string(skins.size()) + " skins for " + std::to_string(views) + " views");
+    }
+
+    skins.resize(skins.empty() ? 0 : views);
+    Put<uint32_t>(m2, M2At::VERSION, LEGACY_VERSION);
+    Put<uint32_t>(m2, M2At::FLAGS, Get<uint32_t>(m2, M2At::FLAGS) & GLOBAL_FLAGS_MASK);
+
+    model.m2 = std::move(m2);
+    model.skins = std::move(skins);
+    return true;
+}
+
+// The most non-zero bone weights a vertex of the section carries, at least 1. 0 makes the client skin with none.
+static bool FitInfluences(std::vector<uint8_t>& skin, size_t section, const std::vector<uint8_t>& m2, std::string& error) {
+    Span lookup;
+    Span indices;
+    Span vertices;
+    if (!ReadSpan(skin, SkinAt::VERTICES, 2, "skin vertices", lookup, error) || !ReadSpan(skin, SkinAt::INDICES, 2, "skin indices", indices, error)
+        || !ReadSpan(m2, M2At::VERTICES, VERTEX_SIZE, "vertices", vertices, error)) {
+        return false;
+    }
+
+    uint32_t start = Get<uint16_t>(skin, section + 0x08);
+    uint32_t count = Get<uint16_t>(skin, section + 0x0A);
+    if (start + count > indices.count) {
+        return Fail(error, "a submesh runs past the skin's indices");
+    }
+
+    uint16_t used = 1;
+
+    for (uint32_t i = start; i < start + count; i++) {
+        uint16_t corner = Get<uint16_t>(skin, indices.At(i, 2));
+        if (corner >= lookup.count) {
+            return Fail(error, "a skin index names a vertex past the skin's vertex list");
+        }
+
+        uint16_t vertex = Get<uint16_t>(skin, lookup.At(corner, 2));
+        if (vertex >= vertices.count) {
+            return Fail(error, "a skin vertex names a vertex past the model's");
+        }
+
+        uint16_t weights = 0;
+        for (size_t w = 0; w < 4; w++) {
+            weights += m2[vertices.At(vertex, VERTEX_SIZE) + 0x0C + w] != 0;
+        }
+
+        used = std::max(used, weights);
+    }
+
+    Put<uint16_t>(skin, section + 0x10, used);
+    return true;
+}
+
+// The tables of the converted model a batch indexes into.
+struct BatchTables {
+    uint32_t textureCombos;
+    uint32_t coordCombos;
+    uint16_t effectCoordWindow;
+};
+
+static bool ReadBatchTables(const std::vector<uint8_t>& m2, BatchTables& tables, std::string& error) {
+    Span textures;
+    Span coords;
+    if (!ReadSpan(m2, M2At::TEXTURE_COMBOS, 2, "texture combos", textures, error) || !ReadSpan(m2, M2At::COORD_COMBOS, 2, "coordinate combos", coords, error)) {
+        return false;
+    }
+
+    // ConvertModel appended the window last.
+    if (coords.count < 2 || Get<uint16_t>(m2, coords.At(coords.count - 2, 2)) != EFFECT_COORD_WINDOW[0]
+        || Get<uint16_t>(m2, coords.At(coords.count - 1, 2)) != EFFECT_COORD_WINDOW[1]) {
+        return Fail(error, "the skin's model is not converted");
+    }
+
+    tables = { textures.count, coords.count, static_cast<uint16_t>(coords.count - 2) };
+    return true;
+}
+
+static bool ConvertBatch(std::vector<uint8_t>& skin, size_t batch, const BatchTables& tables, std::string& error) {
+    skin[batch] &= static_cast<uint8_t>(~BATCH_HIDDEN_IN_335);
+    Put<uint16_t>(skin, batch + 0x06, 0);
+
+    uint16_t shader = Get<uint16_t>(skin, batch + 0x02);
+    uint16_t textures = Get<uint16_t>(skin, batch + 0x0E);
+    uint16_t textureCombo = Get<uint16_t>(skin, batch + 0x10);
+
+    if (textures > CLIENT_MAX_TEXTURES) {
+        return Fail(error, std::to_string(textures) + " textures in one batch need extra passes (converter slice C5)");
+    }
+
+    if (uint32_t(textureCombo) + textures > tables.textureCombos) {
+        return Fail(error, "a batch reads texture combo " + std::to_string(textureCombo) + " past the model's " + std::to_string(tables.textureCombos));
+    }
+
+    if (shader & EFFECT_FLAG) {
+        uint16_t effect = shader & ~EFFECT_FLAG;
+        if (effect >= CLIENT_EFFECTS) {
+            return Fail(error, "shader effect " + std::to_string(effect) + " has no 3.3.5 shader (converter slice C5)");
+        }
+
+        // Retail counts effects from 0; the client's table starts at 1.
+        Put<uint16_t>(skin, batch + 0x02, static_cast<uint16_t>(EFFECT_FLAG | (effect + 1)));
+        Put<uint16_t>(skin, batch + 0x12, tables.effectCoordWindow);
+        return true;
+    }
+
+    // The window's first entry is UV1, the default for a single texture without combos of its own.
+    if (Get<uint16_t>(skin, batch + 0x12) >= tables.coordCombos) {
+        Put<uint16_t>(skin, batch + 0x12, tables.effectCoordWindow);
+    }
+
+    if (textures > 1) {
+        char hex[8];
+        std::snprintf(hex, sizeof(hex), "%04X", shader);
+        return Fail(error, std::string("shader 0x") + hex + " on two textures needs the combiner table (converter slice C5)");
+    }
+
+    // The client derives a single texture's shader from its material.
+    Put<uint16_t>(skin, batch + 0x02, 0);
+    return true;
+}
+
+bool ConvertSkin(const std::vector<uint8_t>& skin, const std::vector<uint8_t>& m2, uint32_t view, std::vector<uint8_t>& out, std::string& error) {
+    if (skin.size() < SkinAt::HEADER || std::memcmp(skin.data(), "SKIN", 4) != 0) {
+        return Fail(error, "not a skin file");
+    }
+
+    if (m2.size() < M2At::HEADER) {
+        return Fail(error, "the skin's model is not converted");
+    }
+
+    uint32_t views = Get<uint32_t>(m2, M2At::VIEWS);
+    if (view >= views) {
+        return Fail(error, "skin view " + std::to_string(view) + " is past the model's " + std::to_string(views) + " views");
+    }
+
+    std::vector<uint8_t> converted = skin;
+    Span sections;
+    Span batches;
+    BatchTables tables;
+    if (!ReadSpan(converted, SkinAt::SECTIONS, SECTION_SIZE, "submeshes", sections, error) || !ReadSpan(converted, SkinAt::BATCHES, BATCH_SIZE, "batches", batches, error)
+        || !ReadBatchTables(m2, tables, error)) {
+        return false;
+    }
+
+    for (uint32_t i = 0; i < sections.count; i++) {
+        size_t section = sections.At(i, SECTION_SIZE);
+
+        if (Get<uint16_t>(converted, section + 0x02)) {
+            return Fail(error, "submesh Level above 0 (indices past 65,535) is not converted");
+        }
+
+        if (!FitInfluences(converted, section, m2, error)) {
+            return false;
+        }
+    }
+
+    for (uint32_t i = 0; i < batches.count; i++) {
+        if (!ConvertBatch(converted, batches.At(i, BATCH_SIZE), tables, error)) {
+            return false;
+        }
+    }
+
+    uint32_t first = MAX_VIEWS - std::min(views, MAX_VIEWS);
+    Put<uint32_t>(converted, SkinAt::BONE_COUNT_MAX, VIEW_BONE_PALETTES[std::min(first + view, MAX_VIEWS - 1)]);
+    out = std::move(converted);
+    return true;
+}
+
+}
