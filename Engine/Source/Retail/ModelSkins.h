@@ -5,15 +5,11 @@
 #include <map>
 #include <string>
 #include <vector>
-#include "Engine/Source/Retail/Db2Table.h"
+#include "Engine/Source/Retail/CreatureTables.h"
 
 namespace Retail {
 
-// DBFilesClient tables and the WoWDBDefs layouts read from them (wow-toolbox-editor casc/skins.rs).
-constexpr uint32_t CREATURE_MODEL_DATA_FDID = 1365368;
-constexpr uint32_t CREATURE_MODEL_DATA_LAYOUT = 0x0F5449F8;
-constexpr uint32_t CREATURE_DISPLAY_INFO_FDID = 1108759;
-constexpr uint32_t CREATURE_DISPLAY_INFO_LAYOUT = 0x7275F5F6;
+// DBFilesClient item tables and the WoWDBDefs layouts read from them (wow-toolbox-editor casc/skins.rs).
 constexpr uint32_t MODEL_FILE_DATA_FDID = 1337833;
 constexpr uint32_t MODEL_FILE_DATA_LAYOUT = 0x2AE4E788;
 constexpr uint32_t ITEM_DISPLAY_INFO_FDID = 1266429;
@@ -38,6 +34,7 @@ struct ModelSkin {
     uint32_t displays = 0;    // How many displays show it.
     uint32_t others = 0;      // The model's other skins, which only their own displays show.
     std::vector<SkinTexture> textures;   // A creature's in variation order; an item's by type, then file.
+    std::vector<Geoset> geosets;         // A creature's, sorted; an item has none.
 };
 
 // The item tables, all of one build.
@@ -48,11 +45,12 @@ struct ItemSkinTables {
     const Db2Table& textureFiles;   // TextureFileData: the files of each material resource.
 };
 
-// The skin most displays of each model show, creature and item displays pooled, ties to the lowest display. The
-// creature and item halves load separately, so a table one of them lacks leaves the other.
+// The skin most displays of each model show, creature and item displays pooled, ties to the lowest display. Displays
+// of the same textures but other geosets show skins of their own, as in the downporter. The creature and item halves
+// load separately, so a table one of them lacks leaves the other.
 class ModelSkins {
     public:
-    bool LoadCreatures(const Db2Table& modelData, const Db2Table& displayInfo, std::string& error);
+    bool LoadCreatures(const CreatureTables& tables, std::string& error);
 
     // A display missing a layer type its colourway (model resource and object skin) has elsewhere takes the file
     // most of the colourway's displays name, the lowest on a tie.
@@ -62,16 +60,14 @@ class ModelSkins {
     const ModelSkin* Default(uint32_t modelFileDataId) const;
 
     private:
-    // Counts display under the model's variant with the same textures, or starts one. No textures, no variant.
-    void Add(uint32_t model, uint32_t display, const std::vector<SkinTexture>& textures);
+    // Counts display under the model's variant with the same textures and geosets, or starts one. No textures, no
+    // variant.
+    void Add(uint32_t model, uint32_t display, const std::vector<SkinTexture>& textures, const std::vector<Geoset>& geosets);
     void Rank();
 
     std::map<uint32_t, std::vector<ModelSkin>> m_variants;
     std::map<uint32_t, ModelSkin> m_defaults;
 };
-
-// Refuses table, by name, when its layout is not the one the loaders read.
-bool KnownLayout(const Db2Table& table, uint32_t layout, const char* name, std::string& error);
 
 }
 

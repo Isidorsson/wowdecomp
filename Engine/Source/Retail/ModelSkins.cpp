@@ -1,6 +1,5 @@
 #include "Engine/Source/Retail/ModelSkins.h"
 #include <algorithm>
-#include <cstdio>
 #include <iterator>
 
 namespace Retail {
@@ -13,17 +12,6 @@ constexpr size_t DISPLAY_TEXTURE_VARIATIONS = 27;
 // The M2 texture types the variations fill, in order. Retail's fourth fills type 5.
 constexpr uint32_t SKIN_TYPES[] = { 11, 12, 13, 5 };
 
-bool KnownLayout(const Db2Table& table, uint32_t layout, const char* name, std::string& error) {
-    if (table.LayoutHash() == layout) {
-        return true;
-    }
-
-    char message[128];
-    std::snprintf(message, sizeof(message), "%s layout %08X is not the known %08X (a newer build?)", name, table.LayoutHash(), layout);
-    error = message;
-    return false;
-}
-
 static std::vector<SkinTexture> Variations(const Db2Table& displayInfo, size_t row) {
     std::vector<uint32_t> files = displayInfo.Values(row, DISPLAY_TEXTURE_VARIATIONS);
     std::vector<SkinTexture> textures;
@@ -35,8 +23,11 @@ static std::vector<SkinTexture> Variations(const Db2Table& displayInfo, size_t r
     return textures;
 }
 
-bool ModelSkins::LoadCreatures(const Db2Table& modelData, const Db2Table& displayInfo, std::string& error) {
-    if (!KnownLayout(modelData, CREATURE_MODEL_DATA_LAYOUT, "CreatureModelData", error) || !KnownLayout(displayInfo, CREATURE_DISPLAY_INFO_LAYOUT, "CreatureDisplayInfo", error)) {
+bool ModelSkins::LoadCreatures(const CreatureTables& tables, std::string& error) {
+    const Db2Table& modelData = tables.modelData;
+    const Db2Table& displayInfo = tables.displayInfo;
+    if (!KnownLayout(modelData, CREATURE_MODEL_DATA_LAYOUT, "CreatureModelData", error) || !KnownLayout(displayInfo, CREATURE_DISPLAY_INFO_LAYOUT, "CreatureDisplayInfo", error)
+        || !KnownLayout(tables.geosets, CREATURE_DISPLAY_INFO_GEOSET_DATA_LAYOUT, "CreatureDisplayInfoGeosetData", error)) {
         return false;
     }
 
@@ -45,10 +36,12 @@ bool ModelSkins::LoadCreatures(const Db2Table& modelData, const Db2Table& displa
         fileOf[modelData.RowId(row)] = modelData.Value(row, MODEL_DATA_FILE_DATA_ID);
     }
 
+    std::map<uint32_t, std::vector<Geoset>> geosetsOf = GeosetsByDisplay(tables.geosets);
     for (size_t row = 0; row < displayInfo.RowCount(); row++) {
         auto model = fileOf.find(displayInfo.Value(row, DISPLAY_MODEL_ID));
         if (model != fileOf.end()) {
-            this->Add(model->second, displayInfo.RowId(row), Variations(displayInfo, row));
+            auto shown = geosetsOf.find(displayInfo.RowId(row));
+            this->Add(model->second, displayInfo.RowId(row), Variations(displayInfo, row), shown == geosetsOf.end() ? std::vector<Geoset>() : shown->second);
         }
     }
 
@@ -56,15 +49,15 @@ bool ModelSkins::LoadCreatures(const Db2Table& modelData, const Db2Table& displa
     return true;
 }
 
-void ModelSkins::Add(uint32_t model, uint32_t display, const std::vector<SkinTexture>& textures) {
+void ModelSkins::Add(uint32_t model, uint32_t display, const std::vector<SkinTexture>& textures, const std::vector<Geoset>& geosets) {
     if (textures.empty()) {
         return;
     }
 
     std::vector<ModelSkin>& variants = this->m_variants[model];
-    auto same = std::find_if(variants.begin(), variants.end(), [&](const ModelSkin& skin) { return skin.textures == textures; });
+    auto same = std::find_if(variants.begin(), variants.end(), [&](const ModelSkin& skin) { return skin.textures == textures && skin.geosets == geosets; });
     if (same == variants.end()) {
-        variants.push_back({ display, 1, 0, textures });
+        variants.push_back({ display, 1, 0, textures, geosets });
         return;
     }
 

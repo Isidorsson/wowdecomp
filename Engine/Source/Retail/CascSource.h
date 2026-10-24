@@ -13,6 +13,7 @@
 #include "Engine/Source/Retail/AnimationFallbacks.h"
 #include "Engine/Source/Retail/ModelSkins.h"
 #include "Engine/Source/Retail/RetailConfig.h"
+#include "Engine/Source/Retail/RetailDisplays.h"
 #include "Engine/Source/Retail/RetailPath.h"
 
 namespace Retail {
@@ -41,6 +42,10 @@ class CascSource {
     bool IsCached(const char* name, uint32_t& size);
     bool Read(const char* name, std::vector<uint8_t>& bytes, std::string& error);
 
+    // The retail creature displays of the pinned build, read with the default skins on first use. Null without a
+    // configured storage or when the creature tables fail, which a warning explains.
+    const RetailDisplays* Displays();
+
     // Where a read reports data it dropped but did not fail on, such as a missing .anim file.
     void SetWarningSink(std::function<void(const std::string&)> sink) { this->m_warn = std::move(sink); }
 
@@ -63,6 +68,9 @@ class CascSource {
     bool ReadTables(const std::vector<std::pair<uint32_t, Db2Table*>>& tables, std::string& error);
     const AnimationFallbacks* Fallbacks();
     const ModelSkins* Skins();
+    void ReadDisplayTables();
+    bool LoadCreatureTables(std::string& error);
+    bool LoadItemTables(std::string& error);
     void Warn(const std::string& message) const;
     bool OpenStorage(std::string& error);
     bool ReadStorage(uint32_t fileDataId, uint32_t openFlags, std::vector<uint8_t>& bytes, std::string& error);
@@ -78,9 +86,11 @@ class CascSource {
     std::once_flag m_fallbacksRead;
     AnimationFallbacks m_fallbacks;
     bool m_hasFallbacks = false;
-    std::once_flag m_skinsRead;
+    std::once_flag m_displayTablesRead;
     ModelSkins m_skins;
     bool m_hasSkins = false;
+    RetailDisplays m_displays;
+    bool m_hasDisplays = false;
     std::function<void(const std::string&)> m_warn;
 };
 

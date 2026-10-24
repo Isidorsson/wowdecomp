@@ -278,34 +278,64 @@ bool CascSource::ReadTables(const std::vector<std::pair<uint32_t, Db2Table*>>& t
     return true;
 }
 
-// The default creature and item skins, from the same build as the models, read once. The halves load apart; one
-// that fails leaves its skin slots unnamed (drawn white until a display fills them), which its warning explains.
-const ModelSkins* CascSource::Skins() {
-    std::call_once(this->m_skinsRead, [this] {
-        Db2Table modelData;
-        Db2Table displayInfo;
+// The display tables, from the same build as the models, read once: the default creature and item skins and the
+// retail creature displays. The creature and item halves load apart; one that fails leaves its skin slots unnamed
+// (drawn white until a display fills them), which its warning explains.
+void CascSource::ReadDisplayTables() {
+    std::call_once(this->m_displayTablesRead, [this] {
         std::string error;
-        if (this->ReadTables({ { CREATURE_MODEL_DATA_FDID, &modelData }, { CREATURE_DISPLAY_INFO_FDID, &displayInfo } }, error)
-            && this->m_skins.LoadCreatures(modelData, displayInfo, error)) {
-            this->m_hasSkins = true;
-        } else {
-            this->Warn("creature skins: " + error);
+        if (!this->LoadCreatureTables(error)) {
+            this->Warn("creature tables: " + error);
         }
-
-        Db2Table modelFiles;
-        Db2Table itemDisplays;
-        Db2Table layers;
-        Db2Table textureFiles;
-        if (this->ReadTables({ { MODEL_FILE_DATA_FDID, &modelFiles }, { ITEM_DISPLAY_INFO_FDID, &itemDisplays }, { ITEM_DISPLAY_INFO_MODEL_MAT_RES_FDID, &layers },
-                { TEXTURE_FILE_DATA_FDID, &textureFiles } }, error)
-            && this->m_skins.LoadItems({ modelFiles, itemDisplays, layers, textureFiles }, error)) {
-            this->m_hasSkins = true;
-        } else {
+        if (!this->LoadItemTables(error)) {
             this->Warn("item skins: " + error);
         }
     });
+}
 
+bool CascSource::LoadCreatureTables(std::string& error) {
+    Db2Table modelData;
+    Db2Table displayInfo;
+    Db2Table geosets;
+    if (!this->ReadTables({ { CREATURE_MODEL_DATA_FDID, &modelData }, { CREATURE_DISPLAY_INFO_FDID, &displayInfo },
+            { CREATURE_DISPLAY_INFO_GEOSET_DATA_FDID, &geosets } }, error)) {
+        return false;
+    }
+
+    CreatureTables tables = { modelData, displayInfo, geosets };
+    this->m_hasDisplays = this->m_displays.Load(tables, error);
+    if (!this->m_hasDisplays || !this->m_skins.LoadCreatures(tables, error)) {
+        return false;
+    }
+    this->m_hasSkins = true;
+    return true;
+}
+
+bool CascSource::LoadItemTables(std::string& error) {
+    Db2Table modelFiles;
+    Db2Table itemDisplays;
+    Db2Table layers;
+    Db2Table textureFiles;
+    if (!this->ReadTables({ { MODEL_FILE_DATA_FDID, &modelFiles }, { ITEM_DISPLAY_INFO_FDID, &itemDisplays }, { ITEM_DISPLAY_INFO_MODEL_MAT_RES_FDID, &layers },
+            { TEXTURE_FILE_DATA_FDID, &textureFiles } }, error)
+        || !this->m_skins.LoadItems({ modelFiles, itemDisplays, layers, textureFiles }, error)) {
+        return false;
+    }
+    this->m_hasSkins = true;
+    return true;
+}
+
+const ModelSkins* CascSource::Skins() {
+    this->ReadDisplayTables();
     return this->m_hasSkins ? &this->m_skins : nullptr;
+}
+
+const RetailDisplays* CascSource::Displays() {
+    if (!this->m_configured) {
+        return nullptr;
+    }
+    this->ReadDisplayTables();
+    return this->m_hasDisplays ? &this->m_displays : nullptr;
 }
 
 void CascSource::Warn(const std::string& message) const {

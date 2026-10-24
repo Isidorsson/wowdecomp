@@ -163,7 +163,7 @@ bool ModelSkins::LoadItems(const ItemSkinTables& tables, std::string& error) {
     CompleteColourways(dressings);
     for (const Dressing& dressing : dressings) {
         for (uint32_t model : modelsOf[dressing.resource]) {
-            this->Add(model, dressing.display, dressing.textures);
+            this->Add(model, dressing.display, dressing.textures, {});
         }
     }
 

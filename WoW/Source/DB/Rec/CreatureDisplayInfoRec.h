@@ -33,4 +33,11 @@ class CreatureDisplayInfoRec {
     bool Read(SFileImpl* file, const char* stringBuffer);
 };
 
+// Not in the original: this table serves, after its own rows, the retail creature displays of a CASC build
+// (RetailCreatureRecords.cpp). Declared with the record so every caller of GetRecord reaches it.
+#include "WoW/Source/DB/WowClientDB.h"
+
+template <>
+CreatureDisplayInfoRec* WowClientDB<CreatureDisplayInfoRec>::GetRecord(int32_t id) const;
+
 #endif

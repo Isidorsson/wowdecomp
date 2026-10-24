@@ -1,6 +1,6 @@
 #include "Engine/Source/Retail/ModelSkins.h"
 #include "Tools/Tests/Check.h"
-#include "Tools/Tests/Db2Fixtures.h"
+#include "Tools/Tests/CreatureFixtures.h"
 
 using Retail::Db2Table;
 using Retail::ItemSkinTables;
@@ -137,14 +137,7 @@ TEST(ColourwaysCompleteMissingLayers) {
 TEST(CreatureAndItemSkinsLoadApart) {
     ModelSkins skins;
     std::string error;
-    std::vector<uint32_t> creatureWidths(27, 1);
-    creatureWidths.push_back(4);
-    std::vector<uint32_t> creatureValues(27, 0);
-    creatureValues[1] = 40;
-    creatureValues.insert(creatureValues.end(), { 600, 0, 0, 0 });
-
-    CHECK(skins.LoadCreatures(PlainTable(Retail::CREATURE_MODEL_DATA_LAYOUT, { 1, 1, 1 }, { { 40, { 0, 0, 7939217 } } }),
-        PlainTable(Retail::CREATURE_DISPLAY_INFO_LAYOUT, creatureWidths, { { 10, creatureValues } }), error));
+    CHECK(skins.LoadCreatures({ CreatureModels({ { 40, 7939217 } }), CreatureDisplays({ { 10, 40, { 600 } } }), DisplayGeosets({}) }, error));
     CHECK(LoadInto(skins, Tables({ { MACE, 70 } }, { { 100, { 70, 0 }, { 300, 0 } } }, {}, { { 8267107, 0, 300 } }), error));
     CHECK(TexturesOf(skins, 7939217) == std::vector<SkinTexture>({ { 11, 600 } }));
     CHECK(TexturesOf(skins, MACE) == std::vector<SkinTexture>({ { 2, 8267107 } }));

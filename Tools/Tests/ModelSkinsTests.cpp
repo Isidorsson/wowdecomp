@@ -2,7 +2,7 @@
 #include "Engine/Source/Retail/RetailModel.h"
 #include "Tools/Tests/Check.h"
 #include "Tools/Tests/M2Builder.h"
-#include "Tools/Tests/Db2Fixtures.h"
+#include "Tools/Tests/CreatureFixtures.h"
 
 using Retail::ModelSkin;
 using Retail::ModelSkins;
@@ -15,40 +15,11 @@ using Retail::SkinTexture;
 // displays show is named in those slots and their types are kept.
 
 constexpr uint32_t BOAR = 7939217;
-constexpr size_t DISPLAY_COLUMNS = 27;   // ModelID is column 1; TextureVariationFileDataID[4] is column 27.
 
-// CreatureModelData rows: id and the model's FileDataID (column 2).
-static Db2Table ModelData(const std::vector<std::pair<uint32_t, uint32_t>>& models, uint32_t layout = Retail::CREATURE_MODEL_DATA_LAYOUT) {
-    std::vector<Db2Row> rows;
-    for (const auto& model : models) {
-        rows.push_back({ model.first, { 0, 0, model.second } });
-    }
-    return PlainTable(layout, { 1, 1, 1 }, rows);
-}
-
-struct Display {
-    uint32_t id;
-    uint32_t model;
-    std::vector<uint32_t> variations;   // Four texture FileDataIDs, 0 for none.
-};
-
-static Db2Table DisplayInfo(const std::vector<Display>& displays, uint32_t layout = Retail::CREATURE_DISPLAY_INFO_LAYOUT) {
-    std::vector<uint32_t> widths(DISPLAY_COLUMNS, 1);
-    widths.push_back(4);
-    std::vector<Db2Row> rows;
-    for (const Display& display : displays) {
-        std::vector<uint32_t> values(DISPLAY_COLUMNS, 0);
-        values[1] = display.model;
-        values.insert(values.end(), display.variations.begin(), display.variations.end());
-        rows.push_back({ display.id, values });
-    }
-    return PlainTable(layout, widths, rows);
-}
-
-static ModelSkins Loaded(const std::vector<Display>& displays) {
+static ModelSkins Loaded(const std::vector<CreatureDisplayRow>& displays, const std::vector<GeosetRow>& geosets = {}) {
     ModelSkins skins;
     std::string error;
-    if (!skins.LoadCreatures(ModelData({ { 40, BOAR }, { 41, 1001 } }), DisplayInfo(displays), error)) {
+    if (!skins.LoadCreatures({ CreatureModels({ { 40, BOAR }, { 41, 1001 } }), CreatureDisplays(displays), DisplayGeosets(geosets) }, error)) {
         std::printf("    (%s)\n", error.c_str());
     }
     return skins;
@@ -91,8 +62,22 @@ TEST(UnknownLayoutsAreRefused) {
     ModelSkins skins;
     std::string error;
 
-    CHECK(!skins.LoadCreatures(ModelData({ { 40, BOAR } }, 0x1111), DisplayInfo({}), error) && error.find("CreatureModelData") != std::string::npos);
-    CHECK(!skins.LoadCreatures(ModelData({ { 40, BOAR } }), DisplayInfo({}, 0x2222), error) && error.find("CreatureDisplayInfo") != std::string::npos);
+    CHECK(!skins.LoadCreatures({ CreatureModels({ { 40, BOAR } }, 0x1111), CreatureDisplays({}), DisplayGeosets({}) }, error)
+        && error.find("CreatureModelData") != std::string::npos);
+    CHECK(!skins.LoadCreatures({ CreatureModels({ { 40, BOAR } }), CreatureDisplays({}, 0x2222), DisplayGeosets({}) }, error)
+        && error.find("CreatureDisplayInfo") != std::string::npos);
+    CHECK(!skins.LoadCreatures({ CreatureModels({ { 40, BOAR } }), CreatureDisplays({}), DisplayGeosets({}, 0x3333) }, error)
+        && error.find("CreatureDisplayInfoGeosetData") != std::string::npos);
+}
+
+TEST(TheSameTexturesWithOtherGeosetsAreASkinOfTheirOwn) {
+    // Displays 10 and 11 show variant 1 of group 3, displays 12 to 14 variant 2, all with the same textures.
+    ModelSkins skins = Loaded({ { 10, 40, { 600 } }, { 11, 40, { 600 } }, { 12, 40, { 600 } }, { 13, 40, { 600 } }, { 14, 40, { 600 } } },
+        { { 10, 2, 1 }, { 11, 2, 1 }, { 12, 2, 2 }, { 13, 2, 2 }, { 14, 2, 2 }, { 14, 2, 2 } });
+    const ModelSkin* skin = skins.Default(BOAR);
+
+    CHECK(skin && skin->displayId == 12 && skin->displays == 3 && skin->others == 1);
+    CHECK(skin && skin->geosets == std::vector<Retail::Geoset>({ { 2, 2 } }));
 }
 
 // A model with a file texture named by TXID, then skin slots 11, 12, an object skin (2), 5 and 13, unless types says.
