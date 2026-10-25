@@ -43,10 +43,8 @@ struct SkinLayout {
 // weighs. A skin without Level whose ranges already fit is left as it is.
 bool LayOutSections(std::vector<uint8_t>& skin, const std::vector<uint8_t>& m2, SkinLayout& layout, std::string& error);
 
-struct BoneWindowPlan;
-
-// One warning per view whose submeshes LayOutSections moves once split. skins are the original skins of every view.
-void ReportLayouts(const std::vector<uint8_t>& m2, const std::vector<std::vector<uint8_t>>& skins, const BoneWindowPlan& plan, std::vector<std::string>& warnings);
+// The warning for view when LayOutSections changed its skin (split first), which skin now is.
+void ReportLayout(uint32_t view, const std::vector<uint8_t>& skin, const SkinLayout& layout, std::vector<std::string>& warnings);
 
 }
 

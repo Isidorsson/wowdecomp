@@ -3,6 +3,7 @@
 #include "Engine/Source/Retail/RetailModelData.h"
 #include "Engine/Source/Retail/RetailSkinLayout.h"
 #include <algorithm>
+#include <map>
 
 namespace Retail {
 
@@ -47,28 +48,74 @@ static bool RebaseLod(std::vector<uint8_t>& skin, std::string& why) {
     return true;
 }
 
-// The first of skins whose submeshes, split by bone for its place among them, the client cannot draw; skins.size()
-// when it can draw all of them.
-static size_t FirstUnfit(const std::vector<uint8_t>& m2, const std::vector<std::vector<uint8_t>>& skins) {
-    BoneWindowPlan plan;
-    std::string error;
-    if (!PlanBoneWindows(m2, skins, plan, error)) {
-        return skins.size();
+// A candidate by its number among the candidates (a view's is its view), and its skin.
+using Member = std::pair<size_t, const std::vector<uint8_t>*>;
+
+// The pieces of each candidate at each palette a set tries it with, planned once: a set that loses a view keeps the
+// palettes of the views after it.
+class Planner {
+    public:
+    explicit Planner(const std::vector<uint8_t>& m2) : m_m2(m2) {
+        Span combos;
+        std::string error;
+        this->m_readable = ReadSpan(m2, M2At::BONE_COMBOS, 2, "bone combos", combos, error);
+        this->m_combos = combos.count;
     }
 
-    for (size_t view = 0; view < skins.size(); view++) {
-        std::vector<uint32_t> counts = SectionCounts(skins[view]);
-        if (!plan.views[view].empty()) {
-            counts.clear();
-            for (const SectionPiece& piece : plan.views[view]) {
-                counts.push_back(static_cast<uint32_t>(piece.triangles.size() * 3));
+    // The first of set whose submeshes, split by bone for its place in it, the client cannot draw; set.size() when it
+    // can draw all of them, or when the model's bone combos cannot be read.
+    size_t FirstUnfit(const std::vector<Member>& set) {
+        uint32_t views = static_cast<uint32_t>(set.size());
+        for (uint32_t view = 0; this->m_readable && view < views; view++) {
+            const std::vector<SectionPiece>& pieces = this->Pieces(set[view], view, views);
+            std::vector<uint32_t> counts = SectionCounts(*set[view].second);
+            if (!pieces.empty()) {
+                counts.clear();
+                for (const SectionPiece& piece : pieces) {
+                    counts.push_back(static_cast<uint32_t>(piece.triangles.size() * 3));
+                }
+            }
+            if (!SectionsFit(counts)) {
+                return view;
             }
         }
-        if (!SectionsFit(counts)) {
-            return view;
+        return set.size();
+    }
+
+    // The set's plan, as PlanBoneWindows makes it; none when the model's bone combos cannot be read.
+    void Plan(const std::vector<Member>& set, ViewSkins& chosen) {
+        chosen.planned = this->m_readable;
+        chosen.plan = {};
+        chosen.plan.combos = this->m_combos;
+        uint32_t views = static_cast<uint32_t>(set.size());
+        for (uint32_t view = 0; this->m_readable && view < views; view++) {
+            chosen.plan.views.push_back(this->Pieces(set[view], view, views));
         }
     }
-    return skins.size();
+
+    private:
+    const std::vector<SectionPiece>& Pieces(const Member& member, uint32_t view, uint32_t views) {
+        uint32_t palette = ViewBonePalette(view, views);
+        auto key = std::make_pair(member.first, palette);
+        auto found = this->m_pieces.find(key);
+        if (found == this->m_pieces.end()) {
+            found = this->m_pieces.emplace(key, PlanPieces(this->m_m2, *member.second, palette)).first;
+        }
+        return found->second;
+    }
+
+    const std::vector<uint8_t>& m_m2;
+    bool m_readable = false;
+    uint32_t m_combos = 0;
+    std::map<std::pair<size_t, uint32_t>, std::vector<SectionPiece>> m_pieces;
+};
+
+static std::vector<Member> MembersOf(const std::vector<Candidate>& candidates, const std::vector<const Candidate*>& kept) {
+    std::vector<Member> members;
+    for (const Candidate* candidate : kept) {
+        members.emplace_back(static_cast<size_t>(candidate - candidates.data()), &candidate->skin);
+    }
+    return members;
 }
 
 static std::vector<std::vector<uint8_t>> SkinsOf(const std::vector<const Candidate*>& kept) {
@@ -104,7 +151,7 @@ static std::vector<Candidate> ReadCandidates(const ViewSkins& views, const std::
 
 // The candidates the client can draw, at most four: each view of a set is split for its place in it, so a set that
 // loses one is planned again.
-static std::vector<const Candidate*> Drawable(const std::vector<uint8_t>& m2, const std::vector<Candidate>& candidates) {
+static std::vector<const Candidate*> Drawable(Planner& planner, const std::vector<Candidate>& candidates) {
     std::vector<const Candidate*> fitting;
     for (const Candidate& candidate : candidates) {
         if (SectionsFit(SectionCounts(candidate.skin))) {
@@ -114,7 +161,7 @@ static std::vector<const Candidate*> Drawable(const std::vector<uint8_t>& m2, co
 
     while (true) {
         std::vector<const Candidate*> kept(fitting.begin(), fitting.begin() + std::min<size_t>(fitting.size(), MAX_VIEWS));
-        size_t unfit = FirstUnfit(m2, SkinsOf(kept));
+        size_t unfit = planner.FirstUnfit(MembersOf(candidates, kept));
         if (unfit == kept.size()) {
             return kept;
         }
@@ -151,13 +198,19 @@ bool ChooseViews(const std::vector<uint8_t>& m2, const std::vector<uint32_t>& sf
         }
     }
 
-    size_t unfit = FirstUnfit(m2, chosen.originals);
+    Planner planner(m2);
+    std::vector<Member> members;
+    for (uint32_t view = 0; view < views; view++) {
+        members.emplace_back(view, &chosen.originals[view]);
+    }
+    size_t unfit = planner.FirstUnfit(members);
     if (unfit == views) {
+        planner.Plan(members, chosen);
         return true;
     }
 
     std::vector<Candidate> candidates = ReadCandidates(chosen, sfid, read, chosen.warnings);
-    std::vector<const Candidate*> kept = Drawable(m2, candidates);
+    std::vector<const Candidate*> kept = Drawable(planner, candidates);
     std::string why = Name(candidates[unfit]) + " has " + std::to_string(Get<uint32_t>(candidates[unfit].skin, SkinAt::INDICES))
         + " corners, and its submeshes (split by bone where they must be) other than the largest pass 65,535 together: the 3.3.5 client keeps each "
         "submesh's start in 16 bits and draws such a view garbled";
@@ -173,6 +226,7 @@ bool ChooseViews(const std::vector<uint8_t>& m2, const std::vector<uint32_t>& sf
     }
 
     chosen.warnings.push_back(why + "; the model keeps " + Describe(kept) + " as its views" + reduced);
+    planner.Plan(MembersOf(candidates, kept), chosen);
     chosen.fileDataIds.clear();
     chosen.originals = SkinsOf(kept);
     for (const Candidate* candidate : kept) {

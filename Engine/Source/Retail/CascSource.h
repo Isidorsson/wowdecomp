@@ -23,7 +23,7 @@ namespace Retail {
 // Serves retail/<FileDataID> paths and aliased stock paths from one pinned CASC build. Reads come from the
 // decoded cache when possible; a miss opens the storage (online: downloads build metadata) and blocks.
 // Retail models (MD21) are converted to 3.3.5 on every read, and the skin names the client derives from
-// them (MakeSkinFileName) are routed to the skins their SFID lists.
+// them (MakeSkinFileName) are routed to the skins their SFID lists, served from that conversion.
 class CascSource {
     public:
     // Process-wide source configured from WOW_RETAIL_CONFIG, else Data/Retail/RetailCasc.ini. Without a
@@ -58,18 +58,23 @@ class CascSource {
     void SetStockReader(StockReader reader) { this->m_readStock = std::move(reader); }
 
     private:
+    // Every view's skin as the model's conversion converted it, shared by the model's dependencies.
+    using ConvertedSkins = std::vector<std::vector<uint8_t>>;
+
     // A skin the client names after a converted model.
     struct Dependency {
         uint32_t skin;
         uint32_t model;
         uint32_t view;
+        std::shared_ptr<ConvertedSkins> converted;   // Until one of the model's skins is read.
     };
 
     // A race-named helm resolves to the file RetailItemDisplays::RaceFile chooses, which reads the item tables.
     bool Resolve(const std::string& normalized, uint32_t& fileDataId, std::string& error);
     bool FindDependency(const std::string& normalized, Dependency& dependency) const;
     bool ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error);
-    bool ReadSkin(const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error);
+    bool ReadSkin(const std::string& normalized, const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error);
+    bool TakeConvertedSkin(const std::string& normalized, std::vector<uint8_t>& bytes);
     // The helm fit of a stock race and gender, chosen once.
     HelmFit FitFor(uint32_t race, uint32_t gender);
     HelmFit ChooseFit(uint32_t race, uint32_t gender);

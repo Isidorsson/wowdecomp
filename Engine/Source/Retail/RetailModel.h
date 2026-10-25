@@ -42,6 +42,8 @@ struct ModelSkeleton {
 struct ConvertedModel {
     std::vector<uint8_t> m2;
     std::vector<uint32_t> skins;                // SFID FileDataIDs of views 0 to numSkinProfiles - 1.
+    std::vector<std::vector<uint8_t>> skinBytes; // Per view, its skin as ConvertSkin converts it: empty for a view that
+                                                 // does not convert, and none when a view's skin was not read.
     std::vector<RemappedSequence> remapped;
     ModelSkeleton skeleton;
     std::vector<std::string> warnings;          // Data dropped on the way, such as a missing .anim file.

@@ -43,6 +43,10 @@ struct BoneWindowPlan {
     std::vector<std::vector<SectionPiece>> views;    // Every submesh's pieces, for views with one to split.
 };
 
+// The pieces of one view drawn with palette bones, as PlanBoneWindows plans them: none for a palette the client
+// skins on the CPU (256), a skin that is broken (refused when it is converted) or one with nothing to split.
+std::vector<SectionPiece> PlanPieces(const std::vector<uint8_t>& m2, const std::vector<uint8_t>& skin, uint32_t palette);
+
 // Views whose palette the client skins on the CPU (256), and views whose skin is broken (refused when it is
 // converted), get no pieces.
 bool PlanBoneWindows(const std::vector<uint8_t>& m2, const std::vector<std::vector<uint8_t>>& skins, BoneWindowPlan& plan, std::string& error);

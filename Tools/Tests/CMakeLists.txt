@@ -41,6 +41,11 @@ if (TARGET RetailCore)
     )
 endif ()
 
+if (TARGET RetailAssets)
+    target_sources(WowdecompTests PRIVATE CascSourceTests.cpp)
+    target_link_libraries(WowdecompTests PRIVATE RetailAssets)
+endif ()
+
 if (TARGET casc_static)
     target_sources(WowdecompTests PRIVATE CascRangeFetchTests.cpp)
     target_link_libraries(WowdecompTests PRIVATE casc_static ws2_32)

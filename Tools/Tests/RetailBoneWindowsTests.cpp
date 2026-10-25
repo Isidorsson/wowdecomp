@@ -409,3 +409,19 @@ TEST(LeveledSubmeshesSplitTheTrianglesTheirLevelNames) {
     CHECK(ConvertSkin({ leveled, strip.file, 0, {} }, out, error));
     CHECK(Sections(out) >= 3 && Drawn(out, ModelOf(strip, ReaderOf(strip)).m2) == Drawn(strip.skin, strip.md20));
 }
+
+TEST(ModelsKeepTheSplitSkinOfEveryView) {
+    Strip strip = MakeStrip(131, 3);
+    ConvertedModel model = ModelOf(strip, ReaderOf(strip));
+
+    CHECK(model.skinBytes.size() == 3);
+    for (uint32_t view = 0; view < model.skinBytes.size(); view++) {
+        CHECK(!model.skinBytes[view].empty() && model.skinBytes[view] == SkinFor(strip, view, ReaderOf(strip)));
+    }
+}
+
+TEST(ModelsKeepNoSkinForAViewThatDoesNotConvert) {
+    Strip strip = MakeStrip(64, 1, 65406);
+
+    CHECK(ModelOf(strip, ReaderOf(strip)).skinBytes == std::vector<std::vector<uint8_t>>(1));
+}

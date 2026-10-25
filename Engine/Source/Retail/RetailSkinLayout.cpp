@@ -1,6 +1,5 @@
 #include "Engine/Source/Retail/RetailSkinLayout.h"
 #include "Engine/Source/Retail/Decimate.h"
-#include "Engine/Source/Retail/RetailBoneWindows.h"
 #include "Engine/Source/Retail/RetailModelData.h"
 #include <algorithm>
 #include <cstring>
@@ -300,29 +299,24 @@ static std::string DescribeReductions(const SkinLayout& layout) {
         + std::to_string(layout.stats.dropped) + " triangles dropped, " + std::to_string(layout.stats.degenerate) + " degenerate removed";
 }
 
-void ReportLayouts(const std::vector<uint8_t>& m2, const std::vector<std::vector<uint8_t>>& skins, const BoneWindowPlan& plan, std::vector<std::string>& warnings) {
-    for (uint32_t view = 0; view < skins.size(); view++) {
-        std::vector<uint8_t> skin = skins[view];
-        SkinLayout layout;
-        std::string error;
-        if (!SplitSections(skin, m2, plan, view, error) || !LayOutSections(skin, m2, layout, error) || !layout.changed) {
-            continue;
-        }
-
-        std::string scope = "skin " + std::to_string(view) + ": ";
-        std::string corners = std::to_string(Get<uint32_t>(skin, SkinAt::INDICES));
-        if (!layout.reduced.empty()) {
-            warnings.push_back(scope + "the 3.3.5 client keeps each submesh's start in 16 bits, so the submeshes other than the largest can hold "
-                + std::to_string(OTHERS_BUDGET) + " triangles together and this view needed more. " + DescribeReductions(layout) + ". The view has " + corners
-                + " corners now, laid out from index 0 with the largest last");
-            continue;
-        }
-
-        std::string leveled = layout.leveled == 1 ? "1 submesh started" : std::to_string(layout.leveled) + " submeshes started";
-        std::string how = layout.reordered ? "the largest last, as in submesh order one would start past the 65,535 the client keeps a start in" : "in submesh order";
-        warnings.push_back(scope + (layout.leveled ? leveled + " past index 65,535 (submesh Level), which the 3.3.5 client ignores; " : "") + "the " + corners
-            + " corners were laid out again from index 0, " + how + "; no triangle was removed");
+void ReportLayout(uint32_t view, const std::vector<uint8_t>& skin, const SkinLayout& layout, std::vector<std::string>& warnings) {
+    if (!layout.changed) {
+        return;
     }
+
+    std::string scope = "skin " + std::to_string(view) + ": ";
+    std::string corners = std::to_string(Get<uint32_t>(skin, SkinAt::INDICES));
+    if (!layout.reduced.empty()) {
+        warnings.push_back(scope + "the 3.3.5 client keeps each submesh's start in 16 bits, so the submeshes other than the largest can hold "
+            + std::to_string(OTHERS_BUDGET) + " triangles together and this view needed more. " + DescribeReductions(layout) + ". The view has " + corners
+            + " corners now, laid out from index 0 with the largest last");
+        return;
+    }
+
+    std::string leveled = layout.leveled == 1 ? "1 submesh started" : std::to_string(layout.leveled) + " submeshes started";
+    std::string how = layout.reordered ? "the largest last, as in submesh order one would start past the 65,535 the client keeps a start in" : "in submesh order";
+    warnings.push_back(scope + (layout.leveled ? leveled + " past index 65,535 (submesh Level), which the 3.3.5 client ignores; " : "") + "the " + corners
+        + " corners were laid out again from index 0, " + how + "; no triangle was removed");
 }
 
 }

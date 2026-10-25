@@ -399,3 +399,31 @@ TEST(ModelsWithNoDrawableSkinKeepTheFirstFourAndReduceThem) {
     CHECK(ConvertView(file, files, 0, VIEW_SKIN, out, error));
     CHECK(Packed(out) && Retail::SectionCounts(out) == std::vector<uint32_t>({ 65535, 0, 3 }));
 }
+
+// Every view's skin as the model conversion keeps it is the one its own conversion gives.
+static bool KeepsEveryViewsSkin(const std::vector<uint8_t>& file, const Files& files) {
+    ConvertedModel model = ModelOf(file, files);
+    if (model.skins.empty() || model.skinBytes.size() != model.skins.size()) {
+        return false;
+    }
+
+    for (uint32_t view = 0; view < model.skins.size(); view++) {
+        std::vector<uint8_t> out;
+        std::string error;
+        if (!ConvertView(file, files, view, model.skins[view], out, error) || model.skinBytes[view] != out) {
+            return false;
+        }
+    }
+    return true;
+}
+
+TEST(ModelsKeepTheSkinsTheirViewsConvertTo) {
+    Files reduced = { { VIEW_SKIN, TooLargeSkin() } };
+    for (uint32_t l = 0; l < 4; l++) {
+        reduced[FIRST_LOD + l] = TooLargeSkin();
+    }
+
+    CHECK(KeepsEveryViewsSkin(ModelWithLods(0), { { VIEW_SKIN, LeveledSkin({ { 0, 65535 }, { 65535, 3 }, { 65538, 3 } }) } }));
+    CHECK(KeepsEveryViewsSkin(ModelWithLods(2), { { VIEW_SKIN, TooLargeSkin() }, { FIRST_LOD, LodSkin(5) }, { FIRST_LOD + 1, LodSkin(7) } }));
+    CHECK(KeepsEveryViewsSkin(ModelWithLods(4), reduced));
+}

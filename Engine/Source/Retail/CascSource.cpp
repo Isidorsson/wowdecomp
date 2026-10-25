@@ -217,7 +217,7 @@ bool CascSource::Read(const char* name, std::vector<uint8_t>& bytes, std::string
 
     // Before the FileDataID rule: retail/91654100.skin is view 0 of model 916541, not FileDataID 91654100.
     if (this->FindDependency(normalized, dependency)) {
-        return this->ReadSkin(dependency, bytes, error);
+        return this->ReadSkin(normalized, dependency, bytes, error);
     }
 
     return this->ReadModel(normalized, bytes, error);
@@ -262,10 +262,15 @@ bool CascSource::ReadModel(const std::string& normalized, std::vector<uint8_t>& 
         WriteRemapped(DecodedCachePath(this->m_config, id).parent_path().parent_path() / "sequences" / (std::to_string(id) + ".csv"), model.remapped);
     }
 
+    std::shared_ptr<ConvertedSkins> converted;
+    if (model.skinBytes.size() == model.skins.size()) {
+        converted = std::make_shared<ConvertedSkins>(std::move(model.skinBytes));
+    }
+
     {
         std::unique_lock<std::shared_mutex> lock(this->m_dependencyMutex);
         for (uint32_t view = 0; view < model.skins.size(); view++) {
-            this->m_dependencies[SkinPathFor(normalized, view)] = { model.skins[view], id, view };
+            this->m_dependencies[SkinPathFor(normalized, view)] = { model.skins[view], id, view, converted };
         }
     }
 
@@ -308,7 +313,12 @@ HelmFit CascSource::ChooseFit(uint32_t race, uint32_t gender) {
     return *HelmFitFor(race, gender);
 }
 
-bool CascSource::ReadSkin(const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error) {
+// The skin the model's conversion kept when there is one; else converted from the originals, as after a later read.
+bool CascSource::ReadSkin(const std::string& normalized, const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error) {
+    if (this->TakeConvertedSkin(normalized, bytes)) {
+        return true;
+    }
+
     std::vector<uint8_t> original;
     std::vector<uint8_t> file;
 
@@ -320,6 +330,24 @@ bool CascSource::ReadSkin(const Dependency& dependency, std::vector<uint8_t>& by
         return this->ReadOriginal(skin, data, readError);
     } };
     return ConvertSkin(input, bytes, error);
+}
+
+// Once: the client loads one view of a model per load, so its other views' skins are dropped with it.
+bool CascSource::TakeConvertedSkin(const std::string& normalized, std::vector<uint8_t>& bytes) {
+    std::unique_lock<std::shared_mutex> lock(this->m_dependencyMutex);
+    auto found = this->m_dependencies.find(normalized);
+    if (found == this->m_dependencies.end() || !found->second.converted || (*found->second.converted)[found->second.view].empty()) {
+        return false;
+    }
+
+    std::shared_ptr<ConvertedSkins> converted = found->second.converted;
+    bytes = std::move((*converted)[found->second.view]);
+    for (auto& entry : this->m_dependencies) {
+        if (entry.second.converted == converted) {
+            entry.second.converted.reset();
+        }
+    }
+    return true;
 }
 
 // AnimationData from the same build as the models, read once. Without it, models with new animation ids are

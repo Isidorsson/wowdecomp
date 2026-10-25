@@ -205,6 +205,16 @@ static bool PlanView(const SkinData& data, uint32_t palette, std::vector<Section
     return true;
 }
 
+std::vector<SectionPiece> PlanPieces(const std::vector<uint8_t>& m2, const std::vector<uint8_t>& skin, uint32_t palette) {
+    std::vector<SectionPiece> pieces;
+    SkinData data(skin, m2);
+    std::string broken;
+    if (palette >= CPU_SKINNED_PALETTE || skin.size() < SkinAt::HEADER || !data.Read(broken) || !PlanView(data, palette, pieces, broken)) {
+        pieces.clear();
+    }
+    return pieces;
+}
+
 bool PlanBoneWindows(const std::vector<uint8_t>& m2, const std::vector<std::vector<uint8_t>>& skins, BoneWindowPlan& plan, std::string& error) {
     Span combos;
     if (!ReadSpan(m2, M2At::BONE_COMBOS, 2, "bone combos", combos, error)) {
@@ -213,16 +223,9 @@ bool PlanBoneWindows(const std::vector<uint8_t>& m2, const std::vector<std::vect
 
     plan = {};
     plan.combos = combos.count;
-    plan.views.resize(skins.size());
     uint32_t views = static_cast<uint32_t>(skins.size());
-
     for (uint32_t view = 0; view < views; view++) {
-        uint32_t palette = ViewBonePalette(view, views);
-        SkinData data(skins[view], m2);
-        std::string broken;
-        if (palette >= CPU_SKINNED_PALETTE || skins[view].size() < SkinAt::HEADER || !data.Read(broken) || !PlanView(data, palette, plan.views[view], broken)) {
-            plan.views[view].clear();
-        }
+        plan.views.push_back(PlanPieces(m2, skins[view], ViewBonePalette(view, views)));
     }
 
     return true;
