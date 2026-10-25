@@ -9,9 +9,10 @@
 #include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <thread>
 #include <vector>
 #include "Engine/Source/Retail/AnimationFallbacks.h"
-#include "Engine/Source/Retail/ConvertedCacheBudget.h"
+#include "Engine/Source/Retail/CacheBudget.h"
 #include "Engine/Source/Retail/HelmFit.h"
 #include "Engine/Source/Retail/ModelSkins.h"
 #include "Engine/Source/Retail/RetailConfig.h"
@@ -42,8 +43,16 @@ class CascSource {
     bool Configure(const std::filesystem::path& configPath, std::string& error);
     const std::string& ConfigError() const { return this->m_configError; }
 
+    // Starts the one-time loads a first use would otherwise wait for, on workers: the display tables, the animation
+    // fallbacks and the storage a first decoded-cache miss opens. Callers that arrive before one finishes wait for
+    // it. Also deletes the caches of the product's other builds. Once, after the warning sink is set: the workers
+    // warn through it.
+    void Preload();
+
     // Cheap and lock-free: called on every SFile open.
     bool Handles(const char* name) const;
+    // A converted model, or a cached original that is not a retail model, is found without reading it; anything
+    // else is read, which leaves it cached for the open that follows.
     bool Exists(const char* name, std::string& error);
     bool IsCached(const char* name, uint32_t& size);
     bool Read(const char* name, std::vector<uint8_t>& bytes, std::string& error);
@@ -76,6 +85,7 @@ class CascSource {
     // A race-named helm resolves to the file RetailItemDisplays::RaceFile chooses, which reads the item tables.
     bool Resolve(const std::string& normalized, uint32_t& fileDataId, std::string& error);
     bool FindDependency(const std::string& normalized, Dependency& dependency) const;
+    bool IsServableUnread(uint32_t fileDataId) const;
     bool ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error);
     bool Convert(uint32_t fileDataId, const std::vector<uint8_t>& file, ConvertedModel& model, std::string& error);
     bool Serve(const std::string& normalized, uint32_t fileDataId, ConvertedModel& model, std::vector<uint8_t>& bytes, std::string& error);
@@ -120,7 +130,10 @@ class CascSource {
     StockReader m_readStock;
     std::mutex m_fitMutex;
     std::map<uint32_t, HelmFit> m_fits;
-    ConvertedCacheBudget m_convertedBudget;
+    CacheBudget m_convertedBudget;
+    CacheBudget m_decodedBudget;
+    std::once_flag m_preloadStarted;
+    std::vector<std::thread> m_preloads;
 };
 
 }

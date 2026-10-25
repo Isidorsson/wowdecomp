@@ -4,7 +4,7 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailPath.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/DecodedCache.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ConvertedCache.cpp
-    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ConvertedCacheBudget.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CacheBudget.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CompressedBlocks.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/Db2Table.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/AnimationFallbacks.cpp

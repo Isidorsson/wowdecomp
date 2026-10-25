@@ -81,6 +81,27 @@ TEST(ConvertedCacheCapDefaultsAndParses) {
     CHECK(!ParseConfig("mode=local\npath=E:/Retail\nconverted_cache_mb=99999999999\n", s_base, config, error));
 }
 
+TEST(DecodedCacheCapDefaultsAndParses) {
+    Config config;
+    std::string error;
+
+    CHECK(ParseConfig("mode=local\npath=E:/Retail\n", s_base, config, error));
+    CHECK(config.decodedCacheMb == 4096);
+    CHECK(ParseConfig("mode=local\npath=E:/Retail\ndecoded_cache_mb=0\n", s_base, config, error));
+    CHECK(config.decodedCacheMb == 0);
+    CHECK(!ParseConfig("mode=local\npath=E:/Retail\ndecoded_cache_mb=4GB\n", s_base, config, error));
+}
+
+TEST(BuildCacheFoldersAreNamedByProductAndBuild) {
+    Config config;
+    config.cache = "C:/Cache";
+    config.build = s_build;
+
+    CHECK(Retail::BuildCacheFolder(config) == std::filesystem::path("C:/Cache/wow-88d5e8ef05ec5a8446cdec93d142d7c6"));
+    config.build.clear();
+    CHECK(Retail::BuildCacheFolder(config) == std::filesystem::path("C:/Cache/wow-local"));
+}
+
 static const char* s_buildInfo =
     "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|CDN Key!HEX:16|Version!STRING:0|Product!STRING:0\r\n"
     "eu|0|11111111111111111111111111111111|aa|12.1.0.1|wow\r\n"

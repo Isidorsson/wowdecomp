@@ -1,3 +1,5 @@
+#include <chrono>
+#include <cstring>
 #include <fstream>
 #include <process.h>
 #include <string>
@@ -5,7 +7,9 @@
 #include "Tools/Tests/Check.h"
 
 using Retail::Config;
+using Retail::DecodedCacheHead;
 using Retail::DecodedCachePath;
+using Retail::PeekDecodedCache;
 using Retail::ReadDecodedCache;
 using Retail::WriteDecodedCache;
 
@@ -98,4 +102,83 @@ TEST(OversizedCacheWritesAreRefused) {
 
     CHECK(!WriteDecodedCache(ScratchDir("oversized") / "5", bytes, error));
     CHECK(!error.empty());
+}
+
+static std::string Magic(const std::filesystem::path& path) {
+    char magic[4] = {};
+    std::ifstream(path, std::ios::binary).read(magic, 4);
+    return std::string(magic, 4);
+}
+
+// An entry as the first format wrote it: "RDC1", the byte count, then byte-wise FNV-1a 64.
+static void WriteFirstFormat(const std::filesystem::path& path, const std::vector<uint8_t>& bytes) {
+    uint64_t hash = 14695981039346656037ull;
+    for (uint8_t byte : bytes) {
+        hash = (hash ^ byte) * 1099511628211ull;
+    }
+    uint32_t count = static_cast<uint32_t>(bytes.size());
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::binary);
+    output.write("RDC1", 4);
+    output.write(reinterpret_cast<const char*>(&count), 4);
+    output.write(reinterpret_cast<const char*>(&hash), 8);
+    output.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+TEST(FirstFormatEntriesStillReadAndAreRewritten) {
+    auto path = ScratchDir("first-format") / "6";
+    std::vector<uint8_t> bytes = { 'B', 'L', 'P', '2', 9, 8, 7, 6, 5, 4, 3 };
+    std::vector<uint8_t> read;
+
+    WriteFirstFormat(path, bytes);
+    CHECK(ReadDecodedCache(path, read) && read == bytes);
+    CHECK(Magic(path) == "RDC2");
+    CHECK(ReadDecodedCache(path, read) && read == bytes);
+}
+
+TEST(EntriesAreWrittenInTheCurrentFormat) {
+    auto path = ScratchDir("current-format") / "7";
+    std::string error;
+
+    CHECK(WriteDecodedCache(path, { 1, 2, 3 }, error));
+    CHECK(Magic(path) == "RDC2");
+}
+
+TEST(PeeksReadTheHeaderAlone) {
+    auto dir = ScratchDir("peek");
+    std::vector<uint8_t> bytes = { 'M', 'D', '2', '1', 0, 1, 2, 3, 4, 5 };
+    std::vector<uint8_t> read;
+    DecodedCacheHead head;
+    std::string error;
+
+    CHECK(WriteDecodedCache(dir / "8", bytes, error));
+    CHECK(PeekDecodedCache(dir / "8", head) && head.size == bytes.size() && std::memcmp(head.magic, "MD21", 4) == 0);
+
+    // A damaged original still peeks: only a read checks it.
+    {
+        std::fstream file(dir / "8", std::ios::binary | std::ios::in | std::ios::out);
+        file.seekp(-1, std::ios::end);
+        file.put(9);
+    }
+    CHECK(PeekDecodedCache(dir / "8", head) && head.size == bytes.size());
+    CHECK(!ReadDecodedCache(dir / "8", read));
+
+    CHECK(WriteDecodedCache(dir / "9", { 'A', 'B' }, error));
+    CHECK(PeekDecodedCache(dir / "9", head) && head.size == 2 && head.magic[0] == 'A' && head.magic[1] == 'B' && head.magic[2] == 0);
+
+    std::filesystem::resize_file(dir / "9", std::filesystem::file_size(dir / "9") - 1);
+    CHECK(!PeekDecodedCache(dir / "9", head) && head.size == 0);
+    CHECK(!PeekDecodedCache(dir / "absent", head));
+}
+
+TEST(DecodedHitsMarkEntriesRecentlyUsed) {
+    auto path = ScratchDir("touch") / "10";
+    std::vector<uint8_t> read;
+    std::string error;
+
+    CHECK(WriteDecodedCache(path, { 1, 2, 3 }, error));
+    auto aged = std::filesystem::file_time_type::clock::now() - std::chrono::hours(48);
+    std::filesystem::last_write_time(path, aged);
+    CHECK(ReadDecodedCache(path, read));
+    CHECK(std::filesystem::last_write_time(path) - aged > std::chrono::hours(47));
 }

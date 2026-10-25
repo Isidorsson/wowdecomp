@@ -80,8 +80,11 @@ static void FillModel(ServedModel& served, int32_t id, const Retail::RetailCreat
 }
 
 static CreatureDisplayInfoRec* ServedDisplayRecord(int32_t id) {
+    if (id <= 0) {
+        return nullptr;
+    }
     const Retail::RetailDisplays* retail = Retail::CascSource::Instance().Displays();
-    const Retail::RetailDisplay* display = retail && id > 0 ? retail->Display(static_cast<uint32_t>(id)) : nullptr;
+    const Retail::RetailDisplay* display = retail ? retail->Display(static_cast<uint32_t>(id)) : nullptr;
     if (!display) {
         return nullptr;
     }

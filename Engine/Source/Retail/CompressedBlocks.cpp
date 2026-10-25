@@ -1,4 +1,5 @@
 #include "Engine/Source/Retail/CompressedBlocks.h"
+#include "Engine/Source/Retail/Checksum.h"
 #include <algorithm>
 #include <atomic>
 #include <cstring>
@@ -13,25 +14,6 @@ static constexpr size_t BLOCK_SIZE = 1 << 20;
 static constexpr size_t TABLE_ENTRY_SIZE = 12;
 static constexpr unsigned MAX_THREADS = 8;
 static constexpr DWORD ALGORITHM = COMPRESS_ALGORITHM_XPRESS_HUFF | COMPRESS_RAW;
-
-// Word-wise, so a block checks in a fraction of its decode time; the tail is mixed in byte by byte.
-static uint64_t Checksum(const uint8_t* bytes, size_t size) {
-    uint64_t hash = 14695981039346656037ull ^ size;
-    size_t words = size / 8;
-
-    for (size_t i = 0; i < words; i++) {
-        uint64_t word;
-        std::memcpy(&word, bytes + i * 8, 8);
-        hash = (hash ^ word) * 0x9e3779b97f4a7c15ull;
-        hash ^= hash >> 29;
-    }
-
-    for (size_t i = words * 8; i < size; i++) {
-        hash = (hash ^ bytes[i]) * 1099511628211ull;
-    }
-
-    return hash;
-}
 
 // Runs worker on this thread and up to MAX_THREADS - 1 more, one per two hardware threads; each worker claims blocks
 // from next until none are left.
@@ -83,7 +65,7 @@ std::vector<uint8_t> CompressBlocks(const uint8_t* data, size_t size) {
     std::memcpy(out.data(), &count, 4);
     for (size_t i = 0; i < blocks; i++) {
         uint32_t packedSize = static_cast<uint32_t>(packed[i].size());
-        uint64_t checksum = Checksum(packed[i].data(), packed[i].size());
+        uint64_t checksum = WordChecksum(packed[i].data(), packed[i].size());
         std::memcpy(out.data() + 4 + i * TABLE_ENTRY_SIZE, &packedSize, 4);
         std::memcpy(out.data() + 8 + i * TABLE_ENTRY_SIZE, &checksum, 8);
         out.insert(out.end(), packed[i].begin(), packed[i].end());
@@ -144,7 +126,7 @@ bool DecompressBlocks(const uint8_t* packed, size_t packedSize, uint8_t* out, si
             uint8_t* target = out + i * BLOCK_SIZE;
             size_t blockSize = std::min(BLOCK_SIZE, size - i * BLOCK_SIZE);
             SIZE_T written = 0;
-            bool ok = Checksum(block.packed, block.packedSize) == block.checksum;
+            bool ok = WordChecksum(block.packed, block.packedSize) == block.checksum;
             if (ok && block.packedSize == blockSize) {
                 std::memcpy(target, block.packed, blockSize);
             } else if (ok) {

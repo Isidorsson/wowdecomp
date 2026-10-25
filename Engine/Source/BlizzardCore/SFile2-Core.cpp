@@ -54,6 +54,8 @@ static Retail::CascSource& RetailSource() {
             SFile::Unload(data);
             return true;
         });
+
+        source.Preload();
     });
 
     return source;

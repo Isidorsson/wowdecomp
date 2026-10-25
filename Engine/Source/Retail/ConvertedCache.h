@@ -23,8 +23,11 @@ std::filesystem::path ConvertedCachePath(const Config& config, uint32_t fileData
 
 // The m2, skins, skinBytes, remapped sequences and warnings; not the skeleton. False is a miss: absent, another key,
 // another format, truncated, oversized or failing a checksum. An entry of another key or format is deleted, since it
-// can never hit again; a hit refreshes the entry's last write time, which TrimConvertedCache reads as its last use.
+// can never hit again; a hit refreshes the entry's last write time, which TrimCacheFolder reads as its last use.
 bool ReadConvertedCache(const std::filesystem::path& path, uint64_t key, ConvertedModel& model);
+
+// Whether path holds an entry of key, by its header alone: nothing is decompressed or checked.
+bool HasConvertedCache(const std::filesystem::path& path, uint64_t key);
 
 // Compressed, written to a temporary file and renamed, so a crash never leaves a half-written entry.
 bool WriteConvertedCache(const std::filesystem::path& path, uint64_t key, const ConvertedModel& model, std::string& error);

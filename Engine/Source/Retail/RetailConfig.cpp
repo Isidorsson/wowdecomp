@@ -77,6 +77,10 @@ static bool SetValue(const std::string& key, const std::string& value, const std
         if (!ParseMegabytes(value, config.convertedCacheMb)) {
             return Fail(error, "converted_cache_mb must be a whole number of megabytes, not '" + value + "'");
         }
+    } else if (key == "decoded_cache_mb") {
+        if (!ParseMegabytes(value, config.decodedCacheMb)) {
+            return Fail(error, "decoded_cache_mb must be a whole number of megabytes, not '" + value + "'");
+        }
     } else if (key == "aliases") {
         config.aliases = baseDir / value;
     } else {
@@ -84,6 +88,10 @@ static bool SetValue(const std::string& key, const std::string& value, const std
     }
 
     return true;
+}
+
+std::filesystem::path BuildCacheFolder(const Config& config) {
+    return config.cache / (config.product + "-" + (config.build.empty() ? std::string("local") : config.build));
 }
 
 bool ParseConfig(const std::string& text, const std::filesystem::path& baseDir, Config& config, std::string& error) {

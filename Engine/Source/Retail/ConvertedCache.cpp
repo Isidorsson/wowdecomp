@@ -25,8 +25,7 @@ uint64_t ConverterKey() {
 }
 
 std::filesystem::path ConvertedCacheFolder(const Config& config) {
-    std::string build = config.build.empty() ? "local" : config.build;
-    return config.cache / (config.product + "-" + build) / "converted";
+    return BuildCacheFolder(config) / "converted";
 }
 
 std::filesystem::path ConvertedCachePath(const Config& config, uint32_t fileDataId) {
@@ -220,6 +219,25 @@ static Entry ReadEntry(HANDLE file, uint64_t key, ConvertedModel& model) {
     std::vector<uint8_t> rest(model.m2.begin() + m2Size, model.m2.end());
     model.m2.resize(m2Size);
     return Deserialize(rest, model) ? Entry::Hit : Entry::Miss;
+}
+
+// The header of an entry this key reads, sized as its payload says.
+static bool IsCurrentHeader(HANDLE file, uint64_t key, Header& header) {
+    LARGE_INTEGER size;
+    return GetFileSizeEx(file, &size) && ReadExactly(file, &header, HEADER_SIZE) && header.magic == CACHE_MAGIC && header.key == key
+        && header.m2Size <= CONVERTED_CACHE_LIMIT && header.restSize <= CONVERTED_CACHE_LIMIT && uint64_t(size.QuadPart) == HEADER_SIZE + header.packedSize;
+}
+
+bool HasConvertedCache(const std::filesystem::path& path, uint64_t key) {
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    Header header;
+    bool current = IsCurrentHeader(file, key, header);
+    CloseHandle(file);
+    return current;
 }
 
 // With the right to set its times when the file allows it, so a hit can mark the entry used.

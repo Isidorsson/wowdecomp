@@ -1,17 +1,19 @@
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <process.h>
 #include <string>
 #include "Engine/Source/Retail/ConvertedCache.h"
-#include "Engine/Source/Retail/ConvertedCacheBudget.h"
+#include "Engine/Source/Retail/CacheBudget.h"
 #include "Tools/Tests/Check.h"
 
 using Retail::Config;
-using Retail::ConvertedCacheBudget;
+using Retail::CacheBudget;
 using Retail::ConvertedCachePath;
 using Retail::ConvertedModel;
+using Retail::HasConvertedCache;
 using Retail::ReadConvertedCache;
-using Retail::TrimConvertedCache;
+using Retail::TrimCacheFolder;
 using Retail::WriteConvertedCache;
 
 constexpr uint64_t KEY = 0x1234567890abcdefull;
@@ -211,14 +213,14 @@ TEST(TrimDeletesLeastRecentlyUsedEntriesToNinetyPercentOfTheCap) {
     WriteFile(dir / "notes.txt", 5000, 9);
     WriteFile(dir / "15.4242.1.tmp", 5000, 9);
 
-    CHECK(TrimConvertedCache(dir, 1000) == 400);
+    CHECK(TrimCacheFolder(dir, 1000) == 400);
     CHECK(std::filesystem::exists(dir / "12"));
-    CHECK(TrimConvertedCache(dir, 350) == 300);
+    CHECK(TrimCacheFolder(dir, 350) == 300);
     CHECK(!std::filesystem::exists(dir / "12"));
-    CHECK(TrimConvertedCache(dir, 250) == 200);
+    CHECK(TrimCacheFolder(dir, 250) == 200);
     CHECK(!std::filesystem::exists(dir / "14") && std::filesystem::exists(dir / "13") && std::filesystem::exists(dir / "11"));
     CHECK(std::filesystem::exists(dir / "notes.txt") && std::filesystem::exists(dir / "15.4242.1.tmp"));
-    CHECK(TrimConvertedCache(dir / "absent", 250) == 0);
+    CHECK(TrimCacheFolder(dir / "absent", 250) == 0);
 }
 
 TEST(BudgetTrimsAtStartAndOncePublishesPassTheCap) {
@@ -227,7 +229,7 @@ TEST(BudgetTrimsAtStartAndOncePublishesPassTheCap) {
     WriteFile(dir / "22", 100, 2);
     WriteFile(dir / "23", 100, 1);
 
-    ConvertedCacheBudget budget;
+    CacheBudget budget;
     budget.Start(dir, 250);
     budget.Wait();
     CHECK(!std::filesystem::exists(dir / "21") && std::filesystem::exists(dir / "22"));
@@ -248,7 +250,7 @@ TEST(UncappedBudgetsDeleteNothing) {
     auto dir = ScratchDir("uncapped");
     WriteFile(dir / "31", 100, 3);
 
-    ConvertedCacheBudget budget;
+    CacheBudget budget;
     budget.Start(dir, 0);
     budget.Added(1u << 30);
     budget.Wait();
@@ -299,4 +301,41 @@ TEST(ConvertedEntriesAreReplacedWithoutTemporaryFiles) {
         files += entry.is_regular_file();
     }
     CHECK(files == 1);
+}
+
+TEST(ConvertedEntriesAreFoundByTheirHeader) {
+    auto dir = ScratchDir("has");
+    std::string error;
+
+    CHECK(WriteConvertedCache(dir / "41", KEY, Sample(), error));
+    CHECK(HasConvertedCache(dir / "41", KEY));
+    CHECK(!HasConvertedCache(dir / "41", KEY + 1));
+    // Damage past the header is found only by a read.
+    Corrupt(dir / "41", -1);
+    CHECK(HasConvertedCache(dir / "41", KEY));
+    std::filesystem::resize_file(dir / "41", std::filesystem::file_size(dir / "41") - 1);
+    CHECK(!HasConvertedCache(dir / "41", KEY));
+    CHECK(!HasConvertedCache(dir / "absent", KEY));
+}
+
+TEST(OtherBuildsOfTheProductAreRemoved) {
+    auto cache = ScratchDir("builds");
+    std::string current = "wow-88d5e8ef05ec5a8446cdec93d142d7c6";
+    std::string old = "wow-18b43890bb75affcb09e78272ee9d00c";
+    WriteFile(cache / current / "decoded" / "1", 10, 0);
+    WriteFile(cache / old / "decoded" / "1", 10, 0);
+    WriteFile(cache / "wow-local" / "converted" / "2", 10, 0);
+    WriteFile(cache / "wowt-18b43890bb75affcb09e78272ee9d00c" / "decoded" / "1", 10, 0);
+    WriteFile(cache / "wow-notabuild" / "decoded" / "1", 10, 0);
+    WriteFile(cache / "wow-18b43890bb75affcb09e78272ee9d00c0" / "decoded" / "1", 10, 0);
+    WriteFile(cache / "wow-28b43890bb75affcb09e78272ee9d00c", 10, 0);
+
+    std::vector<std::string> removed = Retail::RemoveOtherBuilds(cache, "wow", current);
+    std::sort(removed.begin(), removed.end());
+    CHECK(removed == std::vector<std::string>({ old, "wow-local" }));
+    CHECK(std::filesystem::exists(cache / current / "decoded" / "1"));
+    CHECK(!std::filesystem::exists(cache / old) && !std::filesystem::exists(cache / "wow-local"));
+    CHECK(std::filesystem::exists(cache / "wowt-18b43890bb75affcb09e78272ee9d00c") && std::filesystem::exists(cache / "wow-notabuild"));
+    CHECK(std::filesystem::exists(cache / "wow-18b43890bb75affcb09e78272ee9d00c0") && std::filesystem::exists(cache / "wow-28b43890bb75affcb09e78272ee9d00c"));
+    CHECK(Retail::RemoveOtherBuilds(cache / "absent", "wow", current).empty());
 }

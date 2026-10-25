@@ -83,8 +83,11 @@ static void FillItemDisplay(ServedItemDisplay& served, const Retail::RetailItemD
 }
 
 static int32_t ServedRecord(int32_t id, ItemDisplayInfoRec* rec) {
+    if (id <= 0) {
+        return 0;
+    }
     const Retail::RetailItemDisplays* retail = Retail::CascSource::Instance().ItemDisplays();
-    const Retail::RetailItemDisplay* display = retail && id > 0 ? retail->Display(static_cast<uint32_t>(id)) : nullptr;
+    const Retail::RetailItemDisplay* display = retail ? retail->Display(static_cast<uint32_t>(id)) : nullptr;
     if (!display) {
         return 0;
     }
@@ -103,11 +106,11 @@ static std::map<int32_t, std::string> s_stockIcons;
 // A downported stock row keeps the retail id but names no icon when no appearance gave the display one, so it takes
 // the icon retail's would be served with. Stock icons still win.
 static void FillStockIcon(int32_t id, ItemDisplayInfoRec* rec) {
-    if (rec->m_inventoryIcon[0] && *rec->m_inventoryIcon[0]) {
+    if (id <= 0 || (rec->m_inventoryIcon[0] && *rec->m_inventoryIcon[0])) {
         return;
     }
     const Retail::RetailItemDisplays* retail = Retail::CascSource::Instance().ItemDisplays();
-    const Retail::RetailItemDisplay* display = retail && id > 0 ? retail->Display(static_cast<uint32_t>(id)) : nullptr;
+    const Retail::RetailItemDisplay* display = retail ? retail->Display(static_cast<uint32_t>(id)) : nullptr;
     if (!display || !display->icon) {
         return;
     }

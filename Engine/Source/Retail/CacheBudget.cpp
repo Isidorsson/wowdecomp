@@ -1,4 +1,4 @@
-#include "Engine/Source/Retail/ConvertedCacheBudget.h"
+#include "Engine/Source/Retail/CacheBudget.h"
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -19,7 +19,7 @@ struct CachedEntry {
 
 }
 
-uint64_t TrimConvertedCache(const std::filesystem::path& folder, uint64_t cap) {
+uint64_t TrimCacheFolder(const std::filesystem::path& folder, uint64_t cap) {
     std::vector<CachedEntry> entries;
     uint64_t total = 0;
     std::error_code ec;
@@ -44,6 +44,11 @@ uint64_t TrimConvertedCache(const std::filesystem::path& folder, uint64_t cap) {
         if (total <= target) {
             break;
         }
+        // Read or rewritten since the listing, so in use again.
+        std::error_code entryError;
+        if (std::filesystem::last_write_time(entry.path, entryError) != entry.used || entryError) {
+            continue;
+        }
         if (std::filesystem::remove(entry.path, ec)) {
             total -= entry.size;
         }
@@ -51,11 +56,36 @@ uint64_t TrimConvertedCache(const std::filesystem::path& folder, uint64_t cap) {
     return total;
 }
 
-ConvertedCacheBudget::~ConvertedCacheBudget() {
+// The build part as the build cache folders have it: a build key of 32 hex digits, or "local" without one.
+static bool IsBuildName(const std::string& build) {
+    return build == "local" || (build.size() == 32 && build.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos);
+}
+
+std::vector<std::string> RemoveOtherBuilds(const std::filesystem::path& cache, const std::string& product, const std::string& current) {
+    std::vector<std::string> removed;
+    std::string prefix = product + "-";
+    std::error_code ec;
+
+    for (std::filesystem::directory_iterator it(cache, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code entryError;
+        std::string name = it->path().filename().string();
+        if (name == current || name.compare(0, prefix.size(), prefix) != 0 || !IsBuildName(name.substr(prefix.size()))
+            || !it->is_directory(entryError) || it->is_symlink(entryError)) {
+            continue;
+        }
+        std::filesystem::remove_all(it->path(), entryError);
+        if (!entryError) {
+            removed.push_back(name);
+        }
+    }
+    return removed;
+}
+
+CacheBudget::~CacheBudget() {
     this->Wait();
 }
 
-void ConvertedCacheBudget::Start(const std::filesystem::path& folder, uint64_t cap) {
+void CacheBudget::Start(const std::filesystem::path& folder, uint64_t cap) {
     this->Wait();
     std::lock_guard<std::mutex> lock(this->m_mutex);
     this->m_folder = folder;
@@ -67,7 +97,7 @@ void ConvertedCacheBudget::Start(const std::filesystem::path& folder, uint64_t c
     }
 }
 
-void ConvertedCacheBudget::Added(uint64_t bytes) {
+void CacheBudget::Added(uint64_t bytes) {
     std::lock_guard<std::mutex> lock(this->m_mutex);
     if (!this->m_cap) {
         return;
@@ -81,7 +111,7 @@ void ConvertedCacheBudget::Added(uint64_t bytes) {
     }
 }
 
-void ConvertedCacheBudget::Wait() {
+void CacheBudget::Wait() {
     std::thread worker;
     {
         std::lock_guard<std::mutex> lock(this->m_mutex);
@@ -93,7 +123,7 @@ void ConvertedCacheBudget::Wait() {
 }
 
 // Under m_mutex. A finished worker has already left the lock, so joining it here never waits on it.
-void ConvertedCacheBudget::Launch() {
+void CacheBudget::Launch() {
     if (this->m_worker.joinable()) {
         this->m_worker.join();
     }
@@ -101,7 +131,7 @@ void ConvertedCacheBudget::Launch() {
     this->m_trimming = true;
     this->m_addedDuringTrim = 0;
     this->m_worker = std::thread([this, folder = this->m_folder, cap = this->m_cap] {
-        uint64_t total = TrimConvertedCache(folder, cap);
+        uint64_t total = TrimCacheFolder(folder, cap);
         std::lock_guard<std::mutex> lock(this->m_mutex);
         this->m_bytes = total + this->m_addedDuringTrim;
         this->m_counted = true;

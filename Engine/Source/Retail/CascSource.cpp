@@ -70,6 +70,9 @@ CascSource& CascSource::Instance() {
 CascSource::CascSource() = default;
 
 CascSource::~CascSource() {
+    for (std::thread& preload : this->m_preloads) {
+        preload.join();
+    }
     if (this->m_storage) {
         CascCloseStorage(this->m_storage);
     }
@@ -116,7 +119,34 @@ bool CascSource::Configure(const std::filesystem::path& configPath, std::string&
     this->m_aliases = aliases;
     this->m_configured = true;
     this->m_convertedBudget.Start(ConvertedCacheFolder(config), uint64_t(config.convertedCacheMb) << 20);
+    this->m_decodedBudget.Start(DecodedCacheFolder(config), uint64_t(config.decodedCacheMb) << 20);
     return true;
+}
+
+void CascSource::Preload() {
+    if (!this->m_configured) {
+        return;
+    }
+
+    std::call_once(this->m_preloadStarted, [this] {
+        this->m_preloads.emplace_back([this] {
+            this->ReadDisplayTables();
+            this->Fallbacks();
+        });
+        this->m_preloads.emplace_back([this] {
+            std::string error;
+            std::lock_guard<std::mutex> lock(this->m_storageMutex);
+            if (!this->OpenStorage(error)) {
+                this->Warn(error);
+            }
+        });
+        this->m_preloads.emplace_back([this] {
+            std::filesystem::path current = BuildCacheFolder(this->m_config);
+            for (const std::string& removed : RemoveOtherBuilds(current.parent_path(), this->m_config.product, current.filename().string())) {
+                this->Warn("removed the cache of another build, " + (current.parent_path() / removed).string());
+            }
+        });
+    });
 }
 
 // A path that starts with "r" or whose file name starts with "retail-", in any case: what ClaimsPath can claim
@@ -192,7 +222,6 @@ bool CascSource::IsCached(const char* name, uint32_t& size) {
     Dependency dependency;
     uint32_t id;
     std::string error;
-    std::vector<uint8_t> bytes;
 
     if (this->FindDependency(normalized, dependency)) {
         id = dependency.skin;
@@ -200,17 +229,43 @@ bool CascSource::IsCached(const char* name, uint32_t& size) {
         return false;
     }
 
-    if (!ReadDecodedCache(DecodedCachePath(this->m_config, id), bytes)) {
+    DecodedCacheHead head;
+    if (!PeekDecodedCache(DecodedCachePath(this->m_config, id), head)) {
         return false;
     }
 
-    size = static_cast<uint32_t>(bytes.size());
+    size = head.size;
     return true;
 }
 
+// Skins and race-named helms are always read: a skin's model may need converting, and a helm's fit may fail.
 bool CascSource::Exists(const char* name, std::string& error) {
+    std::string normalized = NormalizePath(name);
+    Dependency dependency;
+    uint32_t id;
+    uint32_t race;
+    uint32_t gender;
+
+    if (!this->FindDependency(normalized, dependency) && !HelmRaceForPath(normalized, race, gender)) {
+        if (!this->Resolve(normalized, id, error)) {
+            return false;
+        }
+        if (this->IsServableUnread(id)) {
+            return true;
+        }
+    }
+
     std::vector<uint8_t> bytes;
     return this->Read(name, bytes, error);
+}
+
+bool CascSource::IsServableUnread(uint32_t id) const {
+    if (HasConvertedCache(ConvertedCachePath(this->m_config, id), ConverterKey())) {
+        return true;
+    }
+
+    DecodedCacheHead head;
+    return PeekDecodedCache(DecodedCachePath(this->m_config, id), head) && (head.size < 4 || std::memcmp(head.magic, "MD21", 4) != 0);
 }
 
 bool CascSource::Read(const char* name, std::vector<uint8_t>& bytes, std::string& error) {
@@ -536,7 +591,9 @@ bool CascSource::ReadCached(uint32_t id, uint32_t openFlags, std::vector<uint8_t
 
     // A failed cache write only costs a refetch next launch; the bytes are still good.
     std::string cacheError;
-    WriteDecodedCache(cachePath, bytes, cacheError);
+    if (WriteDecodedCache(cachePath, bytes, cacheError)) {
+        this->m_decodedBudget.Added(bytes.size() + DECODED_CACHE_HEADER_SIZE);
+    }
     return true;
 }
 
