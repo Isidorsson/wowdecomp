@@ -32,6 +32,11 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BakeBlp.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailRaces.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailBodyLook.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailIndex.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailIndexSets.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailIndexSearch.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BrowserMarshal.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BrowserDetails.cpp
 )
 target_include_directories(RetailCore PUBLIC ${CMAKE_SOURCE_DIR})
 # The Windows Compression API, for the converted cache.
@@ -86,6 +91,7 @@ unset(CMAKE_POLICY_VERSION_MINIMUM)
 add_library(RetailAssets STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSource.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceNpc.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceBrowser.cpp
 )
 target_link_libraries(RetailAssets PUBLIC RetailCore PRIVATE casc_static)
 target_compile_definitions(RetailAssets PUBLIC WOWDECOMP_RETAIL_ASSETS=1)

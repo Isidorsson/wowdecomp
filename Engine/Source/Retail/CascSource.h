@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -12,6 +13,7 @@
 #include <thread>
 #include <vector>
 #include "Engine/Source/Retail/AnimationFallbacks.h"
+#include "Engine/Source/Retail/BrowserMarshal.h"
 #include "Engine/Source/Retail/BakeWarp.h"
 #include "Engine/Source/Retail/CacheBudget.h"
 #include "Engine/Source/Retail/HelmFit.h"
@@ -44,6 +46,7 @@ class CascSource {
     CascSource& operator=(const CascSource&) = delete;
 
     bool Configure(const std::filesystem::path& configPath, std::string& error);
+    bool Configured() const { return this->m_configured; }
     const std::string& ConfigError() const { return this->m_configError; }
 
     // Starts the one-time loads a first use would otherwise wait for, on workers: the display tables, the animation
@@ -79,6 +82,11 @@ class CascSource {
     // The geoset ids of a retail model's first view (its SFID skin), read once per model; empty when unreadable,
     // which a warning explains.
     const std::vector<uint32_t>& ModelGeosets(uint32_t fileDataId);
+
+    // The retail browser's search index (RetailIndex.h). The first call starts building it on a worker and every call
+    // returns at once: Building until it is ready, then Ready with the index, or Failed with the reason (also warned).
+    // Idle without a configured storage.
+    BrowserIndexView BrowserIndex();
 
     // Where a read reports data it dropped but did not fail on, such as a missing .anim file.
     void SetWarningSink(std::function<void(const std::string&)> sink) { this->m_warn = std::move(sink); }
@@ -147,6 +155,8 @@ class CascSource {
     bool LoadCreatureTables(std::string& error);
     bool LoadItemTables(std::string& error);
     bool OpenStorage(std::string& error);
+    bool LoadBrowserIndex(std::string& error);
+    BrowserLookups BrowserDisplayLookups();
     bool ReadStorage(uint32_t fileDataId, uint32_t openFlags, std::vector<uint8_t>& bytes, std::string& error);
 
     bool m_configured = false;
@@ -185,6 +195,11 @@ class CascSource {
     CacheBudget m_decodedBudget;
     std::once_flag m_preloadStarted;
     std::vector<std::thread> m_preloads;
+    std::once_flag m_browserStarted;
+    std::thread m_browserWorker;
+    std::atomic<IndexState> m_browserState { IndexState::Idle };
+    RetailIndex m_browserIndex;   // Written by the worker before the state turns Ready, then read only.
+    std::string m_browserError;   // Written by the worker before the state turns Failed.
 };
 
 }

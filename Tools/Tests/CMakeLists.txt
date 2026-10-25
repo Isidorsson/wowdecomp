@@ -39,6 +39,8 @@ if (TARGET RetailCore)
         BakeWarpTests.cpp
         RetailRacesTests.cpp
         RetailBodyLookTests.cpp
+        RetailIndexTests.cpp
+        BrowserMarshalTests.cpp
     )
     target_link_libraries(WowdecompTests PRIVATE RetailCore)
     target_sources(WowdecompTests PRIVATE

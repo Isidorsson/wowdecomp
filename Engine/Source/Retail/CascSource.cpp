@@ -70,6 +70,9 @@ CascSource& CascSource::Instance() {
 CascSource::CascSource() = default;
 
 CascSource::~CascSource() {
+    if (this->m_browserWorker.joinable()) {
+        this->m_browserWorker.join();
+    }
     for (std::thread& preload : this->m_preloads) {
         preload.join();
     }

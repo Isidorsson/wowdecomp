@@ -1,0 +1,13 @@
+## Interface: 30300
+## Title: Retail Browser
+## Notes: Search the retail creatures, items, sets, models and mounts this client serves from CASC. /rb
+## Author: wowdecomp
+## Version: 1
+## SavedVariables: RetailBrowserDB
+Core.lua
+Commands.lua
+Widgets.lua
+Frame.lua
+List.lua
+Detail.lua
+Preview.lua

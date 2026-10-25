@@ -1,0 +1,94 @@
+#include <chrono>
+#include "Engine/Source/Retail/CascSource.h"
+#include "Engine/Source/Retail/ItemTables.h"
+
+// The retail browser half of CascSource: its search index, built once on a worker from the browser tables and the
+// display loaders, so the UI never waits on a table read (Interface\AddOns\RetailBrowser polls RetailBrowserInfo).
+
+namespace Retail {
+
+BrowserIndexView CascSource::BrowserIndex() {
+    if (!this->m_configured) {
+        return {};
+    }
+    std::call_once(this->m_browserStarted, [this] {
+        this->m_browserState = IndexState::Building;
+        this->m_browserWorker = std::thread([this] {
+            auto start = std::chrono::steady_clock::now();
+            std::string error;
+            if (!this->LoadBrowserIndex(error)) {
+                this->m_browserError = error;
+                this->Warn("retail browser: " + error);
+                this->m_browserState = IndexState::Failed;
+                return;
+            }
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+            this->Warn("retail browser: indexed " + std::to_string(this->m_browserIndex.Count(BrowseKind::Creature)) + " creatures, " +
+                std::to_string(this->m_browserIndex.Count(BrowseKind::Item)) + " items, " + std::to_string(this->m_browserIndex.Count(BrowseKind::Set)) +
+                " sets, " + std::to_string(this->m_browserIndex.Count(BrowseKind::Model)) + " models and " +
+                std::to_string(this->m_browserIndex.Count(BrowseKind::Mount)) + " mounts in " + std::to_string(ms) + " ms");
+            this->m_browserState = IndexState::Ready;
+        });
+    });
+    IndexState state = this->m_browserState;
+    return { state, state == IndexState::Ready ? &this->m_browserIndex : nullptr, state == IndexState::Failed ? this->m_browserError : std::string() };
+}
+
+// What the display loaders know of a display; a loader that failed knows nothing.
+BrowserLookups CascSource::BrowserDisplayLookups() {
+    const RetailDisplays* displays = this->Displays();
+    const RetailItemDisplays* items = this->ItemDisplays();
+    const RetailNpcTables* npc = this->NpcTables();
+    auto creature = [displays, npc](uint32_t id, CreatureDisplayFacts& facts) {
+        const RetailDisplay* display = displays ? displays->Display(id) : nullptr;
+        if (!display) {
+            return false;
+        }
+        const RetailCreatureModel* model = displays->Model(display->modelId);
+        facts.modelId = display->modelId;
+        facts.modelFdid = model ? model->fileDataId : 0;
+        facts.scale = display->scale;
+        facts.extraId = display->extendedDisplayId;
+        const NpcExtra* extra = facts.extraId && npc ? npc->Extra(facts.extraId) : nullptr;
+        if (extra) {
+            facts.race = extra->race;
+            facts.sex = extra->sex;
+            facts.sdBake = extra->sdBake;
+            facts.hdBake = extra->hdBake;
+        }
+        return true;
+    };
+    auto item = [items](uint32_t id, ItemDisplayFacts& facts) {
+        const RetailItemDisplay* display = items ? items->Display(id) : nullptr;
+        if (!display) {
+            return false;
+        }
+        facts.models = display->models;
+        facts.icon = display->icon;
+        return true;
+    };
+    return { creature, item };
+}
+
+bool CascSource::LoadBrowserIndex(std::string& error) {
+    Db2Table creatures, items, searchNames, modifiedAppearances, appearances, transmogSets, transmogSetItems, itemSets, mounts, mountDisplays,
+        creatureTypes, creatureFamilies, itemSubClasses;
+    const std::vector<std::pair<uint32_t, Db2Table*>> tables = { { CREATURE_FDID, &creatures }, { ITEM_FDID, &items },
+        { ITEM_SEARCH_NAME_FDID, &searchNames }, { ITEM_MODIFIED_APPEARANCE_FDID, &modifiedAppearances }, { ITEM_APPEARANCE_FDID, &appearances },
+        { TRANSMOG_SET_FDID, &transmogSets }, { TRANSMOG_SET_ITEM_FDID, &transmogSetItems }, { ITEM_SET_FDID, &itemSets }, { MOUNT_FDID, &mounts },
+        { MOUNT_X_DISPLAY_FDID, &mountDisplays }, { CREATURE_TYPE_FDID, &creatureTypes }, { CREATURE_FAMILY_FDID, &creatureFamilies },
+        { ITEM_SUB_CLASS_FDID, &itemSubClasses } };
+    if (!this->ReadTables(tables, error)) {
+        return false;
+    }
+    for (const auto& [fileDataId, table] : tables) {
+        if (table->SkippedRows()) {
+            this->Warn("table " + std::to_string(fileDataId) + ": skipped " + std::to_string(table->SkippedRows()) + " still-locked rows");
+        }
+    }
+    BrowserTables browser = { creatures, items, searchNames, modifiedAppearances, appearances, transmogSets, transmogSetItems, itemSets, mounts,
+        mountDisplays, creatureTypes, creatureFamilies, itemSubClasses };
+    return this->m_browserIndex.Build(browser, this->BrowserDisplayLookups(), error);
+}
+
+}

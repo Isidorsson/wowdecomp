@@ -70,6 +70,7 @@
 #include "WoW/Source/Ui/AddOns.h"
 #include "WoW/Source/Ui/ArenaTeamInfo.h"
 #include "WoW/Source/Ui/BugReport.h"
+#include "WoW/Source/Ui/RetailBrowser_Scripts.h"
 #include "WoW/Source/Ui/AuctionHouse.h"
 #include "WoW/Source/Ui/BarberShop.h"
 #include "WoW/Source/Ui/BattlefieldInfo.h"
@@ -1808,6 +1809,7 @@ void CGGameUI::InitializeFrameXML() {
     }
 
     BugReportRegister();
+    RetailBrowserRegister();
     LoadAddOns(&status);
     FrameXML_RegisterLoadProgressCallback(nullptr, nullptr, 0);
     CGGameUI::Initialize();

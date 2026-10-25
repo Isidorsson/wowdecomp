@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="RETAILBROWSER_TOGGLE" header="RETAILBROWSER">
+        RetailBrowser_Toggle()
+    </Binding>
+</Bindings>

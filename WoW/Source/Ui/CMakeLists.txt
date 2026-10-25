@@ -19,3 +19,8 @@ if (WIN32)
             lgLcd
     )
 endif ()
+
+# The retail browser's Lua functions (RetailBrowser_Scripts.cpp) read the CASC source.
+if (TARGET RetailAssets)
+    target_link_libraries(Ui PRIVATE RetailAssets)
+endif ()
