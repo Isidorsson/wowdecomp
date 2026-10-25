@@ -13,6 +13,55 @@ of the original client (`Engine/Source/<Module>`, `WoW/Source/<Module>`, origina
 x64 is the main target. Win32 still builds and is used to check struct layouts against the 32-bit
 original.
 
+## What this fork adds
+
+This is the `dev` branch of [Isidorsson/wowdecomp](https://github.com/Isidorsson/wowdecomp), a fork of
+[SatyPardus/wowdecomp](https://github.com/SatyPardus/wowdecomp). `main` tracks upstream; `dev` adds the changes below
+on top of it. New features are behind CMake options that are off by default, so a default build behaves like
+upstream plus the bug fixes and `fastExit`.
+
+### Retail assets
+
+With `-DWOWDECOMP_RETAIL_ASSETS=ON` and a `Data/Retail/RetailCasc.ini`, the client draws retail (including Midnight)
+creatures, mounts and gear straight from a retail install or Blizzard's CDN, converted in memory to 3.3.5 models:
+
+- Any retail CreatureDisplayInfo id works for `.morph`, creature spawns and mounts, without a downported DBC.
+- Retail ItemDisplayInfo ids show weapons, armour textures, shoulders, cloaks, icons, and helms by race with hair
+  hiding and a fit to the 3.3.5 heads.
+- Retail humanoid NPCs (player-race displays with extended display info) draw on the installed bodies with their
+  retail skin, hair and gear; Goblin and the newer races are not yet.
+- `Tools/RetailServerDisplays` writes the worldserver DBC rows and `creature_model_info` SQL those displays need.
+- Decoded and converted models are cached on disk with size caps, so a model converts once.
+
+Setup, every config key, what converts and what does not yet are in [docs/RETAIL-ASSETS.md](docs/RETAIL-ASSETS.md).
+
+### Other changes
+
+- **Dev remote** (`-DWOWDECOMP_DEV_REMOTE=ON`): each client listens on a local named pipe,
+  `\\.\pipe\wowdecomp-dev-<pid>`, and runs Lua, console and state requests from it on the main thread, so test tools
+  can drive the client. Pipe commands count as user activity, so a driven client is not logged out as idle.
+- **`fastExit` CVar** (on by default): on exit the client saves the UI, the DB cache and the CVars, flushes its logs
+  and quits without tearing the engine down one piece at a time (766 ms instead of 1330 ms in Stormwind). `fastExit 0`
+  keeps the original teardown. Based on SatyPardus/wowdecomp#23.
+- **Item icons without a client DBC row**: bags, action bars and `GetItemIcon` fall back to the display id the server
+  sent, so new custom items no longer need a client `Item.dbc` patch for their icon.
+- **Model fixes**: M2s past engine limits (unknown effect ids, bad bone counts) are refused and logged to
+  `Logs/Model2.log` instead of crashing; animation tracks that start after the current time no longer underflow
+  `FindKey` and are named in `Logs/M2Errors.log`.
+- **UI fixes**: `UnitDamage` reads the player's damage done percent as a float (the character panel tooltip showed
+  `x106451436800%`), and guild bank withdrawals read as signed, so unlimited shows as Unlimited.
+
+### Tests
+
+`WowdecompTests` is a dependency-free test executable registered with CTest. It always covers the model limits and
+BLP code, and with `WOWDECOMP_RETAIL_ASSETS=ON` also the retail config, caches, DB2 reader, converter, displays and
+server display rows. It needs no game data or network.
+
+```powershell
+cmake --build build/x64 --config Release --target WowdecompTests --parallel
+ctest --test-dir build/x64 -C Release --output-on-failure
+```
+
 ## Progress
 
 The percentages below measure how much of the original binary has a counterpart in this source tree. They do
@@ -81,6 +130,8 @@ logger off in `WowClient` with `-DWOWCLIENT_CRASH_LOG=OFF`.
 | `WOWDECOMP_DISABLE_SIGNATURE_CHECKS` | `OFF` | Skip the MPQ file and `.toc.sig` signature checks, so modified game data and interface files load |
 | `WOWCLIENT_CRASH_LOG` | `ON` | Build `WowClient` with the crash logger |
 | `WOWCLIENT_OUTPUT_OVERRIDE` | empty | Name the `WowClient` executable something other than `WowClient64` / `WowClient32` |
+| `WOWDECOMP_RETAIL_ASSETS` | `OFF` | (fork) Serve retail models and displays from CASC, see [docs/RETAIL-ASSETS.md](docs/RETAIL-ASSETS.md) |
+| `WOWDECOMP_DEV_REMOTE` | `OFF` | (fork) Local named-pipe remote control for test tools |
 
 ## Running
 
