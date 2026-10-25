@@ -1,4 +1,6 @@
 #include <fstream>
+#include <process.h>
+#include <string>
 #include "Engine/Source/Retail/DecodedCache.h"
 #include "Tools/Tests/Check.h"
 
@@ -7,8 +9,9 @@ using Retail::DecodedCachePath;
 using Retail::ReadDecodedCache;
 using Retail::WriteDecodedCache;
 
+// Per process, so two runs at once (a build check beside the dev tree's) do not clear each other's files.
 static std::filesystem::path ScratchDir(const char* name) {
-    auto dir = std::filesystem::temp_directory_path() / "wowdecomp-tests" / name;
+    auto dir = std::filesystem::temp_directory_path() / ("wowdecomp-tests-" + std::to_string(_getpid())) / name;
     std::filesystem::remove_all(dir);
     return dir;
 }
