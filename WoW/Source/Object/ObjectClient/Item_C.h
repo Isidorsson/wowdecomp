@@ -47,6 +47,7 @@ class CGItem_C : public CGObject_C, public CGItem {
     static void RemoveNameFromCache(const char* name);
     static const char* GetInventoryArt(int32_t displayId);
     const char* GetInventoryArt() const;
+    static bool InventoryDisplayId(int32_t itemId, int32_t& displayId);
 
     /* 00DC */ TSList<void> m_itemMirrorLists [58];
     /* 0394 */ uint32_t m_itemFlags;

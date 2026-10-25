@@ -1121,13 +1121,28 @@ const char* CGItem_C::GetInventoryArt(int32_t displayId) {
 // VERIFY: 3c4650e1 auto
 // OFFSET: 0x0070AA00
 const char* CGItem_C::GetInventoryArt() const {
-    ItemRec* rec = g_itemDB.GetRecord(this->m_obj->m_entryID);
+    int32_t displayId = 0;
+    CGItem_C::InventoryDisplayId(this->m_obj->m_entryID, displayId);
+    return CGItem_C::GetInventoryArt(displayId);
+}
 
-    if (rec) {
-        return CGItem_C::GetInventoryArt(rec->m_displayInfoID);
+// Not in the original. An item the client's Item.dbc lacks (a server's custom item) takes its display from the item
+// cache, as GetItemInfo does, so bags show its icon. Item.dbc rows win; false while neither has the item.
+bool CGItem_C::InventoryDisplayId(int32_t itemId, int32_t& displayId) {
+    if (ItemRec* rec = g_itemDB.GetRecord(itemId)) {
+        displayId = rec->m_displayInfoID;
+        return true;
     }
 
-    return CGItem_C::GetInventoryArt(0);
+    WOWGUID none = WOWGUID();
+    ItemStats_C* stats = g_itemDBCache.GetRecord(itemId, none, nullptr, nullptr, false);
+
+    if (!stats) {
+        return false;
+    }
+
+    displayId = stats->m_displayId;
+    return true;
 }
 
 // VERIFY: 61c58006 manual

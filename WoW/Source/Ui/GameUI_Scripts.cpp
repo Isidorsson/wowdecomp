@@ -4159,16 +4159,16 @@ static int32_t Script_GetItemIcon(lua_State* L) {
         itemId = GetItemIDByName(lua_tolstring(L, 1, nullptr));
     }
 
-    ItemRec* item = g_itemDB.GetRecord(itemId);
+    int32_t displayId = 0;
 
-    if (!item) {
+    if (!CGItem_C::InventoryDisplayId(itemId, displayId)) {
         return 0;
     }
 
     const char* path = ClientDBStringLookup(SLOOKUP_INVENTORYICONPATH);
     const char* separator = *path ? "\\" : "";
     char icon[260];
-    SStrPrintf(icon, sizeof(icon), "%s%s%s", path, separator, CGItem_C::GetInventoryArt(item->m_displayInfoID));
+    SStrPrintf(icon, sizeof(icon), "%s%s%s", path, separator, CGItem_C::GetInventoryArt(displayId));
     lua_pushstring(L, icon);
     return 1;
 }
