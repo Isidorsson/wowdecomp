@@ -11,6 +11,8 @@
 
 namespace Retail {
 
+constexpr uint32_t MAX_VIEWS = 4;   // The views the client takes.
+
 // The bone palette the client assumes for view of a model with views views (Wow.exe 12340 0xA45644, M2Shared.cpp).
 uint32_t ViewBonePalette(uint32_t view, uint32_t views);
 

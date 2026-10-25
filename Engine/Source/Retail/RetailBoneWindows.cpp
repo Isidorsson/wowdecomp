@@ -1,5 +1,6 @@
 #include "Engine/Source/Retail/RetailBoneWindows.h"
 #include "Engine/Source/Retail/RetailModelData.h"
+#include "Engine/Source/Retail/RetailSkinLayout.h"
 #include <algorithm>
 #include <array>
 #include <iterator>
@@ -9,7 +10,6 @@
 namespace Retail {
 
 constexpr uint32_t VIEW_BONE_PALETTES[] = { 256, 64, 53, 21 };
-constexpr uint32_t MAX_VIEWS = 4;
 constexpr uint32_t CPU_SKINNED_PALETTE = 256;
 constexpr size_t PROPERTY_SIZE = 4;
 constexpr uint32_t MAX_SKIN_VERTICES = 0x10000;   // What 16-bit indices name.
@@ -118,7 +118,7 @@ struct SkinData {
 
     // The source vertex numbers of a submesh's triangle corners, refused when they run past the indices.
     bool Corners(uint32_t section, std::vector<uint16_t>& corners, std::string& error) const {
-        uint32_t start = Field(section, SectionAt::INDEX_START);
+        uint32_t start = SectionIndexStart(skin, sections.At(section, SECTION_SIZE));
         uint32_t count = Field(section, SectionAt::INDEX_COUNT) / 3 * 3;
         if (start + count > indices.count) {
             return Fail(error, "a submesh runs past the skin's indices");
@@ -276,7 +276,6 @@ struct SplitSkin {
     std::vector<uint8_t> sections;
     uint32_t vertices = 0;
     uint32_t corners = 0;
-    uint32_t lastIndexStart = 0;
 };
 
 // The bone slots of local relative to window; unweighted slots point at the window's first bone.
@@ -320,13 +319,12 @@ static bool AppendPiece(const SkinData& data, const SectionPiece& piece, uint32_
 
     uint32_t vertexStart = out.vertices;
     uint32_t indexStart = out.corners;
-    out.lastIndexStart = indexStart;
     AppendPieceVertices(data, piece, corners, out);
     out.corners += static_cast<uint32_t>(piece.triangles.size() * 3);
 
     size_t at = data.sections.At(piece.parent, SECTION_SIZE);
     std::vector<uint8_t> section(data.skin.begin() + at, data.skin.begin() + at + SECTION_SIZE);
-    Put<uint16_t>(section, SectionAt::LEVEL, 0);
+    Put<uint16_t>(section, SectionAt::LEVEL, static_cast<uint16_t>(indexStart >> 16));
     Put<uint16_t>(section, SectionAt::VERTEX_START, static_cast<uint16_t>(vertexStart));
     Put<uint16_t>(section, SectionAt::VERTEX_COUNT, static_cast<uint16_t>(std::min<uint32_t>(out.vertices - vertexStart, NO_INDEX)));
     Put<uint16_t>(section, SectionAt::INDEX_START, static_cast<uint16_t>(indexStart));
@@ -394,13 +392,8 @@ bool SplitSections(std::vector<uint8_t>& skin, const std::vector<uint8_t>& m2, c
         }
     }
 
-    // Vertices first, as the downporter checks them before it lays out the indices.
     if (out.vertices > MAX_SKIN_VERTICES) {
         return Fail(error, TOO_MANY_VERTICES);
-    }
-
-    if (out.lastIndexStart > NO_INDEX) {
-        return Fail(error, "a piece's indices start past 65,535, which needs submesh Level (not converted)");
     }
 
     std::vector<uint8_t> batches = RepeatBatches(data, pieces);

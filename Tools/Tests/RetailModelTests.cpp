@@ -114,11 +114,11 @@ static std::vector<uint8_t> WeightedModel(uint32_t views) {
     return Md21File(md20);
 }
 
-static std::vector<uint8_t> RetailSkin(std::vector<std::vector<uint8_t>> batches, uint16_t influences = 0, uint16_t level = 0) {
+static std::vector<uint8_t> RetailSkin(std::vector<std::vector<uint8_t>> batches, uint16_t influences = 0) {
     std::vector<uint8_t> skin = NewSkin();
     AddArray(skin, SkinAt::VERTICES, 2, Concat({ { 0, 0 }, { 1, 0 } }));
     AddArray(skin, SkinAt::INDICES, 3, Concat({ { 0, 0 }, { 1, 0 }, { 1, 0 } }));
-    AddArray(skin, SkinAt::SECTIONS, 1, SkinSection(1, 0, influences, 3, level));
+    AddArray(skin, SkinAt::SECTIONS, 1, SkinSection(1, 0, influences, 3));
     AddArray(skin, SkinAt::BATCHES, static_cast<uint32_t>(batches.size()), Concat(batches));
     return skin;
 }
@@ -158,7 +158,6 @@ TEST(SkinBatchesLaterSlicesConvertAreRefused) {
     std::string error;
 
     CHECK(!ConvertSkin({ RetailSkin({ SkinBatch(0, 0x0010, 3) }), m2, 0 }, out, error) && error.find("texture") != std::string::npos);
-    CHECK(!ConvertSkin({ RetailSkin({ SkinBatch(0, 0, 1) }, 1, 1), m2, 0 }, out, error) && error.find("Level") != std::string::npos);
 }
 
 TEST(SkinBatchFlagsAre3_3_5Masked) {

@@ -5,6 +5,8 @@
 #include "Engine/Source/Retail/RetailRecords.h"
 #include "Engine/Source/Retail/RetailShading.h"
 #include "Engine/Source/Retail/RetailSkeleton.h"
+#include "Engine/Source/Retail/RetailSkinLayout.h"
+#include "Engine/Source/Retail/RetailViews.h"
 #include <algorithm>
 #include <cstring>
 #include <map>
@@ -242,27 +244,33 @@ static void WarnParticleModels(const std::map<std::string, std::vector<uint8_t>>
     }
 }
 
-// What the model needs from the original skin of every view: the bone windows, the UV1 copy and the effect report.
-// Nothing is split or copied unless all of them were read: the windows of a view follow every earlier view's, and
-// any view may read UV2.
-static bool ConvertForViews(std::vector<uint8_t>& m2, const std::vector<uint32_t>& skins, const FileReader& read, std::vector<std::string>& warnings, std::string& error) {
-    std::vector<std::vector<uint8_t>> originals(skins.size());
+// What the model needs from the original skin of every view it keeps (ChooseViews): the view count, the bone
+// windows, the UV1 copy and the effect report. Nothing is split or copied unless every view was read: the windows of
+// a view follow every earlier view's, and any view may read UV2.
+static bool ConvertForViews(std::vector<uint8_t>& m2, const std::vector<uint32_t>& sfid, const FileReader& read, std::vector<uint32_t>& skins, std::vector<std::string>& warnings,
+    std::string& error) {
+    ViewSkins chosen;
+    std::string readError;
+    bool chose = ChooseViews(m2, sfid, read, chosen, readError);
+    skins = chosen.fileDataIds;
+    if (!chose) {
+        warnings.push_back(readError + ", so no batch gets UV1 copied into UV2 and no submesh is split");
+        return true;
+    }
 
-    for (uint32_t view = 0; view < skins.size(); view++) {
-        std::string readError;
-        if (!read || !read(skins[view], originals[view], readError)) {
-            warnings.push_back("skin " + std::to_string(view) + " (" + std::to_string(skins[view]) + ") not read, so no batch gets UV1 copied into UV2 and no submesh is split (" + readError + ")");
-            return true;
-        }
+    warnings.insert(warnings.end(), chosen.warnings.begin(), chosen.warnings.end());
+    if (!skins.empty()) {
+        Put<uint32_t>(m2, M2At::VIEWS, static_cast<uint32_t>(skins.size()));
     }
 
     BoneWindowPlan plan;
-    if (!PlanBoneWindows(m2, originals, plan, error)) {
+    if (!PlanBoneWindows(m2, chosen.originals, plan, error)) {
         return false;
     }
 
-    ReportBoneWindows(m2, originals, plan, warnings);
-    return AppendBoneWindows(m2, plan, error) && CopyFirstUvSet(m2, originals, warnings, error) && ReportEffects(m2, originals, warnings, error);
+    ReportBoneWindows(m2, chosen.originals, plan, warnings);
+    ReportLayouts(m2, chosen.originals, plan, warnings);
+    return AppendBoneWindows(m2, plan, error) && CopyFirstUvSet(m2, chosen.originals, warnings, error) && ReportEffects(m2, chosen.originals, warnings, error);
 }
 
 bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources, ConvertedModel& model, std::string& error) {
@@ -291,15 +299,15 @@ bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources,
         return false;
     }
 
-    std::vector<uint32_t> skins = U32s(chunks["SFID"]);
+    std::vector<uint32_t> sfid = U32s(chunks["SFID"]);
     uint32_t views = Get<uint32_t>(m2, M2At::VIEWS);
 
-    if (!skins.empty() && skins.size() < views) {
-        return Fail(error, "SFID lists " + std::to_string(skins.size()) + " skins for " + std::to_string(views) + " views");
+    if (!sfid.empty() && sfid.size() < views) {
+        return Fail(error, "SFID lists " + std::to_string(sfid.size()) + " skins for " + std::to_string(views) + " views");
     }
 
-    skins.resize(skins.empty() ? 0 : views);
-    if (!ConvertForViews(m2, skins, sources.read, converted.warnings, error)) {
+    std::vector<uint32_t> skins;
+    if (!ConvertForViews(m2, sfid, sources.read, skins, converted.warnings, error)) {
         return false;
     }
 
@@ -374,22 +382,17 @@ static bool ConvertBatch(std::vector<uint8_t>& skin, size_t batch, const Shading
     return true;
 }
 
-// The original skin of every view, input.skin among them, for the bone window plan. Empty when another view is
-// not read, which is what the model side then splits.
-static std::vector<std::vector<uint8_t>> OriginalSkins(const SkinInput& input, uint32_t views) {
-    std::vector<uint32_t> ids = U32s(ReadChunks(input.modelFile)["SFID"]);
-    std::vector<std::vector<uint8_t>> originals(views);
-
-    for (uint32_t view = 0; view < views; view++) {
-        std::string readError;
-        if (view == input.view) {
-            originals[view] = input.skin;
-        } else if (view >= ids.size() || !input.read || !input.read(ids[view], originals[view], readError)) {
-            return {};
-        }
+// The original skin of every view the model keeps, as ChooseViews picks them on the model side. Without a reader, the
+// skin of a one-view model alone, and none for more views, which the model side then does not split either.
+static std::vector<std::vector<uint8_t>> OriginalSkins(const SkinInput& input, const std::vector<uint8_t>& m2) {
+    std::vector<uint32_t> sfid = U32s(ReadChunks(input.modelFile)["SFID"]);
+    ViewSkins chosen;
+    std::string readError;
+    if (input.read && sfid.size() >= Get<uint32_t>(m2, M2At::VIEWS) && ChooseViews(m2, sfid, input.read, chosen, readError) && !chosen.originals.empty()) {
+        return chosen.originals;
     }
 
-    return originals;
+    return Get<uint32_t>(m2, M2At::VIEWS) == 1 ? std::vector<std::vector<uint8_t>>{ input.skin } : std::vector<std::vector<uint8_t>>();
 }
 
 bool ConvertSkin(const SkinInput& input, std::vector<uint8_t>& out, std::string& error) {
@@ -404,14 +407,16 @@ bool ConvertSkin(const SkinInput& input, std::vector<uint8_t>& out, std::string&
         return false;
     }
 
-    uint32_t views = Get<uint32_t>(m2, M2At::VIEWS);
+    std::vector<std::vector<uint8_t>> originals = OriginalSkins(input, m2);
+    uint32_t views = originals.empty() ? Get<uint32_t>(m2, M2At::VIEWS) : static_cast<uint32_t>(originals.size());
     if (view >= views) {
         return Fail(error, "skin view " + std::to_string(view) + " is past the model's " + std::to_string(views) + " views");
     }
 
-    std::vector<uint8_t> converted = skin;
+    std::vector<uint8_t> converted = originals.empty() ? skin : originals[view];
     BoneWindowPlan plan;
-    if (!PlanBoneWindows(m2, OriginalSkins(input, views), plan, error) || !SplitSections(converted, m2, plan, view, error)) {
+    SkinLayout layout;
+    if (!PlanBoneWindows(m2, originals, plan, error) || !SplitSections(converted, m2, plan, view, error) || !LayOutSections(converted, m2, layout, error)) {
         return false;
     }
 
@@ -424,13 +429,7 @@ bool ConvertSkin(const SkinInput& input, std::vector<uint8_t>& out, std::string&
     }
 
     for (uint32_t i = 0; i < sections.count; i++) {
-        size_t section = sections.At(i, SECTION_SIZE);
-
-        if (Get<uint16_t>(converted, section + 0x02)) {
-            return Fail(error, "submesh Level above 0 (indices past 65,535) is not converted");
-        }
-
-        if (!FitInfluences(converted, section, m2, error)) {
+        if (!FitInfluences(converted, sections.At(i, SECTION_SIZE), m2, error)) {
             return false;
         }
     }

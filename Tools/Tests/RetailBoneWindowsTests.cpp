@@ -380,8 +380,32 @@ TEST(ModelsWithAnUnreadSkinSplitNothing) {
 TEST(SplitsPastTheSkinsLimitsAreRefusedByName) {
     // A view of 65,536 vertices, which 16-bit indices name at most, gains copies where its pieces meet.
     CHECK(SkinError(MakeStrip(64, 1, 65406), 0).find("65,536 vertices") != std::string::npos);
+}
 
-    // Pieces starting past index 65,535 need submesh Level, which a later slice converts.
-    std::string error = SkinError(MakeStrip(64, 1, 65340), 0);
-    CHECK(error.find("65,535") != std::string::npos && error.find("Level") != std::string::npos);
+TEST(PiecesPastIndex65535AreLaidOutWithTheLargestLast) {
+    Strip strip = MakeStrip(64, 1, 65340);
+    std::vector<uint8_t> skin = SkinFor(strip, 0, {});
+    uint32_t last = Sections(skin) - 1;
+
+    CHECK(Sections(skin) >= 3 && SectionField(skin, last, SectionAt::INDEX_COUNT) == 65340);
+    CHECK(SectionField(skin, last, SectionAt::INDEX_START) + 65340u == GetU32(skin, SkinAt::INDICES));
+    CHECK(Drawn(skin, ModelOf(strip, ReaderOf(strip)).m2) == Drawn(strip.skin, strip.md20));
+}
+
+TEST(LeveledSubmeshesSplitTheTrianglesTheirLevelNames) {
+    // The strip's indices moved past 65,535 behind unused ones, its start in Level and the low half.
+    Strip strip = MakeStrip(60, 1);
+    std::vector<uint16_t> indices(65538, 0xEEEE);
+    std::vector<uint16_t> own = U16sAt(strip.skin, SkinAt::INDICES);
+    indices.insert(indices.end(), own.begin(), own.end());
+    std::vector<uint8_t> leveled = strip.skin;
+    AddArray(leveled, SkinAt::INDICES, static_cast<uint32_t>(indices.size()), U16s(indices));
+    size_t section = RecordAt(leveled, SkinAt::SECTIONS, 0, 0x30);
+    PutU16(leveled, section + SectionAt::LEVEL, 1);
+    PutU16(leveled, section + SectionAt::INDEX_START, 2);
+    std::vector<uint8_t> out;
+    std::string error;
+
+    CHECK(ConvertSkin({ leveled, strip.file, 0, {} }, out, error));
+    CHECK(Sections(out) >= 3 && Drawn(out, ModelOf(strip, ReaderOf(strip)).m2) == Drawn(strip.skin, strip.md20));
 }
