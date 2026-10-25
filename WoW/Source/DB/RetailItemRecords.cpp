@@ -1,3 +1,4 @@
+#include "WoW/Source/DB/RetailItemRecords.h"
 #include "WoW/Source/DB/WowClientDB.h"
 #include "WoW/Source/DB/Rec/ItemDisplayInfoRec.h"
 
@@ -29,6 +30,7 @@ static int32_t StockRecord(const WowClientDB_RLE<ItemDisplayInfoRec>& db, int32_
 #include <cstring>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include "Engine/Source/Retail/CascSource.h"
 
@@ -123,7 +125,21 @@ static void FillStockIcon(int32_t id, ItemDisplayInfoRec* rec) {
     rec->m_inventoryIcon[0] = icon->second.c_str();
 }
 
+void LogItemGeosetFallback(const char* model, uint32_t requested, uint32_t drawn) {
+    static std::mutex s_logMutex;
+    static std::set<std::pair<std::string, uint32_t>> s_logged;
+    std::string name = model ? model : "";
+    std::lock_guard<std::mutex> lock(s_logMutex);
+    if (s_logged.insert({ name, requested }).second) {
+        Retail::CascSource::Instance().Warn(name + ": item geoset " + std::to_string(requested) + " is not in the model, "
+            + std::to_string(drawn) + " drawn");
+    }
+}
+
 #else
+
+void LogItemGeosetFallback(const char*, uint32_t, uint32_t) {
+}
 
 static int32_t ServedRecord(int32_t, ItemDisplayInfoRec*) {
     return 0;

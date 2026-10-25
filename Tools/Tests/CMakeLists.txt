@@ -2,6 +2,8 @@ add_executable(WowdecompTests
     TestMain.cpp
     M2LimitsTests.cpp
     BlpPixelsTests.cpp
+    ItemGeosetsTests.cpp
+    ${CMAKE_SOURCE_DIR}/WoW/Common/ComponentCore/ItemGeosets.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/BLPFile/BlpPixels.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Gx/Blit.cpp
 )

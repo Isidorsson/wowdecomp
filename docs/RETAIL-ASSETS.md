@@ -228,8 +228,8 @@ first.
 - Model frames (`PlayerModel:SetCamera`) frame some retail bodies (Kul Tiran, Earthen) too close.
 - Hair styles and facial hair the installed bodies lack (about 10% of NPC rows) fall back to style 0 or the closest
   combination. Hair texture comes from the installed CharSections rows, not the retail Hair Color material.
-- Retail boots geoset values past the 3.3.5 range (boots value 5 is geoset 506) name meshes the installed bodies lack,
-  so those boots leave the shins missing on some NPCs. This is item serving and affects players too.
+- An item geoset the body lacks (retail boots name 506 to 510, the installed bodies stop at 505) draws the group's
+  default mesh instead, the bare shin for boots, with one log line per model and mesh.
 - Night Elf male NPCs show streaks on the forehead; this is under investigation.
 - Game objects, spell visuals and hood models are not served.
 - Players need a retail install or the CDN. A server pack is planned for players without either: an offline tool that

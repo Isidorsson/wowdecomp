@@ -36,6 +36,7 @@
 #include "Engine/Source/Tempest/CRandom.h"
 #include "WoW/Common/ComponentCore/ComponentPasteDecoded.h"
 #include "WoW/Common/ComponentCore/ComponentUtils.h"
+#include "WoW/Common/ComponentCore/ItemGeosets.h"
 #include "WoW/Common/TextureCache.h"
 #include "WoW/Source/DB/DBClient/DBClient.h"
 #include "WoW/Source/DB/Rec/CharHairGeosetsRec.h"
@@ -50,6 +51,7 @@
 #include "WoW/Source/DB/Rec/ItemVisualsRec.h"
 #include "WoW/Source/DB/Rec/ParticleColorRec.h"
 #include "WoW/Source/DB/RetailHelmetRecords.h"
+#include "WoW/Source/DB/RetailItemRecords.h"
 #include "WoW/Source/DB/RetailNpcRecords.h"
 #include "WoW/Source/DB/RetailRaceRecords.h"
 #include "WoW/Source/Object/ObjectClient/Player_C.h"
@@ -3481,6 +3483,25 @@ bool CCharacterComponent::ItemsLoaded(int32_t wait) {
     return loaded;
 }
 
+// Not in the original. Shows the mesh an item names, or the group's default when the model lacks it (ItemGeosets.h).
+// A model still loading queues the item's own mesh: its skin is not read yet.
+static void ShowItemGeoset(CM2Model* model, uint32_t requested) {
+    uint32_t drawn = requested;
+    if (model->m_fFlags & 1) {
+        const M2SkinProfile* skin = model->m_shared->m_skinData;
+        std::vector<uint32_t> geosets;
+        geosets.reserve(skin->m_skinSections.m_count);
+        for (uint32_t i = 0; i < skin->m_skinSections.m_count; i++) {
+            geosets.push_back(skin->m_skinSections[i].m_skinSectionId);
+        }
+        drawn = ChooseItemGeoset(requested, geosets);
+        if (drawn != requested) {
+            LogItemGeosetFallback(model->m_shared->m_fileName, requested, drawn);
+        }
+    }
+    model->SetGeometryVisible(drawn, drawn, 1);
+}
+
 // VERIFY: e7ea4ca9 auto
 // OFFSET: 0x004ED8C0
 static bool __stdcall ItemDisplayHasGeosetGroup(uint32_t displayID, int32_t group, ItemDisplayInfoRec& rec) {
@@ -3524,9 +3545,9 @@ void CCharacterComponent::GeosRenderPrep() {
 
     if (this->m_itemDisplayID[ITEMSLOT_GLOVES] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_GLOVES], &rec) && rec.m_geosetGroup[0]) {
         this->m_data.m_model->SetGeometryVisible(401, 499, 0);
-        this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[0] + 401, rec.m_geosetGroup[0] + 401, 1);
+        ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[0] + 401);
     } else if (this->m_itemDisplayID[ITEMSLOT_CHEST] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_CHEST], &rec) && rec.m_geosetGroup[0]) {
-        this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[0] + 801, rec.m_geosetGroup[0] + 801, 1);
+        ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[0] + 801);
     }
 
     int32_t layer;
@@ -3538,7 +3559,7 @@ void CCharacterComponent::GeosRenderPrep() {
     }
 
     if (layer >= 7 && this->m_itemDisplayID[ITEMSLOT_SHIRT] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_SHIRT], &rec) && rec.m_geosetGroup[0]) {
-        this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[0] + 801, rec.m_geosetGroup[0] + 801, 1);
+        ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[0] + 801);
     }
 
     bool robe = false;
@@ -3550,28 +3571,28 @@ void CCharacterComponent::GeosRenderPrep() {
         this->m_data.m_model->SetGeometryVisible(902, 999, 0);
         this->m_data.m_model->SetGeometryVisible(1100, 1199, 0);
         this->m_data.m_model->SetGeometryVisible(1300, 1399, 0);
-        this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[2] + 1301, rec.m_geosetGroup[2] + 1301, 1);
+        ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[2] + 1301);
         robe = true;
     } else if (this->m_itemDisplayID[ITEMSLOT_PANTS] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_PANTS], &rec) && rec.m_geosetGroup[2] && !(this->m_flags & 0x20)) {
         this->m_data.m_model->SetGeometryVisible(501, 599, 0);
         this->m_data.m_model->SetGeometryVisible(902, 999, 0);
         this->m_data.m_model->SetGeometryVisible(1100, 1199, 0);
         this->m_data.m_model->SetGeometryVisible(1300, 1399, 0);
-        this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[2] + 1301, rec.m_geosetGroup[2] + 1301, 1);
+        ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[2] + 1301);
         dress = true;
     } else {
         if (this->m_itemDisplayID[ITEMSLOT_BOOTS] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_BOOTS], &rec) && rec.m_geosetGroup[0]) {
             this->m_data.m_model->SetGeometryVisible(501, 599, 0);
             this->m_data.m_model->SetGeometryVisible(901, 901, 1);
-            this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[0] + 501, rec.m_geosetGroup[0] + 501, 1);
+            ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[0] + 501);
         } else if (this->m_itemDisplayID[ITEMSLOT_PANTS] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_PANTS], &rec) && rec.m_geosetGroup[1] && !(this->m_flags & 0x20)) {
-            this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[1] + 901, rec.m_geosetGroup[1] + 901, 1);
+            ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[1] + 901);
         } else {
             this->m_data.m_model->SetGeometryVisible(901, 901, 1);
         }
 
         if (this->m_itemDisplayID[ITEMSLOT_TABARD] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_TABARD], &rec) && rec.m_geosetGroup[0]) {
-            this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[0] + 1201, rec.m_geosetGroup[0] + 1201, 1);
+            ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[0] + 1201);
             tabard = true;
         }
     }
@@ -3586,27 +3607,27 @@ void CCharacterComponent::GeosRenderPrep() {
 
     if (!robe) {
         if (!tabard && this->m_itemDisplayID[ITEMSLOT_SHIRT] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_SHIRT], &rec) && rec.m_geosetGroup[1]) {
-            this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[1] + 1001, rec.m_geosetGroup[1] + 1001, 1);
+            ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[1] + 1001);
         }
 
         if (!(this->m_flags & 0x20) && this->m_itemDisplayID[ITEMSLOT_PANTS] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_PANTS], &rec) && rec.m_geosetGroup[0]) {
             if (rec.m_geosetGroup[0] > 2) {
                 this->m_data.m_model->SetGeometryVisible(1300, 1399, 0);
-                this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[0] + 1101, rec.m_geosetGroup[0] + 1101, 1);
+                ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[0] + 1101);
             } else if (!tabard) {
-                this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[0] + 1101, rec.m_geosetGroup[0] + 1101, 1);
+                ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[0] + 1101);
             }
         }
     }
 
     if (this->m_itemDisplayID[ITEMSLOT_CAPE] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_CAPE], &rec) && rec.m_geosetGroup[0]) {
         this->m_data.m_model->SetGeometryVisible(1500, 1599, 0);
-        this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[0] + 1501, rec.m_geosetGroup[0] + 1501, 1);
+        ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[0] + 1501);
     }
 
     if (this->m_itemDisplayID[ITEMSLOT_BELT] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_BELT], &rec) && rec.m_geosetGroup[0]) {
         this->m_data.m_model->SetGeometryVisible(1800, 1899, 0);
-        this->m_data.m_model->SetGeometryVisible(rec.m_geosetGroup[0] + 1801, rec.m_geosetGroup[0] + 1801, 1);
+        ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[0] + 1801);
     }
 
     this->m_data.m_model->OptimizeVisibleGeometry();
