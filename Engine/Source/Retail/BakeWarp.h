@@ -27,12 +27,12 @@ struct BakeWarp {
     std::vector<UvTriangle> triangles;
 };
 
-// One triangle per installed skin triangle with a non-degenerate UV. Of a matched vertex's retail candidates, the
-// combination whose installed-to-retail UV affine is least distorted wins (a seam copy lies on another island, which
-// skews or flips the triangle). A triangle with an unmatched vertex maps through the UV affine of the matched triangle
-// fewest shared-vertex steps away (installed seams split vertices, so this keeps to the UV island), else of the
-// nearest matched triangle by installed UV centre. A triangle whose vertices retail draws only with other textures
-// is marked fromBase.
+// One triangle per installed skin triangle with a non-degenerate UV. Of a matched vertex's retail candidates' different
+// UVs, the combination whose installed-to-retail UV affine is least distorted wins (a seam copy lies on another island,
+// which skews or flips the triangle, or blows it up). A triangle with an unmatched vertex, or with no such
+// combination, maps through the UV affine of the matched triangle fewest shared-vertex steps away (installed seams
+// split vertices, so this keeps to the UV island) that keeps it on the bake, else of the nearest matched triangle by
+// installed UV centre. A triangle whose vertices retail draws only with other textures is marked fromBase.
 //
 // With regions, a triangle maps only where its region of the texture lies (a candidate combination or a neighbour's
 // affine that would land it elsewhere is not taken; a triangle nothing lands right is left out).

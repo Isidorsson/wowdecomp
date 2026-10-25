@@ -9,9 +9,14 @@ namespace Retail {
 
 // Installed UV triangles smaller than this cover no texel.
 constexpr float DEGENERATE_AREA = 1e-12f;
-// Seam copies tried per vertex; real seams have two or three.
+// Different seam UVs tried per vertex; real seams have two or three.
 constexpr size_t MAX_CANDIDATES = 4;
 constexpr float FLIPPED = 1e9f;
+// How much a matched triangle's retail UVs may grow or shrink it (the square root of the area ratio). The 20 bodies'
+// real matches measure 0.27 to 2.7 (0.707 on the body, about 1.2 on faces); a combination of copies from different
+// islands spans the bake.
+constexpr float MIN_UV_SCALE = 0.2f;
+constexpr float MAX_UV_SCALE = 3.0f;
 // Barycentric slack, so texels on a shared edge belong to both triangles.
 constexpr float EDGE_SLACK = 1e-6f;
 // The body's measured relation where no triangle lies: retail u = installed u * BODY_U_SCALE.
@@ -57,10 +62,11 @@ bool AffineOf(const std::array<Vec2, 3>& from, const std::array<Vec2, 3>& to, Af
     return true;
 }
 
-// The ratio of the affine's singular values; a flip or a collapse counts as the worst.
+// The ratio of the affine's singular values; a flip, a collapse or a size change past the UV scale limits counts as
+// the worst.
 float Distortion(const Affine& m) {
     float det = m.a * m.e - m.b * m.d;
-    if (det <= 0) {
+    if (det <= 0 || std::sqrt(det) < MIN_UV_SCALE || std::sqrt(det) > MAX_UV_SCALE) {
         return FLIPPED;
     }
     float sum = m.a * m.a + m.b * m.b + m.d * m.d + m.e * m.e;
@@ -150,18 +156,33 @@ bool DrawnWithoutBake(const std::array<const std::vector<uint32_t>*, 3>& candida
     return true;
 }
 
+// The candidates' different UVs, up to MAX_CANDIDATES: retail repeats an overlay's vertex once per LOD, and those
+// repeats must not crowd out the copy on the vertex's own island.
+std::vector<Vec2> DistinctUvs(const std::vector<uint32_t>& candidates, const BodyMesh& retail) {
+    std::vector<Vec2> uvs;
+    for (uint32_t r : candidates) {
+        if (uvs.size() == MAX_CANDIDATES) {
+            break;
+        }
+        if (std::find(uvs.begin(), uvs.end(), retail.uvs[r]) == uvs.end()) {
+            uvs.push_back(retail.uvs[r]);
+        }
+    }
+    return uvs;
+}
+
 // The retail UVs of the least distorted combination of the corners' candidates.
 bool BestRetailUvs(const std::array<Vec2, 3>& installed, const std::array<const std::vector<uint32_t>*, 3>& candidates, const BodyMesh& retail,
     const RegionCheck& regions, std::array<Vec2, 3>& best, Affine& bestAffine) {
     float lowest = std::numeric_limits<float>::max();
-    size_t counts[3];
+    std::array<std::vector<Vec2>, 3> corners;
     for (size_t c = 0; c < 3; c++) {
-        counts[c] = std::min(candidates[c]->size(), MAX_CANDIDATES);
+        corners[c] = DistinctUvs(*candidates[c], retail);
     }
-    for (size_t i = 0; i < counts[0]; i++) {
-        for (size_t j = 0; j < counts[1]; j++) {
-            for (size_t k = 0; k < counts[2]; k++) {
-                std::array<Vec2, 3> uvs = { retail.uvs[(*candidates[0])[i]], retail.uvs[(*candidates[1])[j]], retail.uvs[(*candidates[2])[k]] };
+    for (const Vec2& first : corners[0]) {
+        for (const Vec2& second : corners[1]) {
+            for (const Vec2& third : corners[2]) {
+                std::array<Vec2, 3> uvs = { first, second, third };
                 Affine affine;
                 bool inRegion = !regions || regions(Centre(installed), Centre(uvs));
                 float distortion = inRegion && AffineOf(installed, uvs, affine) ? Distortion(affine) : FLIPPED;
@@ -187,14 +208,21 @@ struct Placed {
     std::optional<Affine> affine;
 };
 
-// The affine of the matched triangle fewest shared-vertex steps away (the nearest by UV centre among equals), so a
-// triangle keeps to its own UV island; none within MESH_SEARCH triangles.
-// Whether an affine lands a triangle in its own region.
+// Whether an affine lands a triangle on the bake and in its own region. A neighbour across an unmatched seam (the
+// forehead under the scalp) can stretch it off the bake, whose clamped edge texels then streak.
 bool LandsInRegion(const Affine& affine, const std::array<Vec2, 3>& installed, const RegionCheck& regions) {
+    for (const Vec2& corner : installed) {
+        Vec2 uv = affine.Apply(corner);
+        if (uv[0] < -EDGE_SLACK || uv[0] > 1 + EDGE_SLACK || uv[1] < -EDGE_SLACK || uv[1] > 1 + EDGE_SLACK) {
+            return false;
+        }
+    }
     Vec2 centre = Centre(installed);
     return !regions || regions(centre, affine.Apply(centre));
 }
 
+// The affine of the matched triangle fewest shared-vertex steps away (the nearest by UV centre among equals), so a
+// triangle keeps to its own UV island; none within MESH_SEARCH triangles.
 std::optional<Affine> MeshNeighbourAffine(const std::vector<Placed>& placed, const std::vector<std::vector<size_t>>& trianglesOf, size_t start,
     const RegionCheck& regions) {
     std::vector<size_t> ring = { start };

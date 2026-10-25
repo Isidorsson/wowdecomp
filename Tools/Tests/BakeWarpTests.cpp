@@ -116,6 +116,24 @@ TEST(BakeWarpPrefersTheMatchedNeighbourOnTheSameMeshIsland) {
     CHECK(warp.triangles.size() == 3 && std::fabs(warp.triangles[1].retail[1][0] - 0.15f) < 1e-5f && std::fabs(warp.triangles[1].retail[1][1] - 0.3f) < 1e-5f);
 }
 
+TEST(BakeWarpSkipsANeighbourWhoseAffineCarriesTheTriangleOffTheBake) {
+    BodyMesh installed;
+    BodyMesh retail;
+    // An unmatched triangle (0, 1, 2) between two matched ones: the nearer (0, 3, 1) is stretched six times in v
+    // (NE male's forehead under the scalp), the farther (1, 4, 5) is mapped as is. Vertex 1 has a seam copy for each.
+    installed.positions = { { 0, 0, 0 }, { 1, 0, 0 }, { 9, 9, 9 }, { 0, -1, 0 }, { 2, 0, 0 }, { 2, 1, 0 } };
+    installed.uvs = { { 0.8f, 0.1f }, { 0.9f, 0.1f }, { 0.85f, 0.2f }, { 0.85f, 0.02f }, { 0.98f, 0.1f }, { 0.94f, 0.18f } };
+    installed.skinTriangles = { { 0, 1, 2 }, { 0, 3, 1 }, { 1, 4, 5 } };
+    retail.positions = { { 0, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, -1, 0 }, { 2, 0, 0 }, { 2, 1, 0 } };
+    retail.uvs = { { 0.8f, 0.48f }, { 0.9f, 0.48f }, { 0.9f, 0.1f }, { 0.85f, 0.0f }, { 0.98f, 0.1f }, { 0.94f, 0.18f } };
+
+    Retail::VertexMatches matches = Retail::MatchVertices(installed, retail);
+    CHECK(matches[2].empty());
+    Retail::BakeWarp warp = Retail::BuildBakeWarp(installed, retail, matches);
+    // Through the nearer neighbour vertex 2 would land at v 1.08; through the farther one at (0.85, 0.2).
+    CHECK(warp.triangles.size() == 3 && std::fabs(warp.triangles[0].retail[2][0] - 0.85f) < 1e-5f && std::fabs(warp.triangles[0].retail[2][1] - 0.2f) < 1e-5f);
+}
+
 TEST(BakeWarpTakesTheInstalledSkinWhereRetailDrawsNoBake) {
     BodyMesh installed;
     BodyMesh retail;
@@ -171,6 +189,38 @@ TEST(BakeWarpPicksTheSeamCopyOnTheSameIsland) {
     Retail::BakeWarp warp = Retail::BuildBakeWarp(installed, retail, Retail::MatchVertices(installed, retail));
     CHECK(warp.triangles.size() == 2 && warp.triangles[0].retail[1][0] == 0.5f);
     CHECK(warp.triangles.size() == 2 && warp.triangles[1].retail[0][0] == 0.5f);
+}
+
+TEST(BakeWarpFindsTheSeamCopyBehindRepeatsOfAnotherIsland) {
+    BodyMesh installed;
+    BodyMesh square;
+    Square(installed, square, 0.5f);
+    // Retail repeats an overlay's vertex once per LOD (NE male geoset 1902 over the face, 7 copies), all ahead of
+    // the one copy on the vertex's own island.
+    BodyMesh retail;
+    for (int copy = 0; copy < 7; copy++) {
+        retail.positions.push_back({ 1, 0, 0 });
+        retail.uvs.push_back({ 0.95f, 0.9f });
+    }
+    retail.positions.insert(retail.positions.end(), square.positions.begin(), square.positions.end());
+    retail.uvs.insert(retail.uvs.end(), square.uvs.begin(), square.uvs.end());
+    Retail::BakeWarp warp = Retail::BuildBakeWarp(installed, retail, Retail::MatchVertices(installed, retail));
+    CHECK(warp.triangles.size() == 2 && warp.triangles[0].retail[1][0] == 0.5f && warp.triangles[0].retail[1][1] == 0.0f);
+    CHECK(warp.triangles.size() == 2 && warp.triangles[1].retail[0][0] == 0.5f && warp.triangles[1].retail[0][1] == 0.0f);
+}
+
+TEST(BakeWarpRefusesACopyCombinationThatBlowsTheTriangleUp) {
+    BodyMesh installed;
+    BodyMesh retail;
+    // Each corner has its own copy (u halved: distortion 2) and one on other islands whose triangle has the same
+    // shape at five times the size (distortion 1): Draenei female's hand-to-face seam.
+    installed.positions = { { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 } };
+    installed.uvs = { { 0.1f, 0.1f }, { 0.2f, 0.1f }, { 0.1f, 0.2f } };
+    installed.skinTriangles = { { 0, 1, 2 } };
+    retail.positions = { { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 } };
+    retail.uvs = { { 0.0f, 0.0f }, { 0.5f, 0.0f }, { 0.0f, 0.5f }, { 0.05f, 0.1f }, { 0.1f, 0.1f }, { 0.05f, 0.2f } };
+    Retail::BakeWarp warp = Retail::BuildBakeWarp(installed, retail, Retail::MatchVertices(installed, retail));
+    CHECK(warp.triangles.size() == 1 && warp.triangles[0].retail[1][0] == 0.1f && warp.triangles[0].retail[2][1] == 0.2f);
 }
 
 TEST(BakeWarpSkipsDegenerateTriangles) {

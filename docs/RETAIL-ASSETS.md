@@ -230,7 +230,8 @@ first.
   combination. Hair texture comes from the installed CharSections rows, not the retail Hair Color material.
 - An item geoset the body lacks (retail boots name 506 to 510, the installed bodies stop at 505) draws the group's
   default mesh instead, the bare shin for boots, with one log line per model and mesh.
-- Night Elf male NPCs show streaks on the forehead; this is under investigation.
+- Warped bakes can show thin slivers right at the hairline, where very thin installed triangles do not line up exactly
+  with the bake's hairline.
 - Game objects, spell visuals and hood models are not served.
 - Players need a retail install or the CDN. A server pack is planned for players without either: an offline tool that
   converts the display ids a server uses into patch MPQs plus matching client and server DBC rows, so players need no
