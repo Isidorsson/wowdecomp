@@ -2,6 +2,7 @@
 #include <process.h>
 #include <string>
 #include "Engine/Source/Retail/CascSource.h"
+#include "Engine/Source/Retail/ConvertedCache.h"
 #include "Engine/Source/Retail/DecodedCache.h"
 #include "Engine/Source/Retail/RetailModel.h"
 #include "Engine/Source/Retail/RetailPath.h"
@@ -26,15 +27,26 @@ static void WriteText(const std::filesystem::path& path, const std::string& text
     std::ofstream(path, std::ios::binary) << text;
 }
 
-static bool Configure(LocalSource& local, const char* name) {
-    local.dir = std::filesystem::temp_directory_path() / ("wowdecomp-tests-" + std::to_string(_getpid())) / name;
-    std::filesystem::remove_all(local.dir);
-    WriteText(local.dir / "storage" / ".build.info", std::string("Active!DEC:1|Build Key!HEX:16|Product!STRING:0\n1|") + BUILD_KEY + "|wow\n");
-    WriteText(local.dir / "RetailCasc.ini", "mode=local\npath=storage\ncache=cache\n");
+// Another source on the same install and cache, as after a restart.
+static bool Reopen(LocalSource& local, const std::filesystem::path& dir) {
+    local.dir = dir;
     local.config.cache = local.dir / "cache";
     local.config.build = BUILD_KEY;
     std::string error;
     return local.source.Configure(local.dir / "RetailCasc.ini", error);
+}
+
+static bool Configure(LocalSource& local, const char* name) {
+    std::filesystem::path dir = std::filesystem::temp_directory_path() / ("wowdecomp-tests-" + std::to_string(_getpid())) / name;
+    std::filesystem::remove_all(dir);
+    WriteText(dir / "storage" / ".build.info", std::string("Active!DEC:1|Build Key!HEX:16|Product!STRING:0\n1|") + BUILD_KEY + "|wow\n");
+    WriteText(dir / "RetailCasc.ini", "mode=local\npath=storage\ncache=cache\n");
+    return Reopen(local, dir);
+}
+
+static void DropOriginals(const LocalSource& local) {
+    std::filesystem::remove(Retail::DecodedCachePath(local.config, MODEL_ID));
+    std::filesystem::remove(Retail::DecodedCachePath(local.config, SKIN_ID));
 }
 
 static bool Cache(const LocalSource& local, uint32_t id, const std::vector<uint8_t>& bytes) {
@@ -99,4 +111,53 @@ TEST(SkinsReadAgainAreConvertedAgainToTheSameBytes) {
     CHECK(Configure(local, "reread-skins") && Cache(local, MODEL_ID, ModelFile()) && Cache(local, SKIN_ID, SkinFile()));
     CHECK(local.source.Read(MODEL_PATH, first, error));
     CHECK(ReadSkin(local, first) && ReadSkin(local, again) && !again.empty() && again == first);
+}
+
+// Without the originals nothing converts, so these reads come from the converted cache.
+TEST(ConvertedModelsAreServedFromTheCacheAfterARestart) {
+    LocalSource first;
+    LocalSource second;
+    std::vector<uint8_t> converted;
+    std::vector<uint8_t> cached;
+    std::string error;
+
+    CHECK(Configure(first, "converted-restart") && Cache(first, MODEL_ID, ModelFile()) && Cache(first, SKIN_ID, SkinFile()));
+    CHECK(first.source.Read(MODEL_PATH, converted, error) && !converted.empty());
+    DropOriginals(first);
+
+    CHECK(Reopen(second, first.dir));
+    CHECK(second.source.Read(MODEL_PATH, cached, error) && cached == converted);
+    CHECK(ReadSkin(second, cached) && !cached.empty() && cached == ConvertedSkin());
+}
+
+TEST(SkinsReadAgainComeFromTheConvertedCache) {
+    LocalSource local;
+    std::vector<uint8_t> first;
+    std::vector<uint8_t> again;
+    std::string error;
+
+    CHECK(Configure(local, "converted-skins") && Cache(local, MODEL_ID, ModelFile()) && Cache(local, SKIN_ID, SkinFile()));
+    CHECK(local.source.Read(MODEL_PATH, first, error) && ReadSkin(local, first));
+    DropOriginals(local);
+    CHECK(ReadSkin(local, again) && !again.empty() && again == first);
+}
+
+TEST(CorruptConvertedEntriesAreConvertedAgainAndRewritten) {
+    LocalSource first;
+    LocalSource second;
+    std::vector<uint8_t> converted;
+    std::vector<uint8_t> again;
+    Retail::ConvertedModel entry;
+    std::string error;
+
+    CHECK(Configure(first, "converted-corrupt") && Cache(first, MODEL_ID, ModelFile()) && Cache(first, SKIN_ID, SkinFile()));
+    CHECK(first.source.Read(MODEL_PATH, converted, error));
+    std::filesystem::path path = Retail::ConvertedCachePath(first.config, MODEL_ID);
+    std::error_code ec;
+    std::filesystem::resize_file(path, std::filesystem::file_size(path, ec) / 2, ec);
+    CHECK(!ec);
+
+    CHECK(Reopen(second, first.dir));
+    CHECK(second.source.Read(MODEL_PATH, again, error) && again == converted);
+    CHECK(Retail::ReadConvertedCache(path, Retail::ConverterKey(), entry) && entry.m2 == converted);
 }

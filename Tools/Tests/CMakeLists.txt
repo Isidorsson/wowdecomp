@@ -14,6 +14,7 @@ if (TARGET RetailCore)
         RetailConfigTests.cpp
         RetailPathTests.cpp
         DecodedCacheTests.cpp
+        ConvertedCacheTests.cpp
         Db2TableTests.cpp
         AnimationFallbacksTests.cpp
         RetailModelTests.cpp

@@ -3,6 +3,7 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailConfig.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailPath.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/DecodedCache.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ConvertedCache.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/Db2Table.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/AnimationFallbacks.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CreatureTables.cpp
@@ -24,6 +25,23 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/HelmFit.cpp
 )
 target_include_directories(RetailCore PUBLIC ${CMAKE_SOURCE_DIR})
+
+# Keys converted models by a hash of the converter's sources too, so an edit never serves an entry it would convert
+# differently. Hashed on every build, since a restored file can be older than the header; the header is rewritten only
+# when the hash changes, so an unchanged tree recompiles nothing.
+option(WOWDECOMP_RETAIL_SOURCE_HASH "Invalidate converted retail models whenever the converter's sources change" ON)
+if (WOWDECOMP_RETAIL_SOURCE_HASH)
+    set(RETAIL_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated/retail)
+    add_custom_target(RetailConverterHash
+        COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_SOURCE_DIR}/Engine/Source/Retail -DOUTPUT=${RETAIL_GENERATED_DIR}/RetailConverterHash.h
+            -P ${CMAKE_SOURCE_DIR}/cmake/RetailConverterHash.cmake
+        BYPRODUCTS ${RETAIL_GENERATED_DIR}/RetailConverterHash.h
+        VERBATIM
+    )
+    add_dependencies(RetailCore RetailConverterHash)
+    target_include_directories(RetailCore PRIVATE ${RETAIL_GENERATED_DIR})
+    target_compile_definitions(RetailCore PRIVATE WOWDECOMP_RETAIL_SOURCE_HASH=1)
+endif ()
 
 # CascLib 3.0, the latest stable release (MIT). Pinned by hash; WOWDECOMP_CASCLIB_SOURCE_DIR builds offline
 # and must already carry cmake/casclib-range-fetch.patch, which makes online storages fetch one archived

@@ -20,10 +20,13 @@
 
 namespace Retail {
 
+struct ConvertedModel;
+
 // Serves retail/<FileDataID> paths and aliased stock paths from one pinned CASC build. Reads come from the
 // decoded cache when possible; a miss opens the storage (online: downloads build metadata) and blocks.
-// Retail models (MD21) are converted to 3.3.5 on every read, and the skin names the client derives from
-// them (MakeSkinFileName) are routed to the skins their SFID lists, served from that conversion.
+// Retail models (MD21) are converted to 3.3.5 once per converter version and kept in the converted cache, and
+// the skin names the client derives from them (MakeSkinFileName) are routed to the skins their SFID lists, served
+// from that conversion.
 class CascSource {
     public:
     // Process-wide source configured from WOW_RETAIL_CONFIG, else Data/Retail/RetailCasc.ini. Without a
@@ -73,6 +76,8 @@ class CascSource {
     bool Resolve(const std::string& normalized, uint32_t& fileDataId, std::string& error);
     bool FindDependency(const std::string& normalized, Dependency& dependency) const;
     bool ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error);
+    bool Convert(uint32_t fileDataId, const std::vector<uint8_t>& file, ConvertedModel& model, std::string& error);
+    bool Serve(const std::string& normalized, uint32_t fileDataId, ConvertedModel& model, std::vector<uint8_t>& bytes, std::string& error);
     bool ReadSkin(const std::string& normalized, const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error);
     bool TakeConvertedSkin(const std::string& normalized, std::vector<uint8_t>& bytes);
     // The helm fit of a stock race and gender, chosen once.

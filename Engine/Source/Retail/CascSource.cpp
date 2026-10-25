@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include "Engine/Source/Retail/ConvertedCache.h"
 #include "Engine/Source/Retail/DecodedCache.h"
 #include "Engine/Source/Retail/Db2Table.h"
 #include "Engine/Source/Retail/HelmFit.h"
@@ -223,31 +224,61 @@ bool CascSource::Read(const char* name, std::vector<uint8_t>& bytes, std::string
     return this->ReadModel(normalized, bytes, error);
 }
 
-// Any claimed file; a retail model comes back converted, its skins registered under the client's names.
+// Any claimed file; a retail model comes back converted, from the converted cache when it holds it, its skins
+// registered under the client's names.
 bool CascSource::ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error) {
     uint32_t id;
-    if (!this->Resolve(normalized, id, error) || !this->ReadOriginal(id, bytes, error)) {
+    if (!this->Resolve(normalized, id, error)) {
         return false;
     }
 
-    if (bytes.size() < 4 || std::memcmp(bytes.data(), "MD21", 4) != 0) {
-        return true;
+    ConvertedModel model;
+    if (!ReadConvertedCache(ConvertedCachePath(this->m_config, id), ConverterKey(), model)) {
+        if (!this->ReadOriginal(id, bytes, error)) {
+            return false;
+        }
+
+        if (bytes.size() < 4 || std::memcmp(bytes.data(), "MD21", 4) != 0) {
+            return true;
+        }
+
+        if (!this->Convert(id, bytes, model, error)) {
+            return false;
+        }
     }
 
+    return this->Serve(normalized, id, model, bytes, error);
+}
+
+// Published unless what it read may differ next time: online, tables that failed to load or a fetch that failed
+// may succeed on a later try. Locally they fail the same way every time.
+bool CascSource::Convert(uint32_t id, const std::vector<uint8_t>& file, ConvertedModel& model, std::string& error) {
+    bool readFailed = false;
     ModelSources sources;
     sources.fallbacks = this->Fallbacks();
     sources.skin = this->Skins() ? this->Skins()->Default(id) : nullptr;
-    sources.read = [this](uint32_t file, std::vector<uint8_t>& data, std::string& readError) {
-        return this->ReadOriginal(file, data, readError);
+    sources.read = [this, &readFailed](uint32_t dependency, std::vector<uint8_t>& data, std::string& readError) {
+        bool read = this->ReadOriginal(dependency, data, readError);
+        readFailed |= !read;
+        return read;
     };
 
-    ConvertedModel model;
-    if (!ConvertModel(bytes, sources, model, error)) {
+    if (!ConvertModel(file, sources, model, error)) {
         return false;
     }
 
-    // Fitted per read, never cached: the decoded cache holds the original by FileDataID, which a weapon-style
-    // name or another race's helm may share.
+    bool complete = sources.fallbacks && this->Skins() && !readFailed;
+    if (complete || this->m_config.mode == StorageMode::Local) {
+        // A failed cache write only costs a conversion next time.
+        std::string cacheError;
+        WriteConvertedCache(ConvertedCachePath(this->m_config, id), ConverterKey(), model, cacheError);
+    }
+    return true;
+}
+
+bool CascSource::Serve(const std::string& normalized, uint32_t id, ConvertedModel& model, std::vector<uint8_t>& bytes, std::string& error) {
+    // Fitted per read, never cached: both caches hold the model by FileDataID, which a weapon-style name or another
+    // race's helm may share.
     uint32_t race;
     uint32_t gender;
     if (HelmRaceForPath(normalized, race, gender) && !FitHelmToStockHead(model.m2, this->FitFor(race, gender), error)) {
@@ -313,9 +344,16 @@ HelmFit CascSource::ChooseFit(uint32_t race, uint32_t gender) {
     return *HelmFitFor(race, gender);
 }
 
-// The skin the model's conversion kept when there is one; else converted from the originals, as after a later read.
+// The skin the model's conversion kept when there is one, else the converted cache's; else converted from the originals.
 bool CascSource::ReadSkin(const std::string& normalized, const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error) {
     if (this->TakeConvertedSkin(normalized, bytes)) {
+        return true;
+    }
+
+    ConvertedModel cached;
+    if (ReadConvertedCache(ConvertedCachePath(this->m_config, dependency.model), ConverterKey(), cached) && dependency.view < cached.skinBytes.size()
+        && !cached.skinBytes[dependency.view].empty()) {
+        bytes = std::move(cached.skinBytes[dependency.view]);
         return true;
     }
 
