@@ -32,6 +32,8 @@ creatures, mounts and gear straight from a retail install or Blizzard's CDN, con
   retail skin, hair and gear; Goblin and the newer races are not yet.
 - `Tools/RetailServerDisplays` writes the worldserver DBC rows and `creature_model_info` SQL those displays need.
 - Decoded and converted models are cached on disk with size caps, so a model converts once.
+- An in-game Retail Browser (`/rb`) searches retail creatures, items, sets, models and mounts, previews them and
+  copies their ids, see [docs/RETAIL-BROWSER.md](docs/RETAIL-BROWSER.md).
 
 Setup, every config key, what converts and what does not yet are in [docs/RETAIL-ASSETS.md](docs/RETAIL-ASSETS.md).
 
