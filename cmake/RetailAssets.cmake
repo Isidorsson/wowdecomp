@@ -25,7 +25,9 @@ add_library(RetailCore STATIC
 )
 target_include_directories(RetailCore PUBLIC ${CMAKE_SOURCE_DIR})
 
-# CascLib 3.0, the latest stable release (MIT). Pinned by hash; WOWDECOMP_CASCLIB_SOURCE_DIR builds offline.
+# CascLib 3.0, the latest stable release (MIT). Pinned by hash; WOWDECOMP_CASCLIB_SOURCE_DIR builds offline
+# and must already carry cmake/casclib-range-fetch.patch, which makes online storages fetch one archived
+# file's bytes with an HTTP range instead of its whole 256 MB CDN archive.
 set(WOWDECOMP_CASCLIB_SOURCE_DIR "" CACHE PATH "Existing CascLib 3.0 source checkout")
 include(FetchContent)
 if (WOWDECOMP_CASCLIB_SOURCE_DIR)
@@ -35,6 +37,10 @@ else ()
         URL https://codeload.github.com/ladislav-zezula/CascLib/zip/refs/tags/3.0
         URL_HASH SHA256=a2d72255918bcae23cec9715fd7de383c058b23130d60638ae77da24e1d98f35
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        PATCH_COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DIR=${FETCHCONTENT_BASE_DIR}/casclib-src
+            -DPATCH=${CMAKE_SOURCE_DIR}/cmake/casclib-range-fetch.patch
+            -P ${CMAKE_SOURCE_DIR}/cmake/ApplyPatchOnce.cmake
     )
 endif ()
 

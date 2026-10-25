@@ -41,4 +41,9 @@ if (TARGET RetailCore)
     )
 endif ()
 
+if (TARGET casc_static)
+    target_sources(WowdecompTests PRIVATE CascRangeFetchTests.cpp)
+    target_link_libraries(WowdecompTests PRIVATE casc_static ws2_32)
+endif ()
+
 add_test(NAME wowdecomp-tests COMMAND WowdecompTests)

@@ -1,2 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+# CascLib sources are LF; the patch must stay byte-exact to apply
+cmake/casclib-range-fetch.patch -text
