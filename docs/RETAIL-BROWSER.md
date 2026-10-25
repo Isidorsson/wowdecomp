@@ -7,8 +7,10 @@ addon only prints that retail assets are not configured.
 ## Opening it
 
 - `/rb` (or `/retailbrowser`) toggles the window. A key can be bound under Key Bindings, "Retail Browser".
-- The first open builds the index on a worker thread (about 2 to 4 seconds on a local install; the status line says
-  "Building the index..." until then). It stays in memory for the session, `/reload` included.
+- The index is built on a worker thread at login ("Build the index at login", next to the window title, on by
+  default; it keeps about 120 MB for the session), so the first open is ready at once. With the option off, the first
+  open builds it (about 1 second on a local install; the status line says "Building the index..." until then). It
+  stays in memory for the session, `/reload` included.
 - Escape closes the window.
 
 ## Searching
@@ -18,10 +20,14 @@ addon only prints that retail assets are not configured.
   that contain it. Results come 50 a page (Prev / Next).
 - Type a number to search ids: creature id or display id, item id or ItemDisplayInfo id, set id, model FileDataID,
   mount id, display id or spell id.
-- Filters (Any = off): Creatures by type, family, rank (normal, elite, rare, boss), race of the NPC's Extra row, and
+- Filters (Any = off): Creatures by type, family, rank (normal, elite, rare elite, rare), race of the NPC's Extra row, and
   kind (humanoid NPC or plain model). Items by slot (Chest includes robes), armour, weapon type, quality, expansion
   and an item level range. Sets by class, armour and expansion. A filter with an empty search box lists everything
   it passes; an empty box without filters lists nothing.
+- Rank follows retail's Creature.Classification: 0 normal (5 trivial and 6 minus mobs too), 1 elite, 2 rare elite,
+  4 rare. Retail has no boss value (no row uses 3, the old world boss value; bosses such as Ragnaros are elite), so
+  there is no boss filter.
+- Turning pages of a search only slices the ranking the search made, so Prev / Next are instant.
 - Click a column header to sort the page by name or id (click again to reverse).
 - Keyboard: press Enter in the search box (or click a row) to give the list the keys: Up/Down and PgUp/PgDn move
   and show details, Enter previews, Esc or any other key hands the keys back.
@@ -84,8 +90,16 @@ FROM `item_template` WHERE `entry` = 39239;
   since sets also list stat-less transmog copies).
 - **Other displays as modelid2-4**: a creature's other displays after the picked one (else 0).
 
-The mapping box lists every retail stat, its value, what it became and why; Copy SQL copies the SQL box (edit it
-first if you like) and Export SQL writes it to `Logs\RetailBrowser\<kind>-<id>-<time>.sql`.
+The mapping box lists every retail stat, its value, what it became and why (the first 4 KB of them, then how many
+more). The SQL box shows the first row's statements (at most 4 KB) and a comment line saying how much more there is:
+a multi-line edit box lays its text out in time that grows with the square of its length, and a whole set of every
+variant (430 KB) froze the client for 40 seconds. Copy SQL copies all the SQL and Export SQL writes all of it to
+`Logs\RetailBrowser\<kind>-<id>-<time>.sql`. Edit full SQL puts every statement in the box to edit before copying
+(over 64 KB it asks for a second click, since the box may freeze the client); once the box holds everything, Copy
+and Export take the box, edits included.
+
+The panel rebuilds 0.3 seconds after the last change (an option, a field, a new entry in the details), so stepping
+through results builds once; Build or Enter builds at once.
 
 What an item row overrides: `entry`, `class`, `subclass`, `name`, `displayid` (the served retail ItemDisplayInfo of
 the first appearance), `Quality` (heirloom at most), `InventoryType`, `ItemLevel`, `RequiredLevel` when set,
