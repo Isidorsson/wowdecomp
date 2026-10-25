@@ -208,3 +208,27 @@ TEST(HelmPathsAreClaimed) {
     CHECK(Retail::ClaimsPath("item/objectcomponents/head/retail-9100_drf.m2", AliasTable()));
     CHECK(!Retail::ClaimsPath("item/objectcomponents/head/retail-9100_xxm.m2", AliasTable()));
 }
+
+TEST(WarpedBakeNamesCarryTheBakeAndBody) {
+    CHECK(Retail::WarpedBakeName(8046191, 1, 0) == "retail-8046191_bake1m.blp");
+    CHECK(Retail::WarpedBakeName(1049291, 11, 1) == "retail-1049291_bake11f.blp");
+
+    Retail::WarpedBakeRequest request;
+    CHECK(Retail::ParseWarpedBakeName("textures/bakednpctextures/retail-8046191_bake1m.blp", request));
+    CHECK(request.fileDataId == 8046191 && request.race == 1 && request.gender == 0);
+    CHECK(Retail::ParseWarpedBakeName("textures/bakednpctextures/retail-1049291_bake11f.blp", request));
+    CHECK(request.fileDataId == 1049291 && request.race == 11 && request.gender == 1);
+    CHECK(Retail::ClaimsPath("textures/bakednpctextures/retail-8046191_bake1m.blp", AliasTable()));
+}
+
+TEST(WarpedBakeNamesDoNotReadAsOtherNames) {
+    Retail::WarpedBakeRequest request;
+    RaceFileRequest race;
+    uint32_t id = 0;
+    CHECK(!Retail::ParseWarpedBakeName("textures/bakednpctextures/retail-8046191.blp", request));
+    CHECK(!Retail::ParseWarpedBakeName("textures/bakednpctextures/retail-8046191_bake1x.blp", request));
+    CHECK(!Retail::ParseWarpedBakeName("textures/bakednpctextures/retail-8046191_bakem.blp", request));
+    CHECK(!Retail::ParseWarpedBakeName("textures/bakednpctextures/retail-x_bake1m.blp", request));
+    CHECK(!ParseRetailPath("textures/bakednpctextures/retail-8046191_bake1m.blp", id));
+    CHECK(!ParseRaceFileName("textures/bakednpctextures/retail-8046191_bake1m.blp", race));
+}

@@ -245,8 +245,13 @@ bool CascSource::Exists(const char* name, std::string& error) {
     uint32_t id;
     uint32_t race;
     uint32_t gender;
+    WarpedBakeRequest bake;
 
-    if (!this->FindDependency(normalized, dependency) && !HelmRaceForPath(normalized, race, gender)) {
+    if (ParseWarpedBakeName(normalized, bake)) {
+        if (HasConvertedCache(ConvertedBakePath(this->m_config, bake.fileDataId, bake.race, bake.gender), ConverterKey())) {
+            return true;
+        }
+    } else if (!this->FindDependency(normalized, dependency) && !HelmRaceForPath(normalized, race, gender)) {
         if (!this->Resolve(normalized, id, error)) {
             return false;
         }
@@ -271,6 +276,11 @@ bool CascSource::IsServableUnread(uint32_t id) const {
 bool CascSource::Read(const char* name, std::vector<uint8_t>& bytes, std::string& error) {
     std::string normalized = NormalizePath(name);
     Dependency dependency;
+    WarpedBakeRequest bake;
+
+    if (ParseWarpedBakeName(normalized, bake)) {
+        return this->ReadWarpedBake(bake, bytes, error);
+    }
 
     // Before the FileDataID rule: retail/91654100.skin is view 0 of model 916541, not FileDataID 91654100.
     if (this->FindDependency(normalized, dependency)) {

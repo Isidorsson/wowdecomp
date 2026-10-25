@@ -57,6 +57,7 @@ bool Db2Table::Parse(std::vector<uint8_t> bytes, std::string& error) {
     this->m_data = std::move(bytes);
     this->m_columns.clear();
     this->m_rows.clear();
+    this->m_skippedRows = 0;
     const std::vector<uint8_t>& data = this->m_data;
 
     if (!Fits(data, 0, HEADER_SIZE) || std::memcmp(data.data(), "WDC5", 4) != 0) {
@@ -169,6 +170,7 @@ bool Db2Table::ParseSection(size_t header, size_t recordSize, size_t idIndex, st
     }
 
     if (zeroed && tactKey) {
+        this->m_skippedRows += records;
         return true;
     }
 

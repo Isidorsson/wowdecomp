@@ -21,6 +21,7 @@ static T* StockRecord(const WowClientDB<T>& db, int32_t id) {
 #include <mutex>
 #include <string>
 #include "Engine/Source/Retail/CascSource.h"
+#include "WoW/Source/DB/RetailNpcRecords.h"
 
 // Built once per id and kept for the session: callers hold the record and its strings. Map nodes never move.
 struct ServedDisplay {
@@ -37,8 +38,21 @@ static std::mutex s_servedMutex;
 static std::map<int32_t, ServedDisplay> s_displays;
 static std::map<int32_t, ServedModel> s_models;
 
-// Sound, blood, NPC sounds, particle colours, extended display and object effects index retail tables the client
-// does not have, so they stay 0.
+// A humanoid NPC (an Extra row) draws on the installed body of its race, which the Extra row skins and dresses: no
+// texture variations or geosets of its own.
+static void FillNpcDisplay(ServedDisplay& served, int32_t modelId, int32_t extraId) {
+    CreatureDisplayInfoRec& rec = served.record;
+    rec.m_modelID = modelId;
+    rec.m_extendedDisplayInfoID = extraId;
+    for (int32_t i = 0; i < 3; i++) {
+        served.variations[i].clear();
+        rec.m_textureVariation[i] = served.variations[i].c_str();
+    }
+    rec.m_creatureGeosetData = 0;
+}
+
+// Sound, blood, NPC sounds, particle colours and object effects index retail tables the client does not have, so
+// they stay 0. An extended display is served by RetailNpcRecords.cpp, or the display keeps its retail model.
 static void FillDisplay(ServedDisplay& served, const Retail::RetailDisplay& display) {
     CreatureDisplayInfoRec& rec = served.record;
     // The record's constructor leaves its fields as they were, so {} would not clear what the row does not set.
@@ -54,6 +68,12 @@ static void FillDisplay(ServedDisplay& served, const Retail::RetailDisplay& disp
     rec.m_portraitTextureName = "";
     rec.m_sizeClass = display.sizeClass;
     rec.m_creatureGeosetData = static_cast<int32_t>(display.geosetData);
+
+    int32_t modelId = 0;
+    int32_t extraId = 0;
+    if (display.extendedDisplayId && ServeRetailNpcDisplay(display.id, display.extendedDisplayId, modelId, extraId)) {
+        FillNpcDisplay(served, modelId, extraId);
+    }
 }
 
 // Footprints, foley, camera shakes and sounds are retail ids too, so they stay 0; effect scales are 1.

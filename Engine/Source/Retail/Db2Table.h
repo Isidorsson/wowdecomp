@@ -28,6 +28,9 @@ class Db2Table {
     uint32_t Value(size_t row, size_t column) const;
     std::vector<uint32_t> Values(size_t row, size_t column) const;
 
+    // Records of the sections skipped as still locked (encrypted with a key the build does not ship).
+    size_t SkippedRows() const { return this->m_skippedRows; }
+
     private:
     enum class Compression : uint32_t {
         None = 0,
@@ -63,6 +66,7 @@ class Db2Table {
     uint32_t m_layoutHash = 0;
     std::vector<Column> m_columns;
     std::vector<Row> m_rows;
+    size_t m_skippedRows = 0;
 };
 
 // Refuses table, by name, when its layout is not the one a loader reads.

@@ -155,6 +155,16 @@ TEST(Db2EncryptedZeroSectionsAreSkipped) {
 
     CHECK(table.Parse(BuildWdc5(spec), error));
     CHECK(table.RowCount() == 2 && table.RowId(0) == 1 && table.RowId(1) == 3);
+    CHECK(table.SkippedRows() == 2);
+}
+
+TEST(Db2TablesWithoutLockedSectionsSkipNothing) {
+    Wdc5Spec spec = PlainSpec();
+    spec.sections = { { 0, PlainRecord(1, 1), { 1 }, {} } };
+    Db2Table table;
+    std::string error;
+    CHECK(table.Parse(BuildWdc5(spec), error));
+    CHECK(table.SkippedRows() == 0);
 }
 
 TEST(Db2RefusesBrokenFiles) {

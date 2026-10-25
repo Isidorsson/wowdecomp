@@ -16,6 +16,7 @@ constexpr size_t DISPLAY_MODEL_ID = 1;
 constexpr size_t DISPLAY_SIZE_CLASS = 3;
 constexpr size_t DISPLAY_SCALE = 4;
 constexpr size_t DISPLAY_ALPHA = 5;
+constexpr size_t DISPLAY_EXTENDED = 7;
 constexpr size_t DISPLAY_TEXTURE_VARIATIONS = 27;
 
 constexpr uint32_t NIBBLE_GROUPS = 8;
@@ -99,6 +100,7 @@ static RetailDisplay DisplayAt(const Db2Table& table, size_t row, const std::map
     display.modelId = table.Value(row, DISPLAY_MODEL_ID);
     display.scale = AsFloat(table.Value(row, DISPLAY_SCALE));
     display.alpha = table.Value(row, DISPLAY_ALPHA);
+    display.extendedDisplayId = table.Value(row, DISPLAY_EXTENDED);
     display.sizeClass = static_cast<int8_t>(table.Value(row, DISPLAY_SIZE_CLASS));
     std::vector<uint32_t> files = table.Values(row, DISPLAY_TEXTURE_VARIATIONS);
     for (size_t i = 0; i < files.size() && i < display.variations.size(); i++) {

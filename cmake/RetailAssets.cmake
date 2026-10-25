@@ -25,6 +25,11 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/Decimate.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailViews.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/HelmFit.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailNpcDisplay.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailNpcLook.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BodyMatch.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BakeWarp.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BakeBlp.cpp
 )
 target_include_directories(RetailCore PUBLIC ${CMAKE_SOURCE_DIR})
 # The Windows Compression API, for the converted cache.
@@ -78,6 +83,7 @@ unset(CMAKE_POLICY_VERSION_MINIMUM)
 # The CASC-backed source the client's SFile hooks call.
 add_library(RetailAssets STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSource.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceNpc.cpp
 )
 target_link_libraries(RetailAssets PUBLIC RetailCore PRIVATE casc_static)
 target_compile_definitions(RetailAssets PUBLIC WOWDECOMP_RETAIL_ASSETS=1)

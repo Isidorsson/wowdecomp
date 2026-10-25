@@ -55,10 +55,11 @@ struct CreatureDisplayRow {
     float scale = 1;
     uint32_t alpha = 255;
     uint32_t sizeClass = 0;
+    uint32_t extended = 0;   // ExtendedDisplayInfoID.
 };
 
-// The id is column 0, ModelID 1, SizeClass 3, CreatureModelScale 4, CreatureModelAlpha 5 and
-// TextureVariationFileDataID[4] 27.
+// The id is column 0, ModelID 1, SizeClass 3, CreatureModelScale 4, CreatureModelAlpha 5,
+// ExtendedDisplayInfoID 7 and TextureVariationFileDataID[4] 27.
 inline Retail::Db2Table CreatureDisplays(const std::vector<CreatureDisplayRow>& displays, uint32_t layout = Retail::CREATURE_DISPLAY_INFO_LAYOUT) {
     std::vector<uint32_t> widths(27, 1);
     widths.push_back(4);
@@ -70,6 +71,7 @@ inline Retail::Db2Table CreatureDisplays(const std::vector<CreatureDisplayRow>& 
         values[3] = display.sizeClass;
         values[4] = FloatBits(display.scale);
         values[5] = display.alpha;
+        values[7] = display.extended;
         std::vector<uint32_t> variations = display.variations;
         variations.resize(4, 0);
         values.insert(values.end(), variations.begin(), variations.end());

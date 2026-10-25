@@ -43,6 +43,15 @@ TEST(DisplayScaleAlphaAndSizeClassComeFromRetail) {
     CHECK(display && display->scale == 1.5f && display->alpha == 128 && display->sizeClass == 3);
 }
 
+TEST(DisplaysKeepTheirExtendedDisplayInfo) {
+    CreatureDisplayRow row = { 145747, 40, {} };
+    row.extended = 165251;
+    RetailDisplays retail = Loaded({ { 40, BOAR } }, { row, { 7, 40, { 1 } } });
+
+    CHECK(retail.Display(145747) && retail.Display(145747)->extendedDisplayId == 165251);
+    CHECK(retail.Display(7) && retail.Display(7)->extendedDisplayId == 0);
+}
+
 TEST(ModelBoundsAndSizesComeFromRetail) {
     CreatureModelRow row = { 40, BOAR, { -1, -2, 0, 1, 2, 3 }, 0.75f, 2.5f, 1.25f, 1.75f, 2 };
     RetailDisplays retail = Loaded({ row }, { { 7, 40, { 1 } } });

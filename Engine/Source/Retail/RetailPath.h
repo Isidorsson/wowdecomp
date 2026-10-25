@@ -40,6 +40,17 @@ struct RaceFileRequest {
 // "retail-<fdid>_<prefix><m|f>.<ext>" in any folder, for the stock races' prefixes only.
 bool ParseRaceFileName(const std::string& normalized, RaceFileRequest& request);
 
+// A retail HD bake warped onto an installed body, as a served Extra row names it: "retail-<fdid>_bake<race><m|f>.blp"
+// in any folder (the client puts Textures\BakedNpcTextures\ before it).
+struct WarpedBakeRequest {
+    uint32_t fileDataId = 0;
+    uint32_t race = 0;
+    uint32_t gender = 0;   // 0 male, 1 female.
+};
+
+std::string WarpedBakeName(uint32_t fileDataId, uint32_t race, uint32_t gender);
+bool ParseWarpedBakeName(const std::string& normalized, WarpedBakeRequest& request);
+
 // The stock race's ClientPrefix, lowercase as a normalized path has it: "hu" for 1 to "dr" for 11; empty otherwise.
 std::string RacePrefix(uint32_t race);
 
@@ -54,7 +65,8 @@ class AliasTable {
     std::map<std::string, uint32_t> m_ids;
 };
 
-// What CASC serves: retail/<FileDataID>.<ext> directly under retail/, and aliased stock paths. Named paths
+// What CASC serves: retail/<FileDataID>.<ext> directly under retail/, retail file names (helms and warped bakes
+// included) in any folder, and aliased stock paths. Named paths
 // under retail/ stay with the MPQs, where downported content already lives.
 bool ClaimsPath(const std::string& normalized, const AliasTable& aliases);
 

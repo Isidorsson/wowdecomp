@@ -10,8 +10,8 @@
 namespace Retail {
 
 // Retail creature displays, for the client to serve the display ids its own CreatureDisplayInfo lacks (stock rows
-// win). Only what a 3.3.5 row can mean is kept: sound, blood, footprint, particle colour and extended display ids
-// index retail tables the client does not have, so its rows leave them 0.
+// win). Only what a 3.3.5 row can mean is kept: sound, blood, footprint and particle colour ids index retail tables
+// the client does not have, so its rows leave them 0. The extended display id is kept for RetailNpcDisplay.
 
 // Retail model data ids overlap stock ones, so a served display names its model by an id above every stock id.
 constexpr uint32_t SYNTHETIC_MODEL_ID_BASE = 0x01000000;
@@ -47,6 +47,7 @@ struct RetailDisplay {
     int32_t sizeClass = 0;
     std::array<uint32_t, 3> variations = {};   // The first three texture variations; 3.3.5 has no fourth.
     uint32_t geosetData = 0;
+    uint32_t extendedDisplayId = 0;   // The retail CreatureDisplayInfoExtra id, 0 for none.
 };
 
 // One nibble per geoset group 1 to 8, group g at bits 4 * (g - 1): the variant shown, 0xF (hidden) for a group

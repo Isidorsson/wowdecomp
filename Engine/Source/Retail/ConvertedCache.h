@@ -21,6 +21,9 @@ uint64_t ConverterKey();
 std::filesystem::path ConvertedCacheFolder(const Config& config);
 std::filesystem::path ConvertedCachePath(const Config& config, uint32_t fileDataId);
 
+// A warped NPC bake (RetailPath WarpedBakeName) of the bake file onto the installed body of race and gender.
+std::filesystem::path ConvertedBakePath(const Config& config, uint32_t bakeFileDataId, uint32_t race, uint32_t gender);
+
 // The m2, skins, skinBytes, remapped sequences and warnings; not the skeleton. False is a miss: absent, another key,
 // another format, truncated, oversized or failing a checksum. An entry of another key or format is deleted, since it
 // can never hit again; a hit refreshes the entry's last write time, which TrimCacheFolder reads as its last use.

@@ -115,6 +115,37 @@ bool ParseRaceFileName(const std::string& normalized, RaceFileRequest& request) 
     return true;
 }
 
+constexpr const char* BAKE_MARK = "_bake";
+
+std::string WarpedBakeName(uint32_t fileDataId, uint32_t race, uint32_t gender) {
+    return RetailFileName(fileDataId) + BAKE_MARK + std::to_string(race) + (gender ? "f" : "m") + ".blp";
+}
+
+bool ParseWarpedBakeName(const std::string& normalized, WarpedBakeRequest& request) {
+    size_t name = normalized.rfind('/') + 1;
+    if (normalized.compare(name, std::strlen(RETAIL_FILE_PREFIX), RETAIL_FILE_PREFIX) != 0) {
+        return false;
+    }
+
+    std::string stem = normalized.substr(name + std::strlen(RETAIL_FILE_PREFIX));
+    stem = stem.substr(0, stem.find('.'));
+    size_t mark = stem.find(BAKE_MARK);
+    if (mark == std::string::npos || stem.size() < mark + std::strlen(BAKE_MARK) + 2) {
+        return false;
+    }
+
+    char gender = stem.back();
+    std::string race = stem.substr(mark + std::strlen(BAKE_MARK), stem.size() - mark - std::strlen(BAKE_MARK) - 1);
+    uint32_t fileDataId = 0;
+    uint32_t raceId = 0;
+    if ((gender != 'm' && gender != 'f') || !ParseFileDataId(stem.substr(0, mark), fileDataId) || !ParseFileDataId(race, raceId)) {
+        return false;
+    }
+
+    request = { fileDataId, raceId, gender == 'm' ? 0u : 1u };
+    return true;
+}
+
 std::string RacePrefix(uint32_t race) {
     return race >= 1 && race <= STOCK_RACES ? RACE_PREFIXES[race - 1] : std::string();
 }
@@ -165,7 +196,9 @@ bool AliasTable::Parse(const std::string& text, std::string& error) {
 bool ClaimsPath(const std::string& normalized, const AliasTable& aliases) {
     uint32_t id;
     RaceFileRequest request;
-    return ParseRetailPath(normalized, id) || ParseRaceFileName(normalized, request) || (aliases.Size() && aliases.Find(normalized, id));
+    WarpedBakeRequest bake;
+    return ParseRetailPath(normalized, id) || ParseRaceFileName(normalized, request) || ParseWarpedBakeName(normalized, bake)
+        || (aliases.Size() && aliases.Find(normalized, id));
 }
 
 std::string SkinPathFor(const std::string& model, uint32_t view) {

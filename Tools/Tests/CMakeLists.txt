@@ -32,6 +32,9 @@ if (TARGET RetailCore)
         RetailDisplaysTests.cpp
         RetailItemDisplaysTests.cpp
         HelmFitTests.cpp
+        NpcDisplayTests.cpp
+        BodyMatchTests.cpp
+        BakeWarpTests.cpp
     )
     target_link_libraries(WowdecompTests PRIVATE RetailCore)
     target_sources(WowdecompTests PRIVATE
@@ -43,7 +46,7 @@ if (TARGET RetailCore)
 endif ()
 
 if (TARGET RetailAssets)
-    target_sources(WowdecompTests PRIVATE CascSourceTests.cpp)
+    target_sources(WowdecompTests PRIVATE CascSourceTests.cpp NpcBakeSourceTests.cpp)
     target_link_libraries(WowdecompTests PRIVATE RetailAssets)
 endif ()
 

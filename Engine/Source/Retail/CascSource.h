@@ -12,12 +12,14 @@
 #include <thread>
 #include <vector>
 #include "Engine/Source/Retail/AnimationFallbacks.h"
+#include "Engine/Source/Retail/BakeWarp.h"
 #include "Engine/Source/Retail/CacheBudget.h"
 #include "Engine/Source/Retail/HelmFit.h"
 #include "Engine/Source/Retail/ModelSkins.h"
 #include "Engine/Source/Retail/RetailConfig.h"
 #include "Engine/Source/Retail/RetailDisplays.h"
 #include "Engine/Source/Retail/RetailItemDisplays.h"
+#include "Engine/Source/Retail/RetailNpcDisplay.h"
 #include "Engine/Source/Retail/RetailPath.h"
 
 namespace Retail {
@@ -62,8 +64,17 @@ class CascSource {
     const RetailDisplays* Displays();
     const RetailItemDisplays* ItemDisplays();
 
+    // The retail NPC tables (Extra rows, their items and customization), read on first use. Null without a configured
+    // storage or when a table fails, which a warning explains; still-locked rows are skipped with one warning a table.
+    const RetailNpcTables* NpcTables();
+
+    // Whether the installed body of race and sex is the HD port of the retail HD body (BodyMatchRatio at least
+    // BODY_MATCH_THRESHOLD), so HD bakes can be warped onto it. Matched once per body.
+    bool InstalledBodyFits(uint32_t race, uint32_t sex);
+
     // Where a read reports data it dropped but did not fail on, such as a missing .anim file.
     void SetWarningSink(std::function<void(const std::string&)> sink) { this->m_warn = std::move(sink); }
+    void Warn(const std::string& message) const;
 
     // Reads a file from the client's own archives: the bodies a race-named helm is fitted to. Without it, helms
     // are fitted by the table.
@@ -91,6 +102,19 @@ class CascSource {
     bool Serve(const std::string& normalized, uint32_t fileDataId, ConvertedModel& model, std::vector<uint8_t>& bytes, std::string& error);
     bool ReadSkin(const std::string& normalized, const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error);
     bool TakeConvertedSkin(const std::string& normalized, std::vector<uint8_t>& bytes);
+    // An installed body matched to its retail HD body, once: whether it fits, and the warp HD bakes take onto it.
+    struct NpcBody {
+        bool fits = false;
+        BakeWarp warp;
+        bool hasBase = false;
+        Image base;   // The installed base skin, for the triangles the bake has no texels for.
+    };
+    const NpcBody& BodyFor(uint32_t race, uint32_t sex);
+    NpcBody MatchBody(uint32_t race, uint32_t sex);
+    bool ReadRetailBody(uint32_t fileDataId, BodyMesh& mesh, std::string& error);
+    void ReadBaseSkin(uint32_t race, uint32_t sex, NpcBody& body);
+    bool ReadWarpedBake(const WarpedBakeRequest& request, std::vector<uint8_t>& bytes, std::string& error);
+    bool LoadNpcTables(std::string& error);
     // The helm fit of a stock race and gender, chosen once.
     HelmFit FitFor(uint32_t race, uint32_t gender);
     HelmFit ChooseFit(uint32_t race, uint32_t gender);
@@ -104,7 +128,6 @@ class CascSource {
     void ReadDisplayTables();
     bool LoadCreatureTables(std::string& error);
     bool LoadItemTables(std::string& error);
-    void Warn(const std::string& message) const;
     bool OpenStorage(std::string& error);
     bool ReadStorage(uint32_t fileDataId, uint32_t openFlags, std::vector<uint8_t>& bytes, std::string& error);
 
@@ -128,6 +151,11 @@ class CascSource {
     bool m_hasItemDisplays = false;
     std::function<void(const std::string&)> m_warn;
     StockReader m_readStock;
+    std::once_flag m_npcTablesRead;
+    RetailNpcTables m_npcTables;
+    bool m_hasNpcTables = false;
+    std::mutex m_bodyMutex;
+    std::map<uint32_t, NpcBody> m_bodies;
     std::mutex m_fitMutex;
     std::map<uint32_t, HelmFit> m_fits;
     CacheBudget m_convertedBudget;
