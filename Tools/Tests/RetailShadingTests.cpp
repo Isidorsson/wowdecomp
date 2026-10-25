@@ -101,6 +101,14 @@ TEST(TwoTextureShadersDecodeLikeTheDownporter) {
     CHECK(shadings[9] == ClientShading({ { MOD, ADD }, { UV1, UV1 } }));
 }
 
+TEST(ThreeTexturesWithoutAnEffectDrawTheFirstTwo) {
+    auto shadings = Converted({ { 0x4014, 3 }, { 0x4011, 3 } });
+
+    CHECK(shadings.size() == 2);
+    CHECK(shadings.size() == 2 && shadings[0] == ClientShading({ { MOD, MOD2X }, { UV1, UV2 } }));
+    CHECK(shadings.size() == 2 && shadings[1] == ClientShading({ { MOD, MOD }, { UV1, UV2 } }));
+}
+
 TEST(EffectBatchesReadUv1AndTheEnvironmentMap) {
     ConvertedModel model;
     std::vector<uint8_t> skin;
@@ -183,4 +191,11 @@ TEST(ConvertedEffectsAreReportedLikeTheDownporter) {
     CHECK(Warned(model, { "skin 0: batches 0, 2", "shader effect 21 (Combiners_Mod_Mod)", "3.3.5 lacks" }));
     CHECK(Warned(model, { "skin 0: batch 1", "shader effect 29 (Illum)", "Not reproduced: the second texture" }));
     CHECK(Warned(model, { "skin 0: batch 3", "shader effect 40", "first texture" }));
+}
+
+TEST(TexturesPastTheSecondWithoutAnEffectAreReported) {
+    ConvertedModel model = WithSkin({ SkinBatch(0, 0x4014, 3), SkinBatch(0, 0x0014, 2), SkinBatch(0, 0x4011, 3) });
+
+    CHECK(Warned(model, { "skin 0: batches 0, 2", "3 textures", "texture 3", "not drawn" }));
+    CHECK(!Warned(model, { "batch 1", "not drawn" }));
 }

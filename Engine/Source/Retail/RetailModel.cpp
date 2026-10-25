@@ -24,8 +24,6 @@ constexpr uint16_t RENDER_FLAGS_MASK = 0x1DF;
 constexpr uint16_t BLEND_BLEND_ADD = 7;
 constexpr uint16_t BLEND_ADD = 4;
 constexpr uint8_t BATCH_HIDDEN_IN_335 = 0x80;
-constexpr uint16_t CLIENT_MAX_TEXTURES = 2;
-constexpr uint16_t EFFECT_FLAG = 0x8000;
 // Character skin, hair and extra skin, and the Shadowlands layers from 19: a model on a skeleton with one is a player
 // race model, built from character customization tables 3.3.5 has no equivalent for (downport/read/skeletal.rs).
 constexpr uint32_t CHARACTER_TEXTURE_TYPES[] = { 1, 6, 8 };
@@ -369,11 +367,6 @@ static bool ConvertBatch(std::vector<uint8_t>& skin, size_t batch, const Shading
 
     uint16_t textures = Get<uint16_t>(skin, batch + 0x0E);
     uint16_t textureCombo = Get<uint16_t>(skin, batch + 0x10);
-
-    // An effect's base decides how many it draws (ShadeBatches).
-    if (textures > CLIENT_MAX_TEXTURES && !(Get<uint16_t>(skin, batch + 0x02) & EFFECT_FLAG)) {
-        return Fail(error, std::to_string(textures) + " textures in one batch without a shader effect have no 3.3.5 shader");
-    }
 
     if (uint32_t(textureCombo) + textures > tables.textureCombos) {
         return Fail(error, "a batch reads texture combo " + std::to_string(textureCombo) + " past the model's " + std::to_string(tables.textureCombos));

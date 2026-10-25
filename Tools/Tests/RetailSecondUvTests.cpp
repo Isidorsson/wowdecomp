@@ -160,3 +160,13 @@ TEST(OverlayPassesOnUv2CountAsReadingIt) {
     CHECK(model.m2.size() > 0 && !Uv2IsUv1(model.m2, 0));
     CHECK(Mentions(model, "kept"));
 }
+
+TEST(ThreeTextureBatchesCountTheTwoTheyDraw) {
+    // 0x0014 and 0x4011 with a third texture draw (UV1, UV1) and (UV1, UV2) like their two-texture batches.
+    ConvertedModel copied = Converted(1, { { SKIN_A, UvSkin({ On(0, 0x0014, 3) }) } });
+    ConvertedModel kept = Converted(1, { { SKIN_A, UvSkin({ On(0, 0x0014, 2), On(0, 0x4011, 3) }) } });
+
+    CHECK(copied.m2.size() > 0 && Uv2IsUv1(copied.m2, 0) && Uv2IsUv1(copied.m2, 1));
+    CHECK(kept.m2.size() > 0 && !Uv2IsUv1(kept.m2, 0));
+    CHECK(Mentions(kept, "kept"));
+}

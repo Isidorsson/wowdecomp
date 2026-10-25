@@ -152,14 +152,6 @@ TEST(BatchesPastTheTextureCombosAreRefused) {
     CHECK(!ConvertSkin({ RetailSkin({ SkinBatch(0, 0x8000, 2, 0, 1, 0) }), WeightedModel(1), 0 }, out, error) && error.find("texture combo") != std::string::npos);
 }
 
-TEST(SkinBatchesLaterSlicesConvertAreRefused) {
-    std::vector<uint8_t> m2 = WeightedModel(1);
-    std::vector<uint8_t> out;
-    std::string error;
-
-    CHECK(!ConvertSkin({ RetailSkin({ SkinBatch(0, 0x0010, 3) }), m2, 0 }, out, error) && error.find("texture") != std::string::npos);
-}
-
 TEST(SkinBatchFlagsAre3_3_5Masked) {
     std::vector<uint8_t> out;
     std::string error;

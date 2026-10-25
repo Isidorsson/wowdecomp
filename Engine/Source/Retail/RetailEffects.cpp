@@ -28,6 +28,9 @@ static uint16_t SecondOp(uint16_t shader, uint16_t first) {
     return op == OP_ADD || op == OP_MOD2X || op == OP_MOD2X_NA || op == OP_ADD_NA ? op : OP_MOD;
 }
 
+// Combiner shaders the client substitutes take two textures at most (SubstituteSimpleShaders).
+constexpr uint16_t CLIENT_TEXTURES = 2;
+
 static Shading DecodeShader(uint16_t shader, uint16_t textures) {
     uint16_t first = shader & SHADER_FIRST_MOD ? OP_MOD : OP_OPAQUE;
     bool firstEnv = shader & SHADER_FIRST_ENV;
@@ -92,7 +95,7 @@ constexpr Shading UNKNOWN_EFFECT_BASE = { { OP_MOD, OP_OPAQUE }, { UV1, UV1 } };
 
 BaseShading ResolveShading(uint16_t shader, uint16_t textures) {
     if (!(shader & EFFECT_FLAG)) {
-        return { nullptr, NO_CLIENT_EFFECT, textures, DecodeShader(shader, textures) };
+        return { nullptr, NO_CLIENT_EFFECT, std::min(textures, CLIENT_TEXTURES), DecodeShader(shader, textures) };
     }
 
     uint16_t id = shader & ~EFFECT_FLAG;
@@ -175,6 +178,7 @@ struct EffectBatches {
     std::map<std::pair<uint16_t, std::vector<uint16_t>>, std::vector<uint32_t>> split;
     std::map<std::pair<uint16_t, uint16_t>, std::vector<uint32_t>> missing;
     std::map<uint16_t, std::vector<uint32_t>> layered;
+    std::map<uint16_t, std::vector<uint32_t>> dropped;
 };
 
 static void SortBatch(const std::vector<uint8_t>& skin, size_t at, uint32_t index, uint32_t textureCombos, EffectBatches& sorted) {
@@ -225,6 +229,13 @@ static void Report(uint32_t view, const EffectBatches& sorted, std::vector<std::
             + " for its pass, so it is not drawn");
     }
 
+    for (const auto& entry : sorted.dropped) {
+        uint16_t declared = entry.first;
+        std::string past = declared == CLIENT_TEXTURES + 1 ? "texture " + std::to_string(declared) : "textures " + std::to_string(CLIENT_TEXTURES + 1) + " to " + std::to_string(declared);
+        warnings.push_back(names(entry.second) + std::to_string(declared) + " textures without a shader effect, of which a 3.3.5 batch draws the first "
+            + std::to_string(CLIENT_TEXTURES) + ", so " + past + " is not drawn");
+    }
+
     for (const auto& entry : sorted.layered) {
         warnings.push_back(names(entry.second) + EffectName(entry.first, effectOf(entry.first))
             + " sits on a material layer above 0, so the client takes the base material of its passes from another material than the base's");
@@ -247,8 +258,11 @@ bool ReportEffects(const std::vector<uint8_t>& m2, const std::vector<std::vector
         for (uint32_t i = 0; i < records.count; i++) {
             size_t at = records.At(i, BATCH_SIZE);
             uint16_t shader = Get<uint16_t>(skins[view], at + 0x02);
+            uint16_t declared = Get<uint16_t>(skins[view], at + 0x0E);
             if ((shader & EFFECT_FLAG) && (shader & ~EFFECT_FLAG) >= CLIENT_EFFECTS) {
                 SortBatch(skins[view], at, i, textureCombos.count, sorted);
+            } else if (!(shader & EFFECT_FLAG) && declared > CLIENT_TEXTURES) {
+                sorted.dropped[declared].push_back(i);
             }
         }
 
