@@ -5,6 +5,7 @@
 #include <sstream>
 #include "Engine/Source/Retail/DecodedCache.h"
 #include "Engine/Source/Retail/Db2Table.h"
+#include "Engine/Source/Retail/HelmFit.h"
 #include "Engine/Source/Retail/RetailModel.h"
 #include <cstring>
 
@@ -116,10 +117,29 @@ bool CascSource::Configure(const std::filesystem::path& configPath, std::string&
     return true;
 }
 
+// A path that starts with "r" or whose file name starts with "retail-", in any case: what ClaimsPath can claim
+// without an alias.
+static bool MayBeRetail(const char* name) {
+    if ((name[0] | 0x20) == 'r') {
+        return true;
+    }
+    const char* file = name;
+    for (const char* c = name; *c; c++) {
+        if (*c == '\\' || *c == '/') {
+            file = c + 1;
+        }
+    }
+    size_t prefix = 0;
+    while (RETAIL_FILE_PREFIX[prefix] && (file[prefix] | 0x20) == RETAIL_FILE_PREFIX[prefix]) {
+        prefix++;
+    }
+    return !RETAIL_FILE_PREFIX[prefix];
+}
+
 bool CascSource::Handles(const char* name) const {
     // Skips the allocation for nearly every stock path. retail/<FileDataID> is claimed even when
     // unconfigured, so it fails loudly in Logs/RetailAssets.log instead of reaching the MPQs.
-    if (!this->m_aliases.Size() && (name[0] | 0x20) != 'r') {
+    if (!this->m_aliases.Size() && !MayBeRetail(name)) {
         return false;
     }
 
@@ -140,7 +160,7 @@ bool CascSource::FindDependency(const std::string& normalized, Dependency& depen
     return true;
 }
 
-bool CascSource::Resolve(const std::string& normalized, uint32_t& fileDataId, std::string& error) const {
+bool CascSource::Resolve(const std::string& normalized, uint32_t& fileDataId, std::string& error) {
     if (!this->m_configured) {
         error = this->m_configError.empty() ? std::string("no ") + DEFAULT_CONFIG + " (or WOW_RETAIL_CONFIG)" : this->m_configError;
         return false;
@@ -148,6 +168,17 @@ bool CascSource::Resolve(const std::string& normalized, uint32_t& fileDataId, st
 
     if (this->m_aliases.Find(normalized, fileDataId) || ParseRetailPath(normalized, fileDataId)) {
         return true;
+    }
+
+    RaceFileRequest request;
+    if (ParseRaceFileName(normalized, request)) {
+        const RetailItemDisplays* displays = this->ItemDisplays();
+        fileDataId = displays ? displays->RaceFile(request.fileDataId, request.race, request.gender) : 0;
+        if (!fileDataId) {
+            error = displays ? "model " + std::to_string(request.fileDataId) + " has no file for race " + std::to_string(request.race) + (request.gender ? " female" : " male")
+                             : "no item tables to choose the race file from";
+        }
+        return fileDataId != 0;
     }
 
     error = "not a retail/<FileDataID> path or alias";
@@ -215,6 +246,14 @@ bool CascSource::ReadModel(const std::string& normalized, std::vector<uint8_t>& 
         return false;
     }
 
+    // Fitted per read, never cached: the decoded cache holds the original by FileDataID, which a weapon-style
+    // name or another race's helm may share.
+    uint32_t race;
+    uint32_t gender;
+    if (HelmRaceForPath(normalized, race, gender) && !FitHelmToStockHead(model.m2, this->FitFor(race, gender), error)) {
+        return false;
+    }
+
     for (const std::string& warning : model.warnings) {
         this->Warn(normalized + ": " + warning);
     }
@@ -232,6 +271,41 @@ bool CascSource::ReadModel(const std::string& normalized, std::vector<uint8_t>& 
 
     bytes = std::move(model.m2);
     return true;
+}
+
+HelmFit CascSource::FitFor(uint32_t race, uint32_t gender) {
+    std::lock_guard<std::mutex> lock(this->m_fitMutex);
+    uint32_t key = race * 2 + gender;
+    auto found = this->m_fits.find(key);
+    if (found == this->m_fits.end()) {
+        found = this->m_fits.emplace(key, this->ChooseFit(race, gender)).first;
+    }
+    return found->second;
+}
+
+// The installed body's own fit when it is an HD port, read off it and the retail body; the table otherwise.
+HelmFit CascSource::ChooseFit(uint32_t race, uint32_t gender) {
+    std::string body = StockBodyPath(race, gender);
+    std::vector<uint8_t> stock;
+    std::vector<uint8_t> retail;
+    HeadFrame stockFrame;
+    HeadFrame retailFrame;
+    HelmFit fit;
+    std::string error;
+
+    if (!this->m_readStock || !this->m_readStock(body, stock)) {
+        error = "the body is unreadable";
+    } else if (ReadHeadFrame(stock, stockFrame, error) && this->ReadOriginal(RetailBodyFileDataId(race, gender), retail, error)
+               && ReadHeadFrame(retail, retailFrame, error)) {
+        if (DeriveHelmFit(stockFrame, retailFrame, fit)) {
+            this->Warn(body + ": the retail skeleton, so retail helms move by (" + std::to_string(fit.shiftX) + ", " + std::to_string(fit.shiftZ) + ")");
+            return fit;
+        }
+        error = "not the retail skeleton";
+    }
+
+    this->Warn(body + ": helms fitted by the table, " + error);
+    return *HelmFitFor(race, gender);
 }
 
 bool CascSource::ReadSkin(const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error) {
@@ -320,13 +394,15 @@ bool CascSource::LoadItemTables(std::string& error) {
     Db2Table appearances;
     Db2Table sections;
     Db2Table componentTextures;
+    Db2Table helmetGeosets;
     if (!this->ReadTables({ { MODEL_FILE_DATA_FDID, &modelFiles }, { ITEM_DISPLAY_INFO_FDID, &itemDisplays }, { ITEM_DISPLAY_INFO_MODEL_MAT_RES_FDID, &layers },
             { TEXTURE_FILE_DATA_FDID, &textureFiles }, { COMPONENT_MODEL_FILE_DATA_FDID, &componentModels }, { ITEM_APPEARANCE_FDID, &appearances },
-            { ITEM_DISPLAY_INFO_MATERIAL_RES_FDID, &sections }, { COMPONENT_TEXTURE_FILE_DATA_FDID, &componentTextures } }, error)) {
+            { ITEM_DISPLAY_INFO_MATERIAL_RES_FDID, &sections }, { COMPONENT_TEXTURE_FILE_DATA_FDID, &componentTextures },
+            { HELMET_GEOSET_DATA_FDID, &helmetGeosets } }, error)) {
         return false;
     }
 
-    this->m_hasItemDisplays = this->m_itemDisplays.Load({ itemDisplays, modelFiles, componentModels, textureFiles, appearances, sections, componentTextures }, error);
+    this->m_hasItemDisplays = this->m_itemDisplays.Load({ itemDisplays, modelFiles, componentModels, textureFiles, appearances, sections, componentTextures, helmetGeosets }, error);
     if (!this->m_hasItemDisplays || !this->m_skins.LoadItems({ modelFiles, itemDisplays, layers, textureFiles }, error)) {
         return false;
     }

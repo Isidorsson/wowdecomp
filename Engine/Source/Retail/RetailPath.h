@@ -28,6 +28,21 @@ std::string RetailFileName(uint32_t fileDataId);
 // ParseRetailPath reads back "_u" of the first and "_m" / "_f" of the second.
 std::string RetailBodyTextureName(uint32_t male, uint32_t female);
 
+// A helm as the client asks for it (ComposeHelmModelFilePath): the served model's name, then the race's ChrRaces
+// ClientPrefix and M or F, "item/objectcomponents/head/retail-<fdid>_hum.m2". It means the file of fdid's model
+// resource for that race and gender (RetailItemDisplays::RaceFile).
+struct RaceFileRequest {
+    uint32_t fileDataId = 0;
+    uint32_t race = 0;     // ChrRaces id.
+    uint32_t gender = 0;   // 0 male, 1 female.
+};
+
+// "retail-<fdid>_<prefix><m|f>.<ext>" in any folder, for the stock races' prefixes only.
+bool ParseRaceFileName(const std::string& normalized, RaceFileRequest& request);
+
+// The stock race's ClientPrefix, lowercase as a normalized path has it: "hu" for 1 to "dr" for 11; empty otherwise.
+std::string RacePrefix(uint32_t race);
+
 // Rows of "FDID;client\path" that serve a retail file in place of a stock path.
 class AliasTable {
     public:

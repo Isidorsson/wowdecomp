@@ -22,25 +22,31 @@ struct ItemDisplayRow {
     std::vector<uint32_t> resources;      // Two model resources, 0 for none.
     std::vector<uint32_t> materials;      // Each side's object skin material resource.
     std::vector<uint32_t> geosetGroups;   // Up to six.
+    std::vector<uint32_t> helmetVis;      // Male, female.
 };
 
-// ModelResourcesID[2] is column 10, ModelMaterialResourcesID[2] 11, ModelType[2] 12 and GeosetGroup[6] 13.
+// ModelResourcesID[2] is column 10, ModelMaterialResourcesID[2] 11, ModelType[2] 12, GeosetGroup[6] 13,
+// AttachmentGeosetGroup[6] 14 and HelmetGeosetVis[2] 15.
 inline Retail::Db2Table ItemDisplays(const std::vector<ItemDisplayRow>& displays, uint32_t layout = Retail::ITEM_DISPLAY_INFO_LAYOUT) {
     std::vector<uint32_t> widths(10, 1);
-    widths.insert(widths.end(), { 2, 2, 2, 6 });
+    widths.insert(widths.end(), { 2, 2, 2, 6, 6, 2 });
     std::vector<Db2Row> rows;
     for (const ItemDisplayRow& display : displays) {
         std::vector<uint32_t> resources = display.resources;
         std::vector<uint32_t> materials = display.materials;
         std::vector<uint32_t> groups = display.geosetGroups;
+        std::vector<uint32_t> helmetVis = display.helmetVis;
         resources.resize(2, 0);
         materials.resize(2, 0);
         groups.resize(6, 0);
+        helmetVis.resize(2, 0);
         std::vector<uint32_t> values(10, 0);
         values.insert(values.end(), resources.begin(), resources.end());
         values.insert(values.end(), materials.begin(), materials.end());
         values.insert(values.end(), { 0, 0 });
         values.insert(values.end(), groups.begin(), groups.end());
+        values.insert(values.end(), 6, 0);
+        values.insert(values.end(), helmetVis.begin(), helmetVis.end());
         rows.push_back({ display.id, values });
     }
     return PlainTable(layout, widths, rows);
@@ -122,6 +128,23 @@ inline Retail::Db2Table ComponentTextures(const std::vector<ComponentTextureRow>
         rows.push_back({ file.file, { file.gender, 0, file.race } });
     }
     return PlainTable(layout, { 1, 1, 1 }, rows);
+}
+
+struct HelmetGeosetRow {
+    uint32_t vis;     // HelmetGeosetVis id, the row's relation.
+    uint32_t race;    // ChrRaces id.
+    uint32_t group;   // Retail geoset group.
+};
+
+// RaceID is column 0 and HideGeosetGroup 1; the vis id is the row's relation.
+inline Retail::Db2Table HelmetGeosets(const std::vector<HelmetGeosetRow>& geosets, uint32_t layout = Retail::HELMET_GEOSET_DATA_LAYOUT) {
+    std::vector<Db2Row> rows;
+    std::vector<uint32_t> relations;
+    for (uint32_t i = 0; i < geosets.size(); i++) {
+        rows.push_back({ i + 1, { geosets[i].race, geosets[i].group } });
+        relations.push_back(geosets[i].vis);
+    }
+    return PlainTable(layout, { 1, 1 }, rows, relations);
 }
 
 #endif

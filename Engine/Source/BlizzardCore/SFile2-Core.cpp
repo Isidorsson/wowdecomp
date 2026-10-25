@@ -41,6 +41,19 @@ static Retail::CascSource& RetailSource() {
         source.SetWarningSink([](const std::string& warning) {
             Blizzard::Log::Printf(1, RETAIL_LOG, "%s\n", warning.c_str());
         });
+
+        // The bodies helms are fitted to are stock paths, which reach the MPQs unless an alias claims them.
+        source.SetStockReader([](const std::string& path, std::vector<uint8_t>& bytes) {
+            void* data = nullptr;
+            uint32_t size = 0;
+            if (!SFile::LoadFile(path.c_str(), &data, &size, 0, nullptr)) {
+                return false;
+            }
+            const uint8_t* begin = static_cast<const uint8_t*>(data);
+            bytes.assign(begin, begin + size);
+            SFile::Unload(data);
+            return true;
+        });
     });
 
     return source;

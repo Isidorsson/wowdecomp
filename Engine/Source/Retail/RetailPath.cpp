@@ -83,6 +83,42 @@ bool ParseRetailPath(const std::string& normalized, uint32_t& fileDataId) {
     return ParseFileDataId(stem, fileDataId);
 }
 
+// ChrRaces ClientPrefix of the stock races 1 to 11, lowercase.
+static const char* const RACE_PREFIXES[] = { "hu", "or", "dw", "ni", "sc", "ta", "gn", "tr", "go", "be", "dr" };
+constexpr uint32_t STOCK_RACES = sizeof(RACE_PREFIXES) / sizeof(RACE_PREFIXES[0]);
+constexpr size_t RACE_SUFFIX = 4;   // "_hum".
+
+bool ParseRaceFileName(const std::string& normalized, RaceFileRequest& request) {
+    size_t name = normalized.rfind('/') + 1;
+    if (normalized.compare(name, std::strlen(RETAIL_FILE_PREFIX), RETAIL_FILE_PREFIX) != 0) {
+        return false;
+    }
+
+    std::string stem = normalized.substr(name + std::strlen(RETAIL_FILE_PREFIX));
+    stem = stem.substr(0, stem.find('.'));
+    if (stem.size() <= RACE_SUFFIX || stem[stem.size() - RACE_SUFFIX] != '_') {
+        return false;
+    }
+
+    char gender = stem.back();
+    std::string prefix = stem.substr(stem.size() - RACE_SUFFIX + 1, 2);
+    uint32_t race = 1;
+    while (race <= STOCK_RACES && prefix != RACE_PREFIXES[race - 1]) {
+        race++;
+    }
+    uint32_t fileDataId = 0;
+    if ((gender != 'm' && gender != 'f') || race > STOCK_RACES || !ParseFileDataId(stem.substr(0, stem.size() - RACE_SUFFIX), fileDataId)) {
+        return false;
+    }
+
+    request = { fileDataId, race, gender == 'm' ? 0u : 1u };
+    return true;
+}
+
+std::string RacePrefix(uint32_t race) {
+    return race >= 1 && race <= STOCK_RACES ? RACE_PREFIXES[race - 1] : std::string();
+}
+
 std::string RetailFileName(uint32_t fileDataId) {
     return RETAIL_FILE_PREFIX + std::to_string(fileDataId);
 }
@@ -128,7 +164,8 @@ bool AliasTable::Parse(const std::string& text, std::string& error) {
 
 bool ClaimsPath(const std::string& normalized, const AliasTable& aliases) {
     uint32_t id;
-    return ParseRetailPath(normalized, id) || (aliases.Size() && aliases.Find(normalized, id));
+    RaceFileRequest request;
+    return ParseRetailPath(normalized, id) || ParseRaceFileName(normalized, request) || (aliases.Size() && aliases.Find(normalized, id));
 }
 
 std::string SkinPathFor(const std::string& model, uint32_t view) {

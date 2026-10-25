@@ -8,6 +8,7 @@ namespace Retail {
 constexpr size_t DISPLAY_RESOURCES = 10;
 constexpr size_t DISPLAY_MATERIALS = 11;
 constexpr size_t DISPLAY_GEOSET_GROUPS = 13;
+constexpr size_t DISPLAY_HELMET_VIS = 15;
 constexpr size_t MODEL_FILE_RESOURCE = 4;
 constexpr size_t COMPONENT_GENDER = 0;
 constexpr size_t COMPONENT_RACE = 2;
@@ -20,6 +21,8 @@ constexpr size_t SECTION_SECTION = 0;
 constexpr size_t SECTION_MATERIAL = 1;
 constexpr size_t COMPONENT_TEXTURE_GENDER = 0;
 constexpr size_t COMPONENT_TEXTURE_RACE = 2;
+constexpr size_t HELMET_GEOSET_RACE = 0;
+constexpr size_t HELMET_GEOSET_GROUP = 1;
 
 constexpr uint32_t ANY_GENDER = 2;
 constexpr uint32_t MALE = 0;
@@ -27,15 +30,6 @@ constexpr uint32_t FEMALE = 1;
 constexpr uint32_t HUMAN = 1;
 constexpr uint32_t OBJECT_SKIN_USAGE = 0;
 
-// One file of a model resource: a race and gender's (a helm), a side's (a shoulder pair) or everyone's.
-struct ModelFile {
-    uint32_t fdid;
-    uint32_t gender;
-    uint32_t race;
-    uint32_t position;
-};
-
-using ModelFilesByResource = std::map<uint32_t, std::vector<ModelFile>>;
 
 static ModelFilesByResource FilesByResource(const Db2Table& modelFiles, const Db2Table& componentModels) {
     std::map<uint32_t, ModelFile> owners;
@@ -236,6 +230,10 @@ static RetailItemDisplay DisplayAt(const Db2Table& displays, size_t row, const I
     for (size_t i = 0; i < groups.size() && i < display.geosetGroups.size(); i++) {
         display.geosetGroups[i] = groups[i];
     }
+    std::vector<uint32_t> helmetVis = displays.Values(row, DISPLAY_HELMET_VIS);
+    for (size_t i = 0; i < helmetVis.size() && i < display.helmetVis.size(); i++) {
+        display.helmetVis[i] = helmetVis[i];
+    }
     display.icon = Find(lookups.icons, display.id);
     display.body = BodyOf(display.id, lookups.body);
     return display;
@@ -247,7 +245,24 @@ static bool KnownLayouts(const ItemDisplayTables& tables, std::string& error) {
         && KnownLayout(tables.textureFiles, TEXTURE_FILE_DATA_LAYOUT, "TextureFileData", error)
         && KnownLayout(tables.appearances, ITEM_APPEARANCE_LAYOUT, "ItemAppearance", error)
         && KnownLayout(tables.sections, ITEM_DISPLAY_INFO_MATERIAL_RES_LAYOUT, "ItemDisplayInfoMaterialRes", error)
-        && KnownLayout(tables.componentTextures, COMPONENT_TEXTURE_FILE_DATA_LAYOUT, "ComponentTextureFileData", error);
+        && KnownLayout(tables.componentTextures, COMPONENT_TEXTURE_FILE_DATA_LAYOUT, "ComponentTextureFileData", error)
+        && KnownLayout(tables.helmetGeosets, HELMET_GEOSET_DATA_LAYOUT, "HelmetGeosetData", error);
+}
+
+// Each vis id's masks, for the ids HelmetGeosetData has rows for.
+static std::map<uint32_t, HelmetMasks> HelmetVisById(const Db2Table& helmetGeosets) {
+    std::map<uint32_t, std::vector<HelmetGeoset>> hidden;
+    for (size_t row = 0; row < helmetGeosets.RowCount(); row++) {
+        if (uint32_t vis = helmetGeosets.Relation(row)) {
+            hidden[vis].push_back({ helmetGeosets.Value(row, HELMET_GEOSET_RACE), helmetGeosets.Value(row, HELMET_GEOSET_GROUP) });
+        }
+    }
+
+    std::map<uint32_t, HelmetMasks> masks;
+    for (const auto& [vis, geosets] : hidden) {
+        masks[vis] = HelmetVisMasks(geosets);
+    }
+    return masks;
 }
 
 bool RetailItemDisplays::Load(const ItemDisplayTables& tables, std::string& error) {
@@ -257,17 +272,77 @@ bool RetailItemDisplays::Load(const ItemDisplayTables& tables, std::string& erro
 
     ItemLookups lookups = { FilesByResource(tables.modelFiles, tables.componentModels), SkinsByMaterial(tables.textureFiles), IconsByDisplay(tables.appearances),
         BodyLookupsOf(tables) };
+    this->m_resourceOf.clear();
+    for (const auto& [resource, files] : lookups.files) {
+        for (const ModelFile& file : files) {
+            this->m_resourceOf[file.fdid] = resource;
+        }
+    }
+    this->m_helmetVis = HelmetVisById(tables.helmetGeosets);
     this->m_displays.clear();
     for (size_t row = 0; row < tables.displays.RowCount(); row++) {
         this->m_displays.push_back(DisplayAt(tables.displays, row, lookups));
     }
     std::sort(this->m_displays.begin(), this->m_displays.end(), [](const RetailItemDisplay& a, const RetailItemDisplay& b) { return a.id < b.id; });
+    this->m_filesOf = std::move(lookups.files);
     return true;
 }
 
 const RetailItemDisplay* RetailItemDisplays::Display(uint32_t id) const {
     auto display = std::lower_bound(this->m_displays.begin(), this->m_displays.end(), id, [](const RetailItemDisplay& d, uint32_t key) { return d.id < key; });
     return display != this->m_displays.end() && display->id == id ? &*display : nullptr;
+}
+
+// HelmetGeosetVisDataRec's slots: the retail geoset group each hides.
+constexpr std::array<uint32_t, HELMET_HIDE_SLOTS> HELMET_SLOT_GROUPS = { 0, 1, 2, 3, 7, 16, 17 };
+constexpr uint32_t LAST_STOCK_RACE = 11;
+
+HelmetMasks HelmetVisMasks(const std::vector<HelmetGeoset>& hidden) {
+    HelmetMasks masks = {};
+    for (const HelmetGeoset& geoset : hidden) {
+        auto slot = std::find(HELMET_SLOT_GROUPS.begin(), HELMET_SLOT_GROUPS.end(), geoset.group);
+        if (slot != HELMET_SLOT_GROUPS.end() && geoset.race >= 1 && geoset.race <= LAST_STOCK_RACE) {
+            masks[slot - HELMET_SLOT_GROUPS.begin()] |= 1 << geoset.race;
+        }
+    }
+    return masks;
+}
+
+// How well a file suits a race and gender: 1 for theirs, 2 the race's for either gender, 3 every race's of the
+// gender, 4 every race's for either; 0 for another race's or the other gender's.
+static uint32_t RaceFileRank(const ModelFile& file, uint32_t race, uint32_t gender) {
+    uint32_t fileGender = file.gender == MALE || file.gender == FEMALE ? file.gender : ANY_GENDER;
+    if (fileGender != gender && fileGender != ANY_GENDER) {
+        return 0;
+    }
+    uint32_t either = fileGender == ANY_GENDER ? 1 : 0;
+    if (file.race == race) {
+        return 1 + either;
+    }
+    return file.race == 0 ? 3 + either : 0;
+}
+
+uint32_t RetailItemDisplays::RaceFile(uint32_t fileDataId, uint32_t race, uint32_t gender) const {
+    auto resource = this->m_resourceOf.find(fileDataId);
+    if (resource == this->m_resourceOf.end() || race == 0) {
+        return 0;
+    }
+
+    uint32_t best = 0;
+    uint32_t bestRank = 0;
+    for (const ModelFile& file : this->m_filesOf.at(resource->second)) {
+        uint32_t rank = RaceFileRank(file, race, gender);
+        if (rank && (!bestRank || rank < bestRank || (rank == bestRank && file.fdid < best))) {
+            best = file.fdid;
+            bestRank = rank;
+        }
+    }
+    return best;
+}
+
+const HelmetMasks* RetailItemDisplays::HelmetVis(uint32_t retailId) const {
+    auto masks = this->m_helmetVis.find(retailId);
+    return retailId && masks != this->m_helmetVis.end() ? &masks->second : nullptr;
 }
 
 }

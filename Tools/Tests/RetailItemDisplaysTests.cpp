@@ -24,13 +24,15 @@ struct Fixture {
     std::vector<AppearanceRow> appearances;
     std::vector<SectionRow> sections;
     std::vector<ComponentTextureRow> componentTextures;
+    std::vector<HelmetGeosetRow> helmetGeosets;
 };
 
 static RetailItemDisplays Loaded(const Fixture& fixture) {
     RetailItemDisplays retail;
     std::string error;
     if (!retail.Load({ ItemDisplays(fixture.displays), ModelFiles(fixture.modelFiles), ComponentModels(fixture.componentModels),
-            TextureFiles(fixture.textureFiles), Appearances(fixture.appearances), Sections(fixture.sections), ComponentTextures(fixture.componentTextures) },
+            TextureFiles(fixture.textureFiles), Appearances(fixture.appearances), Sections(fixture.sections), ComponentTextures(fixture.componentTextures),
+            HelmetGeosets(fixture.helmetGeosets) },
             error)) {
         std::printf("    (%s)\n", error.c_str());
     }
@@ -130,12 +132,13 @@ TEST(UnknownItemDisplaysAreNotServed) {
 static bool Refused(uint32_t badTable, const char* name) {
     std::vector<uint32_t> layouts = { Retail::ITEM_DISPLAY_INFO_LAYOUT, Retail::MODEL_FILE_DATA_LAYOUT, Retail::COMPONENT_MODEL_FILE_DATA_LAYOUT,
         Retail::TEXTURE_FILE_DATA_LAYOUT, Retail::ITEM_APPEARANCE_LAYOUT, Retail::ITEM_DISPLAY_INFO_MATERIAL_RES_LAYOUT,
-        Retail::COMPONENT_TEXTURE_FILE_DATA_LAYOUT };
+        Retail::COMPONENT_TEXTURE_FILE_DATA_LAYOUT, Retail::HELMET_GEOSET_DATA_LAYOUT };
     layouts[badTable] = 0x5555;
     RetailItemDisplays retail;
     std::string error;
     bool loaded = retail.Load({ ItemDisplays({}, layouts[0]), ModelFiles({}, layouts[1]), ComponentModels({}, layouts[2]), TextureFiles({}, layouts[3]),
-                                  Appearances({}, layouts[4]), Sections({}, layouts[5]), ComponentTextures({}, layouts[6]) },
+                                  Appearances({}, layouts[4]), Sections({}, layouts[5]), ComponentTextures({}, layouts[6]),
+                                  HelmetGeosets({}, layouts[7]) },
         error);
     return !loaded && error.find(name) != std::string::npos;
 }
@@ -148,6 +151,10 @@ TEST(UnknownItemLayoutsAreRefusedByName) {
     CHECK(Refused(4, "ItemAppearance"));
     CHECK(Refused(5, "ItemDisplayInfoMaterialRes"));
     CHECK(Refused(6, "ComponentTextureFileData"));
+}
+
+TEST(AnUnknownHelmetGeosetLayoutIsRefusedByName) {
+    CHECK(Refused(7, "HelmetGeosetData"));
 }
 
 // Body sections: ItemDisplayInfoMaterialRes gives a display's section materials, TextureFileData (usage 0) their
@@ -225,4 +232,135 @@ TEST(SectionsPastTheEighthAreDropped) {
     Body expected;
     expected[3] = { 9091, 9091 };
     CHECK(body == expected);
+}
+
+// Helms: the client asks for Item\ObjectComponents\Head\<name>_<race prefix><M|F>, so a served helm's file is the one
+// its model resource has for the character's race and gender (ComponentModelFileData: gender 0 male, 1 female,
+// else either; race 0 every race).
+
+// Resource 90: human male and female, a race 2 male, and every race's male, female and either.
+static RetailItemDisplays Helms() {
+    Fixture fixture;
+    fixture.modelFiles = { { 9100, 90 }, { 9101, 90 }, { 9102, 90 }, { 9110, 90 }, { 9111, 90 }, { 9120, 90 } };
+    fixture.componentModels = { { 9100, 0, 1, 0 }, { 9101, 1, 1, 0 }, { 9102, 0, 2, 0 }, { 9110, 0, 0, 0 }, { 9111, 1, 0, 0 }, { 9120, 2, 0, 0 } };
+    return Loaded(fixture);
+}
+
+TEST(AHelmTakesTheFileOfTheRaceAndGender) {
+    RetailItemDisplays retail = Helms();
+
+    CHECK(retail.RaceFile(9100, 1, 1) == 9101);
+    CHECK(retail.RaceFile(9100, 1, 0) == 9100);
+    CHECK(retail.RaceFile(9101, 2, 0) == 9102);   // Any file of the resource names it.
+}
+
+TEST(ARaceWithoutAFileTakesEveryRacesOfItsGender) {
+    RetailItemDisplays retail = Helms();
+
+    CHECK(retail.RaceFile(9100, 3, 0) == 9110);
+    CHECK(retail.RaceFile(9100, 3, 1) == 9111);
+    CHECK(retail.RaceFile(9100, 2, 1) == 9111);   // Race 2 has only a male file.
+}
+
+TEST(AGenderWithoutAFileTakesEveryRacesForEither) {
+    Fixture fixture;
+    fixture.modelFiles = { { 9200, 91 }, { 9221, 91 }, { 9220, 91 }, { 9300, 92 }, { 9305, 92 }, { 9400, 93 }, { 9401, 93 } };
+    // 9305's gender 3 counts as either; 9401 has no ComponentModelFileData row, so it is everyone's.
+    fixture.componentModels = { { 9200, 0, 1, 0 }, { 9221, 2, 0, 0 }, { 9220, 2, 0, 0 }, { 9300, 0, 1, 0 }, { 9305, 3, 0, 0 }, { 9400, 0, 1, 0 } };
+    RetailItemDisplays retail = Loaded(fixture);
+
+    CHECK(retail.RaceFile(9200, 4, 1) == 9220);   // The lowest on a tie.
+    CHECK(retail.RaceFile(9300, 5, 0) == 9305);
+    CHECK(retail.RaceFile(9400, 6, 1) == 9401);
+}
+
+TEST(ARaceFileForEitherGenderBeatsEveryRacesFile) {
+    Fixture fixture;
+    fixture.modelFiles = { { 9700, 97 }, { 9701, 97 }, { 9702, 97 }, { 9703, 97 } };
+    // Race 3 has a male file and one for either; every race has a male and a female file.
+    fixture.componentModels = { { 9700, 2, 3, 0 }, { 9701, 0, 0, 0 }, { 9702, 0, 3, 0 }, { 9703, 1, 0, 0 } };
+    RetailItemDisplays retail = Loaded(fixture);
+
+    CHECK(retail.RaceFile(9701, 3, 1) == 9700);
+    CHECK(retail.RaceFile(9701, 3, 0) == 9702);   // The race's gendered file beats its file for either.
+    CHECK(retail.RaceFile(9700, 4, 1) == 9703);
+}
+
+TEST(AHelmNeverBorrowsAnotherRacesFile) {
+    Fixture fixture;
+    fixture.modelFiles = { { 9500, 94 }, { 9501, 94 } };
+    fixture.componentModels = { { 9500, 0, 1, 0 }, { 9501, 1, 2, 0 } };
+    RetailItemDisplays retail = Loaded(fixture);
+
+    CHECK(retail.RaceFile(9500, 2, 0) == 0);
+    CHECK(retail.RaceFile(9500, 3, 1) == 0);
+    CHECK(retail.RaceFile(9500, 2, 1) == 9501);
+}
+
+TEST(TheLowestRaceFileWinsATie) {
+    Fixture fixture;
+    fixture.modelFiles = { { 9602, 95 }, { 9601, 95 } };
+    fixture.componentModels = { { 9602, 0, 1, 0 }, { 9601, 0, 1, 0 } };
+
+    CHECK(Loaded(fixture).RaceFile(9602, 1, 0) == 9601);
+}
+
+TEST(AnUnknownFileHasNoRaceFile) {
+    RetailItemDisplays retail = Helms();
+
+    CHECK(retail.RaceFile(12345, 1, 0) == 0);
+    CHECK(retail.RaceFile(0, 1, 0) == 0);
+}
+
+// A helm's hidden geosets: HelmetGeosetData rows of race and retail geoset group, folded into the stock
+// HelmetGeosetVisData masks of 1 << race per slot.
+
+using Hidden = std::vector<Retail::HelmetGeoset>;
+using Retail::HelmetMasks;
+using Retail::HelmetVisMasks;
+
+TEST(EachHiddenGroupFillsItsSlotInTheClientsOrder) {
+    HelmetMasks masks = HelmetVisMasks(Hidden({ { 1, 0 }, { 2, 1 }, { 3, 2 }, { 4, 3 }, { 5, 7 }, { 6, 16 }, { 7, 17 } }));
+
+    CHECK(masks == HelmetMasks({ 1 << 1, 1 << 2, 1 << 3, 1 << 4, 1 << 5, 1 << 6, 1 << 7 }));
+}
+
+TEST(RacesHidingAGroupShareItsMask) {
+    HelmetMasks masks = HelmetVisMasks(Hidden({ { 1, 0 }, { 10, 0 }, { 11, 0 }, { 1, 0 } }));
+
+    CHECK(masks[0] == ((1 << 1) | (1 << 10) | (1 << 11)));
+}
+
+TEST(GroupsAndRacesTheClientLacksAreIgnored) {
+    CHECK(HelmetVisMasks(Hidden({ { 1, 4 }, { 1, 5 }, { 1, 6 }, { 1, 8 }, { 1, 18 }, { 1, 32 } })) == HelmetMasks());
+    CHECK(HelmetVisMasks(Hidden({ { 0, 0 }, { 12, 0 }, { 31, 0 }, { 32, 0 }, { 70, 1 } })) == HelmetMasks());
+}
+
+TEST(ADisplayNamesItsHelmetVisPerGender) {
+    Fixture fixture;
+    fixture.displays = { { 61, { 0, 0 }, { 0, 0 }, { 1 }, { 4021, 4022 } } };
+    const RetailItemDisplay* display = Loaded(fixture).Display(61);
+
+    CHECK(display && display->helmetVis == Sides({ 4021, 4022 }));
+}
+
+TEST(AHelmetVisHidesWhatItsRowsName) {
+    Fixture fixture;
+    fixture.helmetGeosets = { { 4021, 1, 0 }, { 4021, 2, 0 }, { 4021, 1, 17 }, { 4022, 3, 7 } };
+    RetailItemDisplays retail = Loaded(fixture);
+    const HelmetMasks* male = retail.HelmetVis(4021);
+    const HelmetMasks* female = retail.HelmetVis(4022);
+
+    CHECK(male && *male == HelmetMasks({ (1 << 1) | (1 << 2), 0, 0, 0, 0, 0, 1 << 1 }));
+    CHECK(female && *female == HelmetMasks({ 0, 0, 0, 0, 1 << 3, 0, 0 }));
+}
+
+TEST(HelmetVisZeroAndUnknownIdsHideNothing) {
+    Fixture fixture;
+    fixture.helmetGeosets = { { 4021, 1, 0 } };
+    RetailItemDisplays retail = Loaded(fixture);
+
+    CHECK(retail.HelmetVis(4021) != nullptr);
+    CHECK(retail.HelmetVis(0) == nullptr);
+    CHECK(retail.HelmetVis(4023) == nullptr);
 }

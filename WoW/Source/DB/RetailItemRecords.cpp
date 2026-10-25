@@ -25,6 +25,7 @@ static int32_t StockRecord(const WowClientDB_RLE<ItemDisplayInfoRec>& db, int32_
 }
 
 #if defined(WOWDECOMP_RETAIL_ASSETS)
+#include <climits>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -48,9 +49,16 @@ static const char* FileName(std::string& name, uint32_t fileDataId, const char* 
     return name.c_str();
 }
 
-// Flags, group sound, spell and item visuals, particle colours and helmet geosets index retail tables or mean
-// retail things, so they stay 0. A body section names both genders' files, as the client adds _U, _M or _F.
-static void FillItemDisplay(ServedItemDisplay& served, const Retail::RetailItemDisplay& display) {
+// The served HelmetGeosetVisData id of a retail vis (RetailHelmetRecords.cpp); 0, which hides nothing, for a vis
+// HelmetGeosetData has no rows for.
+static int32_t ServedHelmetVis(const Retail::RetailItemDisplays& retail, uint32_t vis) {
+    bool fits = vis <= static_cast<uint32_t>(INT32_MAX) - Retail::SYNTHETIC_HELMET_VIS_BASE;
+    return fits && retail.HelmetVis(vis) ? static_cast<int32_t>(Retail::SYNTHETIC_HELMET_VIS_BASE + vis) : 0;
+}
+
+// Flags, group sound, spell and item visuals and particle colours index retail tables or mean retail things, so
+// they stay 0. A body section names both genders' files, as the client adds _U, _M or _F.
+static void FillItemDisplay(ServedItemDisplay& served, const Retail::RetailItemDisplays& retail, const Retail::RetailItemDisplay& display) {
     ItemDisplayInfoRec& rec = served.record;
     // The record's constructor leaves its fields as they were, so {} would not clear what the row does not set.
     std::memset(&rec, 0, sizeof(rec));
@@ -69,6 +77,9 @@ static void FillItemDisplay(ServedItemDisplay& served, const Retail::RetailItemD
         served.body[section] = body.male || body.female ? Retail::RetailBodyTextureName(body.male, body.female) : std::string();
         rec.m_texture[section] = served.body[section].c_str();
     }
+    for (size_t sex = 0; sex < display.helmetVis.size(); sex++) {
+        rec.m_helmetGeosetVisID[sex] = ServedHelmetVis(retail, display.helmetVis[sex]);
+    }
 }
 
 static int32_t ServedRecord(int32_t id, ItemDisplayInfoRec* rec) {
@@ -81,7 +92,7 @@ static int32_t ServedRecord(int32_t id, ItemDisplayInfoRec* rec) {
     std::lock_guard<std::mutex> lock(s_servedMutex);
     auto [served, added] = s_displays.try_emplace(id);
     if (added) {
-        FillItemDisplay(served->second, *display);
+        FillItemDisplay(served->second, *retail, *display);
     }
     memcpy(rec, &served->second.record, sizeof(ItemDisplayInfoRec));
     return 1;

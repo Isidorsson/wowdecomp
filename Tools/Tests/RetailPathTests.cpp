@@ -137,3 +137,74 @@ TEST(BodyTexturePathsTheClientMustNotFindAreRefused) {
     CHECK(!ParseRetailPath("item/texturecomponents/torsouppertexture/retail-1-2-3_m.blp", id));
     CHECK(!ParseRetailPath("item/texturecomponents/torsouppertexture/retail-9010-9011_x.blp", id));
 }
+
+// The client asks for a helm as Item\ObjectComponents\Head\<name>_<ChrRaces.ClientPrefix><M|F>.mdx
+// (ComposeHelmModelFilePath), which CM2Cache lowercases and loads as .m2.
+
+using Retail::ParseRaceFileName;
+using Retail::RaceFileRequest;
+
+static bool Requests(const std::string& path, uint32_t fileDataId, uint32_t race, uint32_t gender) {
+    RaceFileRequest request;
+    return ParseRaceFileName(path, request) && request.fileDataId == fileDataId && request.race == race && request.gender == gender;
+}
+
+TEST(StockRacesHaveTheirClientPrefixes) {
+    CHECK(Retail::RacePrefix(1) == "hu");
+    CHECK(Retail::RacePrefix(2) == "or");
+    CHECK(Retail::RacePrefix(3) == "dw");
+    CHECK(Retail::RacePrefix(4) == "ni");
+    CHECK(Retail::RacePrefix(5) == "sc");
+    CHECK(Retail::RacePrefix(6) == "ta");
+    CHECK(Retail::RacePrefix(7) == "gn");
+    CHECK(Retail::RacePrefix(8) == "tr");
+    CHECK(Retail::RacePrefix(9) == "go");
+    CHECK(Retail::RacePrefix(10) == "be");
+    CHECK(Retail::RacePrefix(11) == "dr");
+    CHECK(Retail::RacePrefix(0).empty());
+    CHECK(Retail::RacePrefix(12).empty());
+}
+
+TEST(HelmPathsNameTheRaceAndGender) {
+    CHECK(Requests("item/objectcomponents/head/retail-9100_hum.m2", 9100, 1, 0));
+    CHECK(Requests("item/objectcomponents/head/retail-9100_huf.m2", 9100, 1, 1));
+    CHECK(Requests("item/objectcomponents/head/retail-9100_orm.mdx", 9100, 2, 0));
+    CHECK(Requests("item/objectcomponents/head/retail-9100_gof.m2", 9100, 9, 1));
+    CHECK(Requests("item/objectcomponents/head/retail-9100_bem.m2", 9100, 10, 0));
+    CHECK(Requests("item/objectcomponents/head/retail-4294967295_drf.m2", 4294967295u, 11, 1));
+    CHECK(Requests("retail-9100_scm.m2", 9100, 5, 0));
+}
+
+TEST(MalformedHelmPathsAreRefused) {
+    RaceFileRequest request;
+
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9100_xxm.m2", request));    // Unknown prefix.
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9100_hu.m2", request));     // No gender.
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9100_hux.m2", request));
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9100_humm.m2", request));
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9100.m2", request));
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-_hum.m2", request));
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-12a_hum.m2", request));
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-4294967296_hum.m2", request));
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9010-9011_hum.m2", request));
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/helm_hum.m2", request));
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9100_hum00.skin", request));   // The dependency map's.
+}
+
+TEST(BodyTexturesAndHelmsDoNotReadAsEachOther) {
+    RaceFileRequest request;
+    uint32_t id = 0;
+
+    CHECK(!ParseRaceFileName("item/texturecomponents/torsouppertexture/retail-9000_u.blp", request));
+    CHECK(!ParseRaceFileName("item/texturecomponents/torsouppertexture/retail-9010-9011_m.blp", request));
+    CHECK(!ParseRaceFileName("item/texturecomponents/torsouppertexture/retail-9010-9011_f.blp", request));
+    // A helm name means a file only RetailItemDisplays can choose, so it is no FileDataID by itself.
+    CHECK(!ParseRetailPath("item/objectcomponents/head/retail-9100_hum.m2", id));
+    CHECK(!ParseRetailPath("item/objectcomponents/head/retail-9100_huf.m2", id));
+}
+
+TEST(HelmPathsAreClaimed) {
+    CHECK(Retail::ClaimsPath("item/objectcomponents/head/retail-9100_hum.m2", AliasTable()));
+    CHECK(Retail::ClaimsPath("item/objectcomponents/head/retail-9100_drf.m2", AliasTable()));
+    CHECK(!Retail::ClaimsPath("item/objectcomponents/head/retail-9100_xxm.m2", AliasTable()));
+}

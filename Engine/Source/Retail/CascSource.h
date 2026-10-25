@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include "Engine/Source/Retail/AnimationFallbacks.h"
+#include "Engine/Source/Retail/HelmFit.h"
 #include "Engine/Source/Retail/ModelSkins.h"
 #include "Engine/Source/Retail/RetailConfig.h"
 #include "Engine/Source/Retail/RetailDisplays.h"
@@ -51,6 +52,11 @@ class CascSource {
     // Where a read reports data it dropped but did not fail on, such as a missing .anim file.
     void SetWarningSink(std::function<void(const std::string&)> sink) { this->m_warn = std::move(sink); }
 
+    // Reads a file from the client's own archives: the bodies a race-named helm is fitted to. Without it, helms
+    // are fitted by the table.
+    using StockReader = std::function<bool(const std::string& path, std::vector<uint8_t>& bytes)>;
+    void SetStockReader(StockReader reader) { this->m_readStock = std::move(reader); }
+
     private:
     // A skin the client names after a converted model.
     struct Dependency {
@@ -59,10 +65,14 @@ class CascSource {
         uint32_t view;
     };
 
-    bool Resolve(const std::string& normalized, uint32_t& fileDataId, std::string& error) const;
+    // A race-named helm resolves to the file RetailItemDisplays::RaceFile chooses, which reads the item tables.
+    bool Resolve(const std::string& normalized, uint32_t& fileDataId, std::string& error);
     bool FindDependency(const std::string& normalized, Dependency& dependency) const;
     bool ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error);
     bool ReadSkin(const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error);
+    // The helm fit of a stock race and gender, chosen once.
+    HelmFit FitFor(uint32_t race, uint32_t gender);
+    HelmFit ChooseFit(uint32_t race, uint32_t gender);
     bool ReadOriginal(uint32_t fileDataId, std::vector<uint8_t>& bytes, std::string& error);
     // A .db2 table: blocks encrypted with a missing key come back zero-filled, which Db2Table skips by section.
     bool ReadTable(uint32_t fileDataId, std::vector<uint8_t>& bytes, std::string& error);
@@ -96,6 +106,9 @@ class CascSource {
     RetailItemDisplays m_itemDisplays;
     bool m_hasItemDisplays = false;
     std::function<void(const std::string&)> m_warn;
+    StockReader m_readStock;
+    std::mutex m_fitMutex;
+    std::map<uint32_t, HelmFit> m_fits;
 };
 
 }
