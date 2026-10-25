@@ -117,6 +117,25 @@ because their model is a retail `*_HD.m2` the converter refuses. The client now 
   Gnome are scaled first, by the helm fit table's scale. Eyes keep the installed base skin's eyes.
 - Races 12 to 21 (Fel Orc, Naga, Broken, Skeleton, Vrykul, Tuskarr, Forest Troll, Taunka, Northrend Skeleton, Ice
   Troll) use their stock bodies with the SD bake as is. So do the few SD-only displays of the other races.
+- Goblin (9) and races 22 and up (Worgen, Pandaren, the allied races, Dracthyr, Earthen, ...) draw on the display's own
+  retail model, through the same character component. Their bakes are in that model's 2:1 layout and are used as is.
+  When the display's model is the retail body an installed HD port was made from (Mag'har on `OrcMale_HD`), the NPC is
+  drawn as that race instead (the installed orc, warped bake). The details:
+  - The model is served under its own name, `Character\retail-<fdid>_npcbody.m2`, which converts with its character
+    textures. The same file asked for as a plain model is still refused as a player race model.
+  - Races the installed `ChrRaces.dbc` lacks get a served row from the retail one: the retail id and ClientPrefix,
+    flag 0x1 (hidden from character creation), and the race's body displays. Installed rows win. The client's
+    race-sized tables (CharSections variations, facial hair counts) are sized for the highest served race; a race
+    past them is refused with a log line instead of read out of bounds.
+  - A baked NPC of a served race needs no CharSections rows. Its geosets come from its customization choices: per
+    geoset group of the model, the chosen mesh, else x01 (else the group's lowest mesh). Choice id 0 shows no mesh,
+    and the eye glow group (17xx, an additive glow on retail bodies) shows only when chosen.
+  - Textures other than the skin (hair 6, facial hair 7, Worgen fur 8, eyes 19, jewelry 20, ...) come from the chosen
+    materials, placed by the model's `ChrModelTextureLayer` rows; facial hair without a choice takes the hair's file.
+    The bake name is `retail-<fdid>_npc<extra>.blp`, by which the client finds the row's look.
+  - Helms: masks cover races 1 to 31; for races 32 and up the served helm's own retail rows decide what it hides.
+    Served races ask for helm files by their retail ClientPrefix, and retail helms hang unmoved on retail bodies
+    (goblins included). A helm with no file for the race (retail ships none for some Earthen helms) is left off.
 - Hair style is matched by geoset id (Tauren horns one above). Facial hair takes the installed combination that matches
   beard, moustache and sideburns, else the closest. Hair colour is the installed colour index and texture. A style the
   installed body lacks draws style 0 and logs a line.
@@ -132,7 +151,8 @@ Log lines in `Logs/RetailAssets.log` show what was decided:
 ```
 Character\Human\Male\HumanMale.m2: 97.0% of its skin vertices lie on retail 1011653, so HD bakes are warped onto it (10578 triangles)
 race 1 sex 0: hair style geoset 25 has no installed style, style 0 drawn
-display 28601 (extra 18975) keeps its retail model: race 9 has no installed body yet (slice b)
+Character\Orc\Male\OrcMale.m2: 81.0% of its skin vertices lie on retail 917116, so HD bakes are warped onto it (10128 triangles)
+extra 156199: helm display 672219 has no file for race 84 male, slot left empty
 table 1340661: skipped 8 still-locked rows
 ```
 
@@ -198,9 +218,14 @@ first.
 
 ## Limits and not yet
 
-- Humanoid NPCs of Goblin and of races 22 and up (Worgen, Pandaren, allied races, Dracthyr, Earthen) are not served
-  yet. They keep their retail model, which draws as the missing-model cube, and log one line.
-- NPCs with no bake (about 30 rows) stay the missing-model cube.
+- NPCs with no bake (about 30 rows) keep their retail model and log one line: the missing-model cube for models on a
+  skeleton, an untextured (white) model for the rest.
+- Retail bodies are large (Goblin male 216,000 vertices); the converter keeps view 0 and collapses triangles to fit
+  the 3.3.5 skin limits, so LOD skins are dropped and some detail is lost.
+- Customization layers that need runtime composition (tattoos, scars, face paint drawn into the skin) are not drawn;
+  the bake already carries most of them. Texture slots without a chosen material stay white.
+- Some retail race helms have no file for every race (no borrowing from another race), so those NPCs go bareheaded.
+- Model frames (`PlayerModel:SetCamera`) frame some retail bodies (Kul Tiran, Earthen) too close.
 - Hair styles and facial hair the installed bodies lack (about 10% of NPC rows) fall back to style 0 or the closest
   combination. Hair texture comes from the installed CharSections rows, not the retail Hair Color material.
 - Retail boots geoset values past the 3.3.5 range (boots value 5 is geoset 506) name meshes the installed bodies lack,
