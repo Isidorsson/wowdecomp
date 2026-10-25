@@ -120,6 +120,41 @@ TEST(TheIconIsTheLowestAppearanceOfTheDisplayWithOne) {
     CHECK(display && display->icon == 222);
 }
 
+TEST(ADisplayNoAppearanceNamesTakesTheIconOfTheLowestDisplayWithItsModelAndSkin) {
+    // Retail's mace 748769 has no appearance; 748779, the same model and skin, has the mace icon.
+    Fixture fixture;
+    fixture.displays = { { MACE_DISPLAY, { 70, 0 }, { 300, 0 } }, { 748790, { 70, 0 }, { 300, 0 } }, { 748779, { 70, 0 }, { 300, 0 } },
+        { 748700, { 70, 0 }, { 301, 0 } } };
+    fixture.modelFiles = { { MACE, 70 } };
+    fixture.textureFiles = { { MACE_SKIN, 0, 300 }, { 8267200, 0, 301 } };
+    fixture.appearances = { { 1, 748790, 444 }, { 2, 748779, 8267112 }, { 3, 748700, 555 } };
+    const RetailItemDisplay* display = Loaded(fixture).Display(MACE_DISPLAY);
+
+    CHECK(display && display->icon == 8267112);
+}
+
+TEST(WithoutOneOfItsSkinADisplayTakesTheIconOfTheLowestDisplayWithItsModel) {
+    Fixture fixture;
+    fixture.displays = { { MACE_DISPLAY, { 70, 0 }, { 300, 0 } }, { 748790, { 70, 0 }, { 301, 0 } }, { 748700, { 70, 0 }, { 302, 0 } } };
+    fixture.modelFiles = { { MACE, 70 } };
+    fixture.textureFiles = { { MACE_SKIN, 0, 300 }, { 8267200, 0, 301 }, { 8267300, 0, 302 } };
+    fixture.appearances = { { 1, 748790, 444 }, { 2, 748700, 555 } };
+    const RetailItemDisplay* display = Loaded(fixture).Display(MACE_DISPLAY);
+
+    CHECK(display && display->icon == 555);
+}
+
+TEST(ADisplayWithoutAModelOrAppearanceHasNoIcon) {
+    // Every cloak has no model: sharing that says nothing of its look.
+    Fixture fixture;
+    fixture.displays = { { 52, { 0, 0 }, { 500, 0 } }, { 53, { 0, 0 }, { 500, 0 } } };
+    fixture.textureFiles = { { 7500, 0, 500 } };
+    fixture.appearances = { { 1, 53, 444 } };
+    const RetailItemDisplay* display = Loaded(fixture).Display(52);
+
+    CHECK(display && display->icon == 0);
+}
+
 TEST(UnknownItemDisplaysAreNotServed) {
     Fixture fixture;
     fixture.displays = { { 55, { 0, 0 }, { 800, 0 } } };   // An all-zero section reads as damaged.

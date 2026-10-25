@@ -3,7 +3,7 @@
 
 // Not in the original. An item display id the stock ItemDisplayInfo lacks is served from the retail tables of the
 // pinned CASC build, so held items, shoulders, cloaks and icons show retail gear without a downported DBC. Stock
-// rows always win. The client puts a stock folder before each name (Item\ObjectComponents\Weapon\ + model), so a
+// rows always win, save an empty icon. The client puts a stock folder before each name (Item\ObjectComponents\Weapon\ + model), so a
 // served row names files "retail-<fdid>", which CascSource reads in any folder.
 
 static int32_t StockRecord(const WowClientDB_RLE<ItemDisplayInfoRec>& db, int32_t id, ItemDisplayInfoRec* rec) {
@@ -98,15 +98,44 @@ static int32_t ServedRecord(int32_t id, ItemDisplayInfoRec* rec) {
     return 1;
 }
 
+static std::map<int32_t, std::string> s_stockIcons;
+
+// A downported stock row keeps the retail id but names no icon when no appearance gave the display one, so it takes
+// the icon retail's would be served with. Stock icons still win.
+static void FillStockIcon(int32_t id, ItemDisplayInfoRec* rec) {
+    if (rec->m_inventoryIcon[0] && *rec->m_inventoryIcon[0]) {
+        return;
+    }
+    const Retail::RetailItemDisplays* retail = Retail::CascSource::Instance().ItemDisplays();
+    const Retail::RetailItemDisplay* display = retail && id > 0 ? retail->Display(static_cast<uint32_t>(id)) : nullptr;
+    if (!display || !display->icon) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(s_servedMutex);
+    auto [icon, added] = s_stockIcons.try_emplace(id);
+    if (added) {
+        icon->second = Retail::RetailFileName(display->icon);
+    }
+    rec->m_inventoryIcon[0] = icon->second.c_str();
+}
+
 #else
 
 static int32_t ServedRecord(int32_t, ItemDisplayInfoRec*) {
     return 0;
 }
 
+static void FillStockIcon(int32_t, ItemDisplayInfoRec*) {
+}
+
 #endif
 
 template <>
 int32_t WowClientDB_RLE<ItemDisplayInfoRec>::GetRecord(int32_t id, ItemDisplayInfoRec* rec) const {
-    return StockRecord(*this, id, rec) || ServedRecord(id, rec);
+    if (StockRecord(*this, id, rec)) {
+        FillStockIcon(id, rec);
+        return 1;
+    }
+    return ServedRecord(id, rec);
 }

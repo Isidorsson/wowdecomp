@@ -249,6 +249,30 @@ static bool KnownLayouts(const ItemDisplayTables& tables, std::string& error) {
         && KnownLayout(tables.helmetGeosets, HELMET_GEOSET_DATA_LAYOUT, "HelmetGeosetData", error);
 }
 
+using ModelKey = std::array<uint32_t, 4>;
+
+// A display no appearance gives an icon (an NPC's or a variant's) takes that of the lowest display with its models
+// and skins, else with its models. A display without a model shares nothing that says how it looks. displays are
+// by id.
+static void BorrowIcons(std::vector<RetailItemDisplay>& displays) {
+    std::map<ModelKey, uint32_t> bySkins;
+    std::map<ModelKey, uint32_t> byModels;
+    for (const RetailItemDisplay& display : displays) {
+        if (display.icon && (display.models[0] || display.models[1])) {
+            bySkins.try_emplace({ display.models[0], display.skins[0], display.models[1], display.skins[1] }, display.icon);
+            byModels.try_emplace({ display.models[0], 0, display.models[1], 0 }, display.icon);
+        }
+    }
+    for (RetailItemDisplay& display : displays) {
+        if (display.icon || (!display.models[0] && !display.models[1])) {
+            continue;
+        }
+        auto skins = bySkins.find({ display.models[0], display.skins[0], display.models[1], display.skins[1] });
+        auto models = byModels.find({ display.models[0], 0, display.models[1], 0 });
+        display.icon = skins != bySkins.end() ? skins->second : models != byModels.end() ? models->second : 0;
+    }
+}
+
 // Each vis id's masks, for the ids HelmetGeosetData has rows for.
 static std::map<uint32_t, HelmetMasks> HelmetVisById(const Db2Table& helmetGeosets) {
     std::map<uint32_t, std::vector<HelmetGeoset>> hidden;
@@ -284,6 +308,7 @@ bool RetailItemDisplays::Load(const ItemDisplayTables& tables, std::string& erro
         this->m_displays.push_back(DisplayAt(tables.displays, row, lookups));
     }
     std::sort(this->m_displays.begin(), this->m_displays.end(), [](const RetailItemDisplay& a, const RetailItemDisplay& b) { return a.id < b.id; });
+    BorrowIcons(this->m_displays);
     this->m_filesOf = std::move(lookups.files);
     return true;
 }
