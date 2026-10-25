@@ -56,3 +56,10 @@ target_compile_definitions(RetailAssets PUBLIC WOWDECOMP_RETAIL_ASSETS=1)
 
 add_executable(RetailAssetProbe ${CMAKE_SOURCE_DIR}/Tools/RetailAssetProbe/RetailAssetProbe.cpp)
 target_link_libraries(RetailAssetProbe PRIVATE RetailAssets)
+
+add_executable(RetailServerDisplays
+    ${CMAKE_SOURCE_DIR}/Tools/RetailServerDisplays/RetailServerDisplays.cpp
+    ${CMAKE_SOURCE_DIR}/Tools/RetailServerDisplays/ServerDisplays.cpp
+    ${CMAKE_SOURCE_DIR}/Tools/RetailServerDisplays/Wdbc.cpp
+)
+target_link_libraries(RetailServerDisplays PRIVATE RetailAssets)

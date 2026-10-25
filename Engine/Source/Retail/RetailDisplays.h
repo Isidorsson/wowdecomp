@@ -60,6 +60,8 @@ class RetailDisplays {
     // Null for an unknown id, and for a display whose model the tables lack.
     const RetailDisplay* Display(uint32_t id) const;
     const RetailCreatureModel* Model(uint32_t id) const;
+    // Every served display, by id.
+    const std::vector<RetailDisplay>& All() const { return this->m_displays; }
 
     private:
     std::vector<RetailDisplay> m_displays;      // By id.

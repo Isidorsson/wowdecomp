@@ -62,6 +62,12 @@ TEST(UnknownIdsAndDisplaysWithoutTheirModelAreNotServed) {
     CHECK(retail.Model(99) == nullptr);
 }
 
+TEST(AllListsTheServedDisplaysById) {
+    RetailDisplays retail = Loaded({ { 40, BOAR } }, { { 9, 40, { 1 } }, { 7, 40, { 1 } }, { 8, 99, { 1 } } });
+
+    CHECK(retail.All().size() == 2 && retail.All()[0].id == 7 && retail.All()[1].id == 9);
+}
+
 TEST(EachDisplayPacksOnlyItsOwnGeosets) {
     RetailDisplays retail = Loaded({ { 40, BOAR } }, { { 7, 40, { 1 } }, { 8, 40, { 1 } }, { 9, 40, { 1 } } },
         { { 7, 0, 2 }, { 7, 2, 1 }, { 8, 1, 3 } });

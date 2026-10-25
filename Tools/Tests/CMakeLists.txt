@@ -33,6 +33,12 @@ if (TARGET RetailCore)
         HelmFitTests.cpp
     )
     target_link_libraries(WowdecompTests PRIVATE RetailCore)
+    target_sources(WowdecompTests PRIVATE
+        WdbcTests.cpp
+        ServerDisplaysTests.cpp
+        ${CMAKE_SOURCE_DIR}/Tools/RetailServerDisplays/Wdbc.cpp
+        ${CMAKE_SOURCE_DIR}/Tools/RetailServerDisplays/ServerDisplays.cpp
+    )
 endif ()
 
 add_test(NAME wowdecomp-tests COMMAND WowdecompTests)
