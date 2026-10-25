@@ -48,8 +48,8 @@ static SetPiece PieceOf(uint32_t itemId, const ModifiedAppearance* look, const I
     auto facts = joins.facts.find(itemId);
     piece.inventoryType = facts != joins.facts.end() ? facts->second.inventoryType : 0;
     if (!look) {
-        auto looks = joins.ofItem.find(itemId);
-        look = looks != joins.ofItem.end() && !looks->second.empty() ? &looks->second[0] : nullptr;
+        ItemLooks looks = LooksOf(joins, itemId);
+        look = looks.empty() ? nullptr : looks.first;
     } else {
         piece.modifiedAppearanceId = look->id;
     }

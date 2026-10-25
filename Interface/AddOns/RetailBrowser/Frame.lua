@@ -36,6 +36,13 @@ RB.statusText = status
 local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", -6, -6)
 
+local atLogin = CreateFrame("CheckButton", "RetailBrowserIndexAtLogin", frame, "UICheckButtonTemplate")
+atLogin:SetSize(22, 22)
+atLogin:SetPoint("TOPLEFT", title, "TOPRIGHT", 12, 4)
+_G[atLogin:GetName() .. "Text"]:SetText("Build the index at login")
+atLogin:SetScript("OnClick", function(self) RB.SetIndexAtLogin(self:GetChecked()) end)
+atLogin:SetScript("OnShow", function(self) self:SetChecked(RB.IndexAtLogin()) end)
+
 function RB.SetStatus(text)
     status:SetText(text or "")
 end

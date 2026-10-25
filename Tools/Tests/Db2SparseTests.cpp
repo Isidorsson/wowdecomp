@@ -146,3 +146,31 @@ TEST(Db2SparseReadsRealItemSparseRows) {
     CHECK(table.String(1, 4) == "Onyxia Scale Cloak" && table.Value(1, 65) == 16 && table.Value(1, 66) == 3);
     CHECK(table.Values(1, 16).size() == 10 && table.Values(1, 16)[0] == 7 && table.Values(1, 16)[1] == 51);
 }
+
+// ReadRow finds a sparse row's columns in one walk; its reads equal the table's column by column.
+TEST(Db2RowsReadEveryColumnAsTheTableDoes) {
+    Wdc5Spec spec = SparseSpec();
+    Wdc5Section section;
+    section.sparseRecords = { SparseRecord("Thunderfury", 4909, 2600, "", 5), SparseRecord("", 7, 65535, "Plate", 200),
+        std::vector<uint8_t>({ 'A', 'B', 'C' }) };
+    section.ids = { 19019, 16958, 3 };
+    spec.sections = { section };
+    Db2Table table;
+    std::string error;
+    CHECK(table.Parse(BuildWdc5(spec), error, SPARSE_STRINGS));
+    for (size_t r = 0; r < table.RowCount(); r++) {
+        Retail::Db2Row row = table.ReadRow(r);
+        for (size_t c = 0; c < 6; c++) {
+            CHECK(row.Value(c) == table.Value(r, c) && row.Values(c) == table.Values(r, c) && row.String(c) == table.String(r, c));
+        }
+    }
+    CHECK(table.ReadRow(0).String(0) == "Thunderfury" && table.ReadRow(1).Value(4) == 200 && table.ReadRow(2).Value(1) == 0);
+
+    Db2Table real = RealItemSparse();
+    for (size_t r = 0; r < real.RowCount(); r++) {
+        Retail::Db2Row row = real.ReadRow(r);
+        for (size_t c = 0; c < 70; c++) {
+            CHECK(row.Value(c) == real.Value(r, c) && row.Values(c) == real.Values(r, c) && row.String(c) == real.String(r, c));
+        }
+    }
+}

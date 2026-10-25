@@ -49,28 +49,29 @@ bool ReadSparseItem(const Db2Table& table, size_t row, SparseItem& item) {
     }
     item = SparseItem();
     item.id = table.RowId(row);
-    item.name = table.String(row, DISPLAY_LANG);
-    item.itemLevel = table.Value(row, ITEM_LEVEL);
-    item.quality = table.Value(row, QUALITY);
-    item.inventoryType = table.Value(row, INVENTORY_TYPE);
-    item.requiredLevel = table.Value(row, REQUIRED_LEVEL);
-    item.expansion = table.Value(row, EXPANSION);
-    Fill(item.statTypes, table.Values(row, STAT_TYPES));
-    Fill(item.statPercents, table.Values(row, STAT_PERCENTS));
-    std::vector<uint32_t> costs = table.Values(row, SOCKET_COSTS);
+    Db2Row fields = table.ReadRow(row);
+    item.name = fields.String(DISPLAY_LANG);
+    item.itemLevel = fields.Value(ITEM_LEVEL);
+    item.quality = fields.Value(QUALITY);
+    item.inventoryType = fields.Value(INVENTORY_TYPE);
+    item.requiredLevel = fields.Value(REQUIRED_LEVEL);
+    item.expansion = fields.Value(EXPANSION);
+    Fill(item.statTypes, fields.Values(STAT_TYPES));
+    Fill(item.statPercents, fields.Values(STAT_PERCENTS));
+    std::vector<uint32_t> costs = fields.Values(SOCKET_COSTS);
     for (size_t i = 0; i < ITEM_STAT_SLOTS; i++) {
         item.socketCosts[i] = i < costs.size() ? AsFloat(costs[i]) : 0;
     }
-    Fill(item.sockets, table.Values(row, SOCKET_TYPES));
-    item.socketBonus = table.Value(row, SOCKET_BONUS);
-    item.delay = table.Value(row, DELAY);
-    item.damageVariance = AsFloat(table.Value(row, DAMAGE_VARIANCE));
-    item.qualityModifier = AsFloat(table.Value(row, QUALITY_MODIFIER));
-    item.damageType = table.Value(row, DAMAGE_TYPE);
-    item.bonding = table.Value(row, BONDING);
-    item.itemSet = table.Value(row, ITEM_SET);
-    item.squishEra = table.Value(row, SQUISH_ERA);
-    item.levelCurve = table.Value(row, LEVEL_CURVE);
+    Fill(item.sockets, fields.Values(SOCKET_TYPES));
+    item.socketBonus = fields.Value(SOCKET_BONUS);
+    item.delay = fields.Value(DELAY);
+    item.damageVariance = AsFloat(fields.Value(DAMAGE_VARIANCE));
+    item.qualityModifier = AsFloat(fields.Value(QUALITY_MODIFIER));
+    item.damageType = fields.Value(DAMAGE_TYPE);
+    item.bonding = fields.Value(BONDING);
+    item.itemSet = fields.Value(ITEM_SET);
+    item.squishEra = fields.Value(SQUISH_ERA);
+    item.levelCurve = fields.Value(LEVEL_CURVE);
     return true;
 }
 

@@ -73,11 +73,17 @@ BrowserLookups CascSource::BrowserDisplayLookups() {
 bool CascSource::LoadBrowserIndex(std::string& error) {
     Db2Table creatures, items, searchNames, modifiedAppearances, appearances, transmogSets, transmogSetItems, itemSets, mounts, mountDisplays,
         creatureTypes, creatureFamilies, itemSubClasses;
-    const std::vector<std::pair<uint32_t, Db2Table*>> tables = { { CREATURE_FDID, &creatures }, { ITEM_FDID, &items },
-        { ITEM_SEARCH_NAME_FDID, &searchNames }, { ITEM_MODIFIED_APPEARANCE_FDID, &modifiedAppearances }, { ITEM_APPEARANCE_FDID, &appearances },
+    std::vector<std::pair<uint32_t, Db2Table*>> tables = { { CREATURE_FDID, &creatures }, { ITEM_FDID, &items },
+        { ITEM_SEARCH_NAME_FDID, &searchNames }, { ITEM_MODIFIED_APPEARANCE_FDID, &modifiedAppearances },
         { TRANSMOG_SET_FDID, &transmogSets }, { TRANSMOG_SET_ITEM_FDID, &transmogSetItems }, { ITEM_SET_FDID, &itemSets }, { MOUNT_FDID, &mounts },
         { MOUNT_X_DISPLAY_FDID, &mountDisplays }, { CREATURE_TYPE_FDID, &creatureTypes }, { CREATURE_FAMILY_FDID, &creatureFamilies },
         { ITEM_SUB_CLASS_FDID, &itemSubClasses } };
+    // ItemAppearance is parsed once, by the item tables, unless they failed before it.
+    BrowserLookups lookups = this->BrowserDisplayLookups();
+    bool sharedAppearances = this->m_hasItemAppearances;
+    if (!sharedAppearances) {
+        tables.push_back({ ITEM_APPEARANCE_FDID, &appearances });
+    }
     if (!this->ReadTables(tables, error)) {
         return false;
     }
@@ -86,9 +92,9 @@ bool CascSource::LoadBrowserIndex(std::string& error) {
             this->Warn("table " + std::to_string(fileDataId) + ": skipped " + std::to_string(table->SkippedRows()) + " still-locked rows");
         }
     }
-    BrowserTables browser = { creatures, items, searchNames, modifiedAppearances, appearances, transmogSets, transmogSetItems, itemSets, mounts,
-        mountDisplays, creatureTypes, creatureFamilies, itemSubClasses };
-    if (!this->m_browserIndex.Build(browser, this->BrowserDisplayLookups(), error)) {
+    BrowserTables browser = { creatures, items, searchNames, modifiedAppearances, sharedAppearances ? this->m_itemAppearances : appearances,
+        transmogSets, transmogSetItems, itemSets, mounts, mountDisplays, creatureTypes, creatureFamilies, itemSubClasses };
+    if (!this->m_browserIndex.Build(browser, lookups, error)) {
         return false;
     }
     std::string statsError;

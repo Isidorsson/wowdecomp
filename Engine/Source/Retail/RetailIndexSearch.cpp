@@ -1,5 +1,7 @@
 #include <algorithm>
+#include <array>
 #include <cstring>
+#include <numeric>
 #include "Engine/Source/Retail/RetailIndex.h"
 
 // The retail browser index's search: normalized text, ranking, filters and the rows a page shows.
@@ -62,24 +64,34 @@ std::string NormalizeSearchText(std::string_view text) {
     return normalized;
 }
 
+// Retail CreatureClassification: 0 normal, 1 elite, 2 rare elite, 3 world boss (no row uses it), 4 rare, 5 trivial,
+// 6 minus.
 ClassificationGroup GroupOfClassification(uint32_t classification) {
     switch (classification) {
         case 1:
+        case 3:
             return ClassificationGroup::Elite;
         case 2:
+            return ClassificationGroup::RareElite;
         case 4:
             return ClassificationGroup::Rare;
-        case 3:
-            return ClassificationGroup::Boss;
         default:
             return ClassificationGroup::Normal;
     }
 }
 
+static std::array<int32_t, 13> FilterValues(const BrowseFilters& f) {
+    return { f.inventoryType, f.armour, f.weaponSubclass, f.quality, f.minItemLevel, f.maxItemLevel, f.expansion, f.creatureType,
+        f.family, f.classification, f.race, f.humanoid, f.classId };
+}
+
 bool BrowseFilters::Any() const {
-    const int32_t values[] = { inventoryType, armour, weaponSubclass, quality, minItemLevel, maxItemLevel, expansion, creatureType,
-        family, classification, race, humanoid, classId };
-    return std::any_of(std::begin(values), std::end(values), [](int32_t value) { return value >= 0; });
+    std::array<int32_t, 13> values = FilterValues(*this);
+    return std::any_of(values.begin(), values.end(), [](int32_t value) { return value >= 0; });
+}
+
+bool BrowseFilters::operator==(const BrowseFilters& other) const {
+    return FilterValues(*this) == FilterValues(other);
 }
 
 const std::vector<RetailIndex::Keys>& RetailIndex::KeysOf(BrowseKind kind) const {
@@ -94,6 +106,31 @@ const std::vector<RetailIndex::Keys>& RetailIndex::KeysOf(BrowseKind kind) const
             return this->m_modelKeys;
         default:
             return this->m_mountKeys;
+    }
+}
+
+std::vector<RetailIndex::Keys>& RetailIndex::KeysOf(BrowseKind kind) {
+    return const_cast<std::vector<Keys>&>(static_cast<const RetailIndex*>(this)->KeysOf(kind));
+}
+
+static const std::string& FirstName(const RetailIndex::Keys& keys) {
+    static const std::string none;
+    return keys.names.empty() ? none : keys.names[0];
+}
+
+// Each kind's entries by first name, then entry (by id): the order SearchAll's stable sort leaves equal ranks in.
+void RetailIndex::BuildNameOrders() {
+    for (BrowseKind kind : { BrowseKind::Creature, BrowseKind::Item, BrowseKind::Set, BrowseKind::Model, BrowseKind::Mount }) {
+        std::vector<Keys>& keys = this->KeysOf(kind);
+        std::vector<uint32_t> entries(keys.size());
+        std::iota(entries.begin(), entries.end(), 0);
+        std::sort(entries.begin(), entries.end(), [&](uint32_t a, uint32_t b) {
+            int order = FirstName(keys[a]).compare(FirstName(keys[b]));
+            return order != 0 ? order < 0 : a < b;
+        });
+        for (uint32_t place = 0; place < entries.size(); place++) {
+            keys[entries[place]].nameOrder = place;
+        }
     }
 }
 
@@ -214,15 +251,49 @@ std::vector<SearchRow> RetailIndex::SearchAll(BrowseKind kind, std::string_view 
     return rows;
 }
 
+// Every match as (rank << 32 | nameOrder, entry): one integer orders them as SearchAll does.
+std::vector<std::pair<uint64_t, uint32_t>> RetailIndex::Rank(BrowseKind kind, const std::string& query, const BrowseFilters& filters) const {
+    uint32_t number = 0;
+    bool numeric = ParseNumber(query, number);
+    const std::vector<Keys>& keys = this->KeysOf(kind);
+    std::vector<std::pair<uint64_t, uint32_t>> ranked;
+    for (size_t entry = 0; entry < keys.size(); entry++) {
+        uint32_t rank;
+        if (this->Passes(kind, entry, filters) && RankOf(keys[entry], query, numeric, number, rank)) {
+            ranked.push_back({ static_cast<uint64_t>(rank) << 32 | keys[entry].nameOrder, static_cast<uint32_t>(entry) });
+        }
+    }
+    return ranked;
+}
+
+// A new search orders only the page's window of its ranking; a page turn of the same search sorts it once.
 SearchPage RetailIndex::Search(BrowseKind kind, std::string_view text, const BrowseFilters& filters, uint32_t page) const {
-    std::vector<SearchRow> all = this->SearchAll(kind, text, filters);
     SearchPage result;
-    result.total = all.size();
     result.page = page;
-    result.pages = static_cast<uint32_t>((all.size() + BROWSE_PAGE_SIZE - 1) / BROWSE_PAGE_SIZE);
+    std::string query = NormalizeSearchText(text);
+    if (query.empty() && !filters.Any()) {
+        return result;
+    }
+    std::lock_guard<std::mutex> lock(this->m_searchCache.lock);
+    RankedSearch& last = this->m_searchCache.last;
+    std::vector<std::pair<uint64_t, uint32_t>>& ranked = last.ranked;
     size_t first = static_cast<size_t>(page) * BROWSE_PAGE_SIZE;
-    for (size_t i = first; i < all.size() && i < first + BROWSE_PAGE_SIZE; i++) {
-        result.rows.push_back(std::move(all[i]));
+    bool same = last.valid && last.kind == kind && last.query == query && last.filters == filters;
+    if (!same) {
+        last = { true, kind, query, filters, false, this->Rank(kind, query, filters) };
+        size_t end = std::min(ranked.size(), first + BROWSE_PAGE_SIZE);
+        if (first < end) {
+            std::nth_element(ranked.begin(), ranked.begin() + first, ranked.end());
+            std::partial_sort(ranked.begin() + first, ranked.begin() + end, ranked.end());
+        }
+    } else if (!last.sorted) {
+        std::sort(ranked.begin(), ranked.end());
+        last.sorted = true;
+    }
+    result.total = ranked.size();
+    result.pages = static_cast<uint32_t>((ranked.size() + BROWSE_PAGE_SIZE - 1) / BROWSE_PAGE_SIZE);
+    for (size_t i = first; i < ranked.size() && i < first + BROWSE_PAGE_SIZE; i++) {
+        result.rows.push_back(this->RowOf(kind, ranked[i].second));
     }
     return result;
 }
@@ -241,7 +312,7 @@ static std::string InventoryTypeName(uint32_t type) {
     return type < sizeof(INVENTORY_TYPE_NAMES) / sizeof(INVENTORY_TYPE_NAMES[0]) ? INVENTORY_TYPE_NAMES[type] : "";
 }
 
-static const char* const GROUP_NAMES[] = { "", "Elite", "Rare", "Boss" };
+static const char* const GROUP_NAMES[] = { "", "Elite", "Rare", "Rare elite" };
 static const char* const ARMOUR_NAMES[] = { "", "Cloth", "Leather", "Mail", "Plate" };
 
 SearchRow RetailIndex::RowOf(BrowseKind kind, size_t entry) const {

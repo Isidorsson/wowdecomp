@@ -31,7 +31,8 @@ RB.EXPANSIONS = {
     { 6, "Legion" }, { 7, "Battle for Azeroth" }, { 8, "Shadowlands" }, { 9, "Dragonflight" }, { 10, "War Within" },
     { 11, "Midnight" },
 }
-RB.CLASSIFICATIONS = { { 0, "Normal" }, { 1, "Elite" }, { 2, "Rare" }, { 3, "Boss" } }
+-- Retail has no boss classification (bosses are elites), so ranks are 3.3.5's without one.
+RB.CLASSIFICATIONS = { { 0, "Normal" }, { 1, "Elite" }, { 3, "Rare elite" }, { 2, "Rare" } }
 RB.RACES = {
     { 1, "Human" }, { 2, "Orc" }, { 3, "Dwarf" }, { 4, "Night Elf" }, { 5, "Undead" }, { 6, "Tauren" }, { 7, "Gnome" },
     { 8, "Troll" }, { 9, "Goblin" }, { 10, "Blood Elf" }, { 11, "Draenei" }, { 22, "Worgen" }, { 24, "Pandaren" },
@@ -103,6 +104,18 @@ local function InitDB()
     RetailBrowserDB = RetailBrowserDB or {}
     RetailBrowserDB.favourites = RetailBrowserDB.favourites or {}
     RetailBrowserDB.history = RetailBrowserDB.history or {}
+    if RetailBrowserDB.indexAtLogin == nil then
+        RetailBrowserDB.indexAtLogin = true
+    end
+end
+
+-- Building the index at login (on a worker) makes the first /rb ready at once, for about 120 MB kept all session.
+function RB.IndexAtLogin()
+    return RetailBrowserDB.indexAtLogin
+end
+
+function RB.SetIndexAtLogin(on)
+    RetailBrowserDB.indexAtLogin = on and true or false
 end
 
 local function EntryKey(kind, id)
@@ -151,10 +164,16 @@ end
 
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
+events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:SetScript("OnEvent", function(self, event, name)
-    if name == "RetailBrowser" then
+    if event == "ADDON_LOADED" and name == "RetailBrowser" then
         InitDB()
         self:UnregisterEvent("ADDON_LOADED")
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        if RB.Available() and RetailBrowserDB and RB.IndexAtLogin() then
+            RetailBrowserInfo()
+        end
     end
 end)
 

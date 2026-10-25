@@ -243,3 +243,13 @@ TEST(Db2StringsOfALaterSectionCountTheEarlierBlocks) {
     CHECK(table.Parse(BuildWdc5(spec), error));
     CHECK(table.String(0, 0) == "Hu" && table.String(1, 0) == "Kt");
 }
+
+TEST(Db2RowsOfAPlainTableReadAsTheTableDoes) {
+    Wdc5Spec spec = PlainSpec();
+    spec.sections = { { 0, Join({ PlainRecord(111, 7), PlainRecord(222, 65535) }), { 10, 20 }, {} } };
+    Db2Table table;
+    std::string error;
+    CHECK(table.Parse(BuildWdc5(spec), error));
+    CHECK(table.ReadRow(1).Value(0) == 222 && table.ReadRow(1).Value(1) == 65535 && table.ReadRow(0).Values(1) == std::vector<uint32_t>({ 7 }));
+    CHECK(table.ReadRow(0).Value(2) == 0 && table.ReadRow(0).Values(2).empty());
+}

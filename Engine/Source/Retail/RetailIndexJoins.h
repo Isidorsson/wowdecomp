@@ -35,13 +35,24 @@ struct AppearanceRow {
 };
 
 struct ItemJoins {
-    std::unordered_map<uint32_t, ItemFacts> facts;                          // By item id.
-    std::unordered_map<uint32_t, AppearanceRow> appearances;                // By ItemAppearance id.
-    std::unordered_map<uint32_t, ModifiedAppearance> modified;              // By ItemModifiedAppearance id.
-    std::unordered_map<uint32_t, std::vector<ModifiedAppearance>> ofItem;   // By item id, in OrderIndex order.
+    std::unordered_map<uint32_t, ItemFacts> facts;               // By item id.
+    std::unordered_map<uint32_t, AppearanceRow> appearances;     // By ItemAppearance id.
+    std::unordered_map<uint32_t, ModifiedAppearance> modified;   // By ItemModifiedAppearance id.
+    std::vector<ModifiedAppearance> byItem;                      // By item id, then OrderIndex, then id.
 };
 
 ItemJoins ReadItemJoins(const BrowserTables& tables);
+
+// An item's ItemModifiedAppearance rows, in OrderIndex order (a range of joins.byItem).
+struct ItemLooks {
+    const ModifiedAppearance* first = nullptr;
+    const ModifiedAppearance* last = nullptr;
+    const ModifiedAppearance* begin() const { return this->first; }
+    const ModifiedAppearance* end() const { return this->last; }
+    bool empty() const { return this->first == this->last; }
+};
+
+ItemLooks LooksOf(const ItemJoins& joins, uint32_t item);
 
 template <typename Row, typename KeyOf>
 const Row* FindByKey(const std::vector<Row>& rows, uint32_t key, KeyOf keyOf) {

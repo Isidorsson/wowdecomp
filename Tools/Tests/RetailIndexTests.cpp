@@ -36,13 +36,17 @@ TEST(BrowserKindsParseByName) {
     CHECK(std::string(Retail::BrowseKindName(BrowseKind::Set)) == "set");
 }
 
+// Creature.Classification values of the 12.1.5 dump (841631.csv): 0 16719 rows, 1 5734 (Ragnaros 11502, Archaedas 2748),
+// 6 317 (Wild Imp 55659), 4 188 (Nagidna 85555), 2 145 (Titarus 83713). No row has 3, the old world boss value:
+// retail bosses are elites, so the groups follow 3.3.5's ranks without a boss one.
 TEST(BrowserGroupsClassifications) {
     using Retail::ClassificationGroup;
     CHECK(Retail::GroupOfClassification(0) == ClassificationGroup::Normal);
     CHECK(Retail::GroupOfClassification(1) == ClassificationGroup::Elite);
-    CHECK(Retail::GroupOfClassification(2) == ClassificationGroup::Rare);
+    CHECK(Retail::GroupOfClassification(2) == ClassificationGroup::RareElite);
     CHECK(Retail::GroupOfClassification(4) == ClassificationGroup::Rare);
-    CHECK(Retail::GroupOfClassification(3) == ClassificationGroup::Boss);
+    CHECK(Retail::GroupOfClassification(3) == ClassificationGroup::Elite);
+    CHECK(Retail::GroupOfClassification(5) == ClassificationGroup::Normal);
     CHECK(Retail::GroupOfClassification(6) == ClassificationGroup::Normal);
 }
 

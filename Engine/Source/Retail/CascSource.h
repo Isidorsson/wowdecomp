@@ -178,6 +178,8 @@ class CascSource {
     bool m_hasDisplays = false;
     RetailItemDisplays m_itemDisplays;
     bool m_hasItemDisplays = false;
+    Db2Table m_itemAppearances;   // Kept from the item tables for the browser index, which joins it too.
+    bool m_hasItemAppearances = false;
     std::function<void(const std::string&)> m_warn;
     StockReader m_readStock;
     std::once_flag m_npcTablesRead;

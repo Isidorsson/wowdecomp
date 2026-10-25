@@ -9,6 +9,23 @@
 
 namespace Retail {
 
+class Db2Table;
+
+// One row of a table with each column's place found once (Db2Table::ReadRow). A sparse row's column lies past every
+// inline string before it, which Db2Table::Value walks again for each column; a Db2Row walks them once.
+class Db2Row {
+    public:
+    uint32_t Value(size_t column) const;
+    std::vector<uint32_t> Values(size_t column) const;
+    std::string String(size_t column) const;
+
+    private:
+    friend class Db2Table;
+    const Db2Table* m_table = nullptr;
+    size_t m_row = 0;
+    std::vector<size_t> m_fields;   // A sparse row's column byte offsets (NO_FIELD past its end); empty for a plain one.
+};
+
 // A read-only WDC5 (.db2) table: retail DBFilesClient tables. Integer columns by physical column number
 // (WoWDBDefs order, noninline fields excluded), row ids from the id list or inline, copied rows. Sections
 // encrypted for unreleased content arrive zero-filled and are skipped, as the retail client does without the
@@ -25,11 +42,16 @@ class Db2Table {
     // The id the section's relationship map relates row to (a table's noninline foreign key), 0 for none.
     uint32_t Relation(size_t row) const { return this->m_rows[row].relation; }
 
-    // The first (or only) value of column. Signed bit-packed columns come sign-extended.
-    uint32_t Value(size_t row, size_t column) const;
-    std::vector<uint32_t> Values(size_t row, size_t column) const;
+    // The first (or only) value of column, 0 for none. Signed bit-packed columns come sign-extended.
+    uint32_t Value(size_t row, size_t column) const { return this->ValueOf(row, column, nullptr); }
+    std::vector<uint32_t> Values(size_t row, size_t column) const { return this->ValuesOf(row, column, nullptr); }
     // The string of a string column, empty for none (offset 0) or one outside the string blocks.
-    std::string String(size_t row, size_t column) const;
+    std::string String(size_t row, size_t column) const { return this->StringOf(row, column, nullptr); }
+    // row for reading many of its columns: the same values, a sparse row's columns found in one walk.
+    Db2Row ReadRow(size_t row) const;
+
+    // width bits (at most 32) at bit position, least significant first. Bits past the end read as zero.
+    static uint32_t Bits(const std::vector<uint8_t>& data, size_t position, uint32_t width);
 
     // Records of the sections skipped as still locked (encrypted with a key the build does not ship).
     size_t SkippedRows() const { return this->m_skippedRows; }
@@ -81,7 +103,18 @@ class Db2Table {
     std::string StringAt(int64_t key) const;
     // A sparse row's column: its byte offset, walking the columns before it; false past the record's end.
     bool SparseField(const Row& row, size_t column, size_t& at) const;
-    std::string SparseString(const Row& row, size_t column) const;
+    // Every column's offset in one walk, NO_FIELD past the record's end.
+    std::vector<size_t> SparseFields(const Row& row) const;
+    std::string SparseString(const Row& row, size_t column, size_t at) const;
+    // Where column of row starts, in bits; fields (a Db2Row's) saves a sparse row's walk. False for none.
+    bool FieldBits(size_t row, size_t column, const std::vector<size_t>* fields, size_t& bits) const;
+    // Writes up to max of the column's values at bits and returns how many it has.
+    size_t Decode(const Row& at, const Column& c, size_t bits, uint32_t* out, size_t max) const;
+    uint32_t ValueOf(size_t row, size_t column, const std::vector<size_t>* fields) const;
+    std::vector<uint32_t> ValuesOf(size_t row, size_t column, const std::vector<size_t>* fields) const;
+    std::string StringOf(size_t row, size_t column, const std::vector<size_t>* fields) const;
+
+    friend class Db2Row;
 
     std::vector<uint8_t> m_data;
     uint32_t m_layoutHash = 0;
@@ -93,6 +126,8 @@ class Db2Table {
     bool m_sparse = false;
     std::vector<bool> m_inlineString;   // By column, for a sparse table.
 };
+
+constexpr size_t NO_FIELD = SIZE_MAX;
 
 // Refuses table, by name, when its layout is not the one a loader reads.
 bool KnownLayout(const Db2Table& table, uint32_t layout, const char* name, std::string& error);

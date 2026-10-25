@@ -14,6 +14,11 @@ local DEFAULT_ITEM_LEVEL = 200
 local DEFAULT_START_ENTRY = 9000000
 local BUILD_KINDS = { item = true, set = true, creature = true }
 local COMBOS = { { 1, "Strength" }, { 2, "Agility" }, { 3, "Intellect" } }
+-- A multi-line edit box lays its text out in time that grows with the square of its length (a 425 KB set froze the
+-- client for 40 s), so the box shows the first row's statements and Copy / Export use the whole SQL.
+local PREVIEW_BYTES = 4096
+local HUGE_SQL_BYTES = 65536
+local CONFIRM_SECONDS = 5
 
 local panel = CreateFrame("Frame", "RetailBrowserBuildFrame", frame)
 panel:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
@@ -42,6 +47,7 @@ local function LabelledBox(name, label, width, numeric, x, y)
         self:ClearFocus()
         RB.BuildSql()
     end)
+    box:SetScript("OnTextChanged", function() RB.ScheduleBuild() end)
     return box
 end
 
@@ -55,7 +61,7 @@ local subnameBox = LabelledBox("Subname", "Subname (creature)", 180, false, 250,
 itemLevel:SetText(DEFAULT_ITEM_LEVEL)
 startEntry:SetText(DEFAULT_START_ENTRY)
 
-local combo = RB.CreateDropdown(panel, "RetailBrowserBuildCombo", 110, function() RB.BuildSql() end)
+local combo = RB.CreateDropdown(panel, "RetailBrowserBuildCombo", 110, function() RB.ScheduleBuild() end)
 combo:SetPoint("TOPLEFT", 10, -150)
 RB.SetDropdown(combo, "Hybrid primary (Any: first named)", COMBOS)
 
@@ -65,7 +71,7 @@ local function Check(name, label, x, y, checked)
     check:SetPoint("TOPLEFT", x, y)
     _G[check:GetName() .. "Text"]:SetText(label)
     check:SetChecked(checked)
-    check:SetScript("OnClick", function() RB.BuildSql() end)
+    check:SetScript("OnClick", function() RB.ScheduleBuild() end)
     return check
 end
 
@@ -102,7 +108,41 @@ local mapping = ScrollText("Mapping", -228, MAPPING_HEIGHT)
 local sqlBox = ScrollText("Sql", -228 - MAPPING_HEIGHT - 22, SQL_HEIGHT)
 local sqlLabel = RB.CreateText(panel, "GameFontNormalSmall")
 sqlLabel:SetPoint("BOTTOMLEFT", sqlBox:GetParent(), "TOPLEFT", -2, 6)
-sqlLabel:SetText("SQL (edit before copying if you like)")
+sqlLabel:SetText("SQL (Copy SQL and Export SQL use all of it)")
+
+-- Whether the box holds the whole SQL (then Copy and Export take the box, edits included).
+local sqlFull = false
+local confirmFullAt
+
+-- The first row's statements (at most PREVIEW_BYTES), then a comment line saying what is not shown.
+local function PreviewOf(sql)
+    local cut = sql:find("\n\n", 1, true)
+    local first = cut and sql:sub(1, cut + 1) or sql
+    if #first > PREVIEW_BYTES then
+        first = sql:sub(1, PREVIEW_BYTES) .. "\n"
+    end
+    if #first >= #sql then
+        return sql, true
+    end
+    local _, rows = sql:gsub("\n\n", "")
+    return first .. string.format("-- %d KB more not shown (%d rows in all): Copy SQL and Export SQL use all of it, Edit full SQL shows it.",
+        math.ceil((#sql - #first) / 1024), math.max(rows, 1)), false
+end
+
+local function ShowSql(sql)
+    local text, whole = PreviewOf(sql)
+    sqlFull = whole
+    confirmFullAt = nil
+    sqlBox:SetText(text)
+    sqlBox:SetCursorPosition(0)
+end
+
+local function FullSql()
+    if sqlFull then
+        return sqlBox:GetText()
+    end
+    return RB.buildResult and RB.buildResult.sql or ""
+end
 
 local function Options()
     local options = {
@@ -122,12 +162,19 @@ local function Options()
     return options
 end
 
+-- The stat lines up to PREVIEW_BYTES (a set of every variant has hundreds), then the notes.
 local function MappingText(result)
-    local lines = {}
-    for _, line in ipairs(result.lines or {}) do
+    local lines, bytes = {}, 0
+    local stats = result.lines or {}
+    for i, line in ipairs(stats) do
         local text = string.format("%s: %s %d -> %s %d", line.piece, line.retail, line.retailValue, line.classic, line.value)
         if line.note ~= "" then
             text = text .. "  |cffaaaaaa(" .. line.note .. ")|r"
+        end
+        bytes = bytes + #text + 1
+        if bytes > PREVIEW_BYTES then
+            lines[#lines + 1] = string.format("|cffaaaaaa... %d more stat lines (the SQL has them all).|r", #stats - i + 1)
+            break
         end
         lines[#lines + 1] = text
     end
@@ -150,45 +197,86 @@ function RB.BuildSql()
     if not BUILD_KINDS[d.kind] then
         status:SetText("|cffff4040SQL is built for items, sets and creatures.|r")
         mapping:SetText("")
-        sqlBox:SetText("")
+        RB.buildResult = nil
+        ShowSql("")
         return
     end
     local result, err = RetailBuildSql(d.kind, d.id, Options())
     if not result or result.status ~= "ok" then
         status:SetText("|cffff4040" .. tostring(err or (result and result.status)) .. "|r")
         mapping:SetText("")
-        sqlBox:SetText("")
+        RB.buildResult = nil
+        ShowSql("")
         return
     end
     RB.buildResult = result
     status:SetText(string.format("Entries %d to %d, base %d%s, item level %d. Next free: %d.", result.firstEntry, result.nextEntry - 1,
         result.base, baseEntry:GetText() == "" and " (suggested)" or "", result.itemLevel, result.nextEntry))
     mapping:SetText(MappingText(result))
-    sqlBox:SetText(result.sql)
+    ShowSql(result.sql)
+end
+
+-- Rebuilds after a pause, so typing, ticking options or stepping through results builds once at the end.
+function RB.ScheduleBuild()
+    if panel:IsShown() then
+        RB.buildAt = GetTime() + RB.SEARCH_DELAY
+    end
+end
+
+panel:SetScript("OnUpdate", function()
+    if RB.buildAt and GetTime() >= RB.buildAt then
+        RB.buildAt = nil
+        RB.BuildSql()
+    end
+end)
+
+-- Puts every statement in the box; a huge SQL asks for a second click first.
+local function EditFullSql()
+    local sql = RB.buildResult and RB.buildResult.sql
+    if not sql or sqlFull then
+        return
+    end
+    if #sql > HUGE_SQL_BYTES and not (confirmFullAt and GetTime() - confirmFullAt < CONFIRM_SECONDS) then
+        confirmFullAt = GetTime()
+        status:SetText(string.format("|cffffd100The SQL is %d KB: showing it all can freeze the client for seconds or minutes. Click Edit full SQL again to go ahead.|r",
+            math.ceil(#sql / 1024)))
+        return
+    end
+    sqlBox:SetText(sql)
     sqlBox:SetCursorPosition(0)
+    sqlFull = true
+    confirmFullAt = nil
 end
 
 local function ExportName(d)
     return d.kind .. "-" .. RB.PrimaryId(d)
 end
 
-local buildButton = RB.CreateButton(panel, "Build", 100, function() RB.BuildSql() end)
+local buildButton = RB.CreateButton(panel, "Build", 100, function()
+    RB.buildAt = nil
+    RB.BuildSql()
+end)
 buildButton:SetPoint("BOTTOMLEFT", 24, 20)
 local copyButton = RB.CreateButton(panel, "Copy SQL", 100, function()
-    RB.Copy(sqlBox:GetText(), "SQL")
+    RB.Copy(FullSql(), "SQL")
 end)
 copyButton:SetPoint("LEFT", buildButton, "RIGHT", 8, 0)
 local exportButton = RB.CreateButton(panel, "Export SQL", 100, function()
-    local d = RB.details
-    if not d or sqlBox:GetText() == "" then
+    local d, sql = RB.details, FullSql()
+    if not d or sql == "" then
         return
     end
-    local path, err = RetailExportSql(ExportName(d), sqlBox:GetText())
+    local path, err = RetailExportSql(ExportName(d), sql)
     RB.Print(path and ("wrote " .. path) or ("could not export: " .. tostring(err)))
 end)
 exportButton:SetPoint("LEFT", copyButton, "RIGHT", 8, 0)
+local editButton = RB.CreateButton(panel, "Edit full SQL", 100, EditFullSql)
+editButton:SetPoint("LEFT", exportButton, "RIGHT", 8, 0)
 
-panel:SetScript("OnShow", function() RB.BuildSql() end)
+panel:SetScript("OnShow", function()
+    RB.buildAt = nil
+    RB.BuildSql()
+end)
 
 function RB.ToggleBuild()
     if panel:IsShown() then
@@ -198,9 +286,9 @@ function RB.ToggleBuild()
     end
 end
 
--- A new entry in the details rebuilds the open panel.
+-- A new entry in the details rebuilds the open panel after the pause.
 local showDetails = RB.ShowDetails
 function RB.ShowDetails(...)
     showDetails(...)
-    RB.BuildSql()
+    RB.ScheduleBuild()
 end

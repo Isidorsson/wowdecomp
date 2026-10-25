@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <map>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -29,8 +30,9 @@ constexpr uint32_t ITEM_SET_KEY_BASE = 10000000;
 // Lower case, accents dropped (Latin-1 letters in UTF-8), runs of white space as one space, trimmed.
 std::string NormalizeSearchText(std::string_view text);
 
-// Creature classification as the filter groups it.
-enum class ClassificationGroup : int32_t { Normal = 0, Elite = 1, Rare = 2, Boss = 3 };
+// Creature classification as the filter groups it: 3.3.5's ranks. Retail has no boss value (bosses are elites; the old
+// world boss value 3 is unused), so there is no boss group.
+enum class ClassificationGroup : int32_t { Normal = 0, Elite = 1, Rare = 2, RareElite = 3 };
 ClassificationGroup GroupOfClassification(uint32_t classification);
 
 struct BrowseDisplay {
@@ -140,6 +142,7 @@ struct BrowseFilters {
     int32_t classId = -1;
 
     bool Any() const;
+    bool operator==(const BrowseFilters& other) const;
 };
 
 struct SearchRow {
@@ -171,7 +174,8 @@ class RetailIndex {
     const StatBudget& Budget() const { return this->m_budget; }
 
     // Exact name or id first, then prefix, then substring; ties by name, then id. No text and no filter finds nothing;
-    // a filter alone lists everything it passes.
+    // a filter alone lists everything it passes. Only the page's rows are built; the ranking of the last search is
+    // kept, so turning its pages only slices it.
     SearchPage Search(BrowseKind kind, std::string_view text, const BrowseFilters& filters, uint32_t page) const;
     // Every match, ranked as Search ranks them.
     std::vector<SearchRow> SearchAll(BrowseKind kind, std::string_view text, const BrowseFilters& filters) const;
@@ -197,6 +201,7 @@ class RetailIndex {
     struct Keys {
         std::vector<std::string> names;
         std::vector<uint32_t> ids;
+        uint32_t nameOrder = 0;   // The entry's place among its kind by first name, then id: what ties compare.
     };
 
     private:
@@ -208,9 +213,33 @@ class RetailIndex {
     void BuildMounts(const BrowserTables& tables, const BrowserLookups& lookups);
     void BuildModels();
     void BuildNames(const BrowserTables& tables);
+    void BuildNameOrders();
     bool Passes(BrowseKind kind, size_t entry, const BrowseFilters& filters) const;
     SearchRow RowOf(BrowseKind kind, size_t entry) const;
     const std::vector<Keys>& KeysOf(BrowseKind kind) const;
+    std::vector<Keys>& KeysOf(BrowseKind kind);
+
+    // Search's last ranking: (rank << 32 | nameOrder, entry) of every match, sorted once a second page is asked.
+    struct RankedSearch {
+        bool valid = false;
+        BrowseKind kind = BrowseKind::Creature;
+        std::string query;
+        BrowseFilters filters;
+        bool sorted = false;
+        std::vector<std::pair<uint64_t, uint32_t>> ranked;
+    };
+    // A copy or a rebuilt index starts without one.
+    struct SearchCache {
+        SearchCache() = default;
+        SearchCache(const SearchCache&) {}
+        SearchCache& operator=(const SearchCache&) {
+            this->last = RankedSearch();
+            return *this;
+        }
+        std::mutex lock;
+        RankedSearch last;
+    };
+    std::vector<std::pair<uint64_t, uint32_t>> Rank(BrowseKind kind, const std::string& query, const BrowseFilters& filters) const;
 
     std::vector<BrowseCreature> m_creatures;   // By id, each vector.
     std::vector<BrowseItem> m_items;
@@ -227,6 +256,7 @@ class RetailIndex {
     std::map<uint32_t, std::string> m_subclassNames;
     size_t m_skippedRows = 0;
     StatBudget m_budget;
+    mutable SearchCache m_searchCache;
 };
 
 }

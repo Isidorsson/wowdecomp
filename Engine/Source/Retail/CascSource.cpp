@@ -136,6 +136,7 @@ void CascSource::Preload() {
             this->ReadDisplayTables();
             this->Fallbacks();
         });
+        this->m_preloads.emplace_back([this] { this->NpcTables(); });
         this->m_preloads.emplace_back([this] {
             std::string error;
             std::lock_guard<std::mutex> lock(this->m_storageMutex);
@@ -291,12 +292,19 @@ bool CascSource::Read(const char* name, std::vector<uint8_t>& bytes, std::string
     return this->ReadModel(normalized, bytes, error);
 }
 
+static bool IsTexture(const std::string& normalized) {
+    return normalized.size() >= 4 && normalized.compare(normalized.size() - 4, 4, ".blp") == 0;
+}
+
 // Any claimed file; a retail model comes back converted, from the converted cache when it holds it, its skins
-// registered under the client's names.
+// registered under the client's names. A texture is never converted, so it skips the cache lookup.
 bool CascSource::ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error) {
     uint32_t id;
     if (!this->Resolve(normalized, id, error)) {
         return false;
+    }
+    if (IsTexture(normalized)) {
+        return this->ReadOriginal(id, bytes, error);
     }
 
     Conversion conversion = this->ConversionFor(normalized, id);
@@ -546,6 +554,8 @@ bool CascSource::LoadItemTables(std::string& error) {
     }
 
     this->m_hasItemDisplays = this->m_itemDisplays.Load({ itemDisplays, modelFiles, componentModels, textureFiles, appearances, sections, componentTextures, helmetGeosets }, error);
+    this->m_itemAppearances = std::move(appearances);
+    this->m_hasItemAppearances = true;
     if (!this->m_hasItemDisplays || !this->m_skins.LoadItems({ modelFiles, itemDisplays, layers, textureFiles }, error)) {
         return false;
     }

@@ -39,6 +39,12 @@ constexpr size_t NAME_COLUMN = 0;
 constexpr size_t SUB_CLASS_CLASS = 3;
 constexpr size_t SUB_CLASS_SUBCLASS = 4;
 
+// Compares ItemModifiedAppearance rows with item ids, for equal_range over ItemJoins::byItem.
+struct ItemOrder {
+    bool operator()(const ModifiedAppearance& row, uint32_t item) const { return row.item < item; }
+    bool operator()(uint32_t item, const ModifiedAppearance& row) const { return item < row.item; }
+};
+
 static float AsFloat(uint32_t bits) {
     float value;
     std::memcpy(&value, &bits, sizeof(value));
@@ -48,6 +54,10 @@ static float AsFloat(uint32_t bits) {
 ItemJoins ReadItemJoins(const BrowserTables& tables) {
     ItemJoins joins;
     const Db2Table& items = tables.items;
+    joins.facts.reserve(items.RowCount());
+    joins.appearances.reserve(tables.appearances.RowCount());
+    joins.modified.reserve(tables.modifiedAppearances.RowCount());
+    joins.byItem.reserve(tables.modifiedAppearances.RowCount());
     for (size_t r = 0; r < items.RowCount(); r++) {
         joins.facts[items.RowId(r)] = { items.Value(r, ITEM_CLASS), items.Value(r, ITEM_SUBCLASS), items.Value(r, ITEM_MATERIAL),
             items.Value(r, ITEM_INVENTORY_TYPE), items.Value(r, ITEM_ICON), items.Value(r, ITEM_SHEATHE_TYPE) };
@@ -59,14 +69,18 @@ ItemJoins ReadItemJoins(const BrowserTables& tables) {
     for (size_t r = 0; r < ima.RowCount(); r++) {
         ModifiedAppearance row = { ima.RowId(r), ima.Value(r, IMA_ITEM), ima.Value(r, IMA_MODIFIER), ima.Value(r, IMA_APPEARANCE), ima.Value(r, IMA_ORDER) };
         joins.modified[row.id] = row;
-        joins.ofItem[row.item].push_back(row);
+        joins.byItem.push_back(row);
     }
-    for (auto& [item, rows] : joins.ofItem) {
-        std::sort(rows.begin(), rows.end(), [](const ModifiedAppearance& a, const ModifiedAppearance& b) {
-            return a.order != b.order ? a.order < b.order : a.id < b.id;
-        });
-    }
+    std::sort(joins.byItem.begin(), joins.byItem.end(), [](const ModifiedAppearance& a, const ModifiedAppearance& b) {
+        return a.item != b.item ? a.item < b.item : a.order != b.order ? a.order < b.order : a.id < b.id;
+    });
     return joins;
+}
+
+ItemLooks LooksOf(const ItemJoins& joins, uint32_t item) {
+    auto range = std::equal_range(joins.byItem.begin(), joins.byItem.end(), item, ItemOrder());
+    const ModifiedAppearance* base = joins.byItem.data();
+    return { base + (range.first - joins.byItem.begin()), base + (range.second - joins.byItem.begin()) };
 }
 
 BrowseDisplay CreatureDisplayOf(uint32_t id, float probability, const BrowserLookups& lookups) {
@@ -103,6 +117,7 @@ bool RetailIndex::Build(const BrowserTables& tables, const BrowserLookups& looku
     this->BuildSets(tables, joins);
     this->BuildMounts(tables, lookups);
     this->BuildModels();
+    this->BuildNameOrders();
     return true;
 }
 
@@ -187,11 +202,8 @@ static BrowseItem ItemOf(const Db2Table& names, size_t r, const ItemJoins& joins
         item.icon = facts->second.icon;
         item.sheatheType = facts->second.sheatheType;
     }
-    auto looks = joins.ofItem.find(item.id);
-    if (looks != joins.ofItem.end()) {
-        for (const ModifiedAppearance& row : looks->second) {
-            item.appearances.push_back(AppearanceOf(row, joins, lookups));
-        }
+    for (const ModifiedAppearance& row : LooksOf(joins, item.id)) {
+        item.appearances.push_back(AppearanceOf(row, joins, lookups));
     }
     if (!item.icon && !item.appearances.empty()) {
         item.icon = item.appearances[0].icon;

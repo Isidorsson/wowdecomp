@@ -41,6 +41,7 @@ if (TARGET RetailCore)
         RetailRacesTests.cpp
         RetailBodyLookTests.cpp
         RetailIndexTests.cpp
+        RetailIndexPagingTests.cpp
         BrowserMarshalTests.cpp
         StatBudgetTests.cpp
         ClassicStatsTests.cpp
