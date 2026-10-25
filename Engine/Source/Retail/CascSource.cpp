@@ -115,6 +115,7 @@ bool CascSource::Configure(const std::filesystem::path& configPath, std::string&
     this->m_config = config;
     this->m_aliases = aliases;
     this->m_configured = true;
+    this->m_convertedBudget.Start(ConvertedCacheFolder(config), uint64_t(config.convertedCacheMb) << 20);
     return true;
 }
 
@@ -271,7 +272,12 @@ bool CascSource::Convert(uint32_t id, const std::vector<uint8_t>& file, Converte
     if (complete || this->m_config.mode == StorageMode::Local) {
         // A failed cache write only costs a conversion next time.
         std::string cacheError;
-        WriteConvertedCache(ConvertedCachePath(this->m_config, id), ConverterKey(), model, cacheError);
+        std::filesystem::path path = ConvertedCachePath(this->m_config, id);
+        std::error_code ec;
+        uintmax_t size = WriteConvertedCache(path, ConverterKey(), model, cacheError) ? std::filesystem::file_size(path, ec) : 0;
+        if (size && !ec) {
+            this->m_convertedBudget.Added(size);
+        }
     }
     return true;
 }

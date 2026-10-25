@@ -65,6 +65,22 @@ TEST(CacheDefaultsBesideTheIni) {
     CHECK(config.cache == std::filesystem::path("F:/RetailCache"));
 }
 
+TEST(ConvertedCacheCapDefaultsAndParses) {
+    Config config;
+    std::string error;
+
+    CHECK(ParseConfig("mode=local\npath=E:/Retail\n", s_base, config, error));
+    CHECK(config.convertedCacheMb == 2048);
+    CHECK(ParseConfig("mode=local\npath=E:/Retail\nconverted_cache_mb=512\n", s_base, config, error));
+    CHECK(config.convertedCacheMb == 512);
+    CHECK(ParseConfig("mode=local\npath=E:/Retail\nconverted_cache_mb=0\n", s_base, config, error));
+    CHECK(config.convertedCacheMb == 0);
+    CHECK(!ParseConfig("mode=local\npath=E:/Retail\nconverted_cache_mb=-1\n", s_base, config, error));
+    CHECK(!ParseConfig("mode=local\npath=E:/Retail\nconverted_cache_mb=2GB\n", s_base, config, error));
+    CHECK(!ParseConfig("mode=local\npath=E:/Retail\nconverted_cache_mb=\n", s_base, config, error));
+    CHECK(!ParseConfig("mode=local\npath=E:/Retail\nconverted_cache_mb=99999999999\n", s_base, config, error));
+}
+
 static const char* s_buildInfo =
     "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|CDN Key!HEX:16|Version!STRING:0|Product!STRING:0\r\n"
     "eu|0|11111111111111111111111111111111|aa|12.1.0.1|wow\r\n"

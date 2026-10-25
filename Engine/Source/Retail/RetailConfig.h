@@ -22,6 +22,7 @@ struct Config {
     std::string build;              // Build config key (32 hex digits). Required online, so a CDN update never changes assets.
     uint32_t locale = 0x2;          // CASC locale mask, enUS.
     std::filesystem::path aliases;  // Optional FDID;client\path rows that replace stock paths.
+    uint32_t convertedCacheMb = 2048; // The converted cache's cap; 0 leaves it uncapped.
 };
 
 bool ParseConfig(const std::string& text, const std::filesystem::path& baseDir, Config& config, std::string& error);

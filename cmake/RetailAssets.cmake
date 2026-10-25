@@ -4,6 +4,8 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailPath.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/DecodedCache.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ConvertedCache.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ConvertedCacheBudget.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CompressedBlocks.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/Db2Table.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/AnimationFallbacks.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CreatureTables.cpp
@@ -25,6 +27,8 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/HelmFit.cpp
 )
 target_include_directories(RetailCore PUBLIC ${CMAKE_SOURCE_DIR})
+# The Windows Compression API, for the converted cache.
+target_link_libraries(RetailCore PUBLIC cabinet)
 
 # Keys converted models by a hash of the converter's sources too, so an edit never serves an entry it would convert
 # differently. Hashed on every build, since a restored file can be older than the header; the header is rewritten only

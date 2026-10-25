@@ -38,6 +38,15 @@ static bool ParseLocale(const std::string& text, uint32_t& locale) {
     return true;
 }
 
+static bool ParseMegabytes(const std::string& text, uint32_t& megabytes) {
+    if (text.empty() || text.size() > 7 || text.find_first_not_of("0123456789") != std::string::npos) {
+        return false;
+    }
+
+    megabytes = static_cast<uint32_t>(std::stoul(text));
+    return true;
+}
+
 static bool Fail(std::string& error, const std::string& message) {
     error = "RetailCasc.ini: " + message;
     return false;
@@ -63,6 +72,10 @@ static bool SetValue(const std::string& key, const std::string& value, const std
     } else if (key == "locale") {
         if (!ParseLocale(value, config.locale)) {
             return Fail(error, "locale must be a hexadecimal CASC locale mask, not '" + value + "'");
+        }
+    } else if (key == "converted_cache_mb") {
+        if (!ParseMegabytes(value, config.convertedCacheMb)) {
+            return Fail(error, "converted_cache_mb must be a whole number of megabytes, not '" + value + "'");
         }
     } else if (key == "aliases") {
         config.aliases = baseDir / value;

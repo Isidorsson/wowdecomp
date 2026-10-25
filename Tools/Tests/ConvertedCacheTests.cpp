@@ -1,13 +1,17 @@
+#include <chrono>
 #include <fstream>
 #include <process.h>
 #include <string>
 #include "Engine/Source/Retail/ConvertedCache.h"
+#include "Engine/Source/Retail/ConvertedCacheBudget.h"
 #include "Tools/Tests/Check.h"
 
 using Retail::Config;
+using Retail::ConvertedCacheBudget;
 using Retail::ConvertedCachePath;
 using Retail::ConvertedModel;
 using Retail::ReadConvertedCache;
+using Retail::TrimConvertedCache;
 using Retail::WriteConvertedCache;
 
 constexpr uint64_t KEY = 0x1234567890abcdefull;
@@ -83,7 +87,7 @@ TEST(ConvertedEntriesWithoutSkinBytesRoundTrip) {
     CHECK(Same(read, model));
 }
 
-TEST(ConvertedEntriesOfAnotherConverterAreMisses) {
+TEST(ConvertedEntriesOfAnotherConverterAreMissesAndRemoved) {
     auto path = ScratchDir("key") / "3";
     ConvertedModel read;
     std::string error;
@@ -91,6 +95,164 @@ TEST(ConvertedEntriesOfAnotherConverterAreMisses) {
     CHECK(WriteConvertedCache(path, KEY, Sample(), error));
     CHECK(!ReadConvertedCache(path, KEY + 1, read));
     CHECK(read.m2.empty() && read.skins.empty());
+    CHECK(!std::filesystem::exists(path));
+}
+
+// Pseudo-random bytes from a fixed seed: incompressible, and the same every run.
+static std::vector<uint8_t> Noise(size_t size, uint32_t seed) {
+    std::vector<uint8_t> bytes(size);
+    for (uint8_t& byte : bytes) {
+        seed = seed * 1664525 + 1013904223;
+        byte = static_cast<uint8_t>(seed >> 24);
+    }
+    return bytes;
+}
+
+// Several compression blocks of repetitive track data, with an incompressible stretch in the middle.
+static ConvertedModel Large() {
+    ConvertedModel model = Sample();
+    model.m2.clear();
+    for (uint32_t i = 0; model.m2.size() < 3500000; i++) {
+        uint32_t key[4] = { i / 16, i % 7, 0x3f800000, 0 };
+        model.m2.insert(model.m2.end(), reinterpret_cast<uint8_t*>(key), reinterpret_cast<uint8_t*>(key) + sizeof(key));
+    }
+    std::vector<uint8_t> noise = Noise(1300000, 7);
+    model.m2.insert(model.m2.begin() + 1000000, noise.begin(), noise.end());
+    model.skinBytes[0] = Noise(70000, 9);
+    return model;
+}
+
+TEST(LargeConvertedEntriesRoundTripCompressed) {
+    auto path = ScratchDir("large") / "6";
+    ConvertedModel model = Large();
+    ConvertedModel read;
+    std::string error;
+
+    CHECK(WriteConvertedCache(path, KEY, model, error));
+    CHECK(std::filesystem::file_size(path) < model.m2.size() / 2);
+    CHECK(ReadConvertedCache(path, KEY, read));
+    CHECK(Same(read, model));
+}
+
+TEST(IncompressibleConvertedEntriesRoundTrip) {
+    auto path = ScratchDir("noise") / "7";
+    ConvertedModel model = Sample();
+    model.m2 = Noise(2200000, 3);
+    ConvertedModel read;
+    std::string error;
+
+    CHECK(WriteConvertedCache(path, KEY, model, error));
+    CHECK(ReadConvertedCache(path, KEY, read));
+    CHECK(Same(read, model));
+}
+
+TEST(CorruptCompressedBlocksAreMisses) {
+    auto dir = ScratchDir("corrupt-block");
+    ConvertedModel read;
+    std::string error;
+
+    for (std::streamoff at : { std::streamoff(200), std::streamoff(400000), std::streamoff(1100000) }) {
+        auto path = dir / std::to_string(at);
+        CHECK(WriteConvertedCache(path, KEY, Large(), error));
+        Corrupt(path, at);
+        CHECK(!ReadConvertedCache(path, KEY, read));
+        CHECK(read.m2.empty());
+    }
+}
+
+// The first converted cache format: uncompressed, read now as a stale entry.
+TEST(FirstFormatEntriesAreMissesAndRemoved) {
+    auto path = ScratchDir("rcc1") / "8";
+    std::filesystem::create_directories(path.parent_path());
+    {
+        std::ofstream file(path, std::ios::binary);
+        uint32_t magic = 0x31434352;
+        uint64_t header[5] = { KEY, 8, 0, 4, 0 };
+        file.write(reinterpret_cast<const char*>(&magic), 4);
+        file.write(reinterpret_cast<const char*>(header), sizeof(header));
+        file.write("MD20", 4);
+        file.write("\0\0\0\0", 4);
+        file.write("\0\0\0\0", 4);
+    }
+    ConvertedModel read;
+
+    CHECK(!ReadConvertedCache(path, KEY, read));
+    CHECK(!std::filesystem::exists(path));
+}
+
+static void Age(const std::filesystem::path& path, int hours) {
+    std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now() - std::chrono::hours(hours));
+}
+
+TEST(HitsMarkEntriesRecentlyUsed) {
+    auto path = ScratchDir("touch") / "9";
+    ConvertedModel read;
+    std::string error;
+
+    CHECK(WriteConvertedCache(path, KEY, Sample(), error));
+    Age(path, 48);
+    auto aged = std::filesystem::last_write_time(path);
+    CHECK(ReadConvertedCache(path, KEY, read));
+    CHECK(std::filesystem::last_write_time(path) - aged > std::chrono::hours(47));
+}
+
+static void WriteFile(const std::filesystem::path& path, size_t size, int hoursOld) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream(path, std::ios::binary) << std::string(size, 'x');
+    Age(path, hoursOld);
+}
+
+TEST(TrimDeletesLeastRecentlyUsedEntriesToNinetyPercentOfTheCap) {
+    auto dir = ScratchDir("trim");
+    WriteFile(dir / "11", 100, 1);
+    WriteFile(dir / "12", 100, 4);
+    WriteFile(dir / "13", 100, 2);
+    WriteFile(dir / "14", 100, 3);
+    WriteFile(dir / "notes.txt", 5000, 9);
+    WriteFile(dir / "15.4242.1.tmp", 5000, 9);
+
+    CHECK(TrimConvertedCache(dir, 1000) == 400);
+    CHECK(std::filesystem::exists(dir / "12"));
+    CHECK(TrimConvertedCache(dir, 350) == 300);
+    CHECK(!std::filesystem::exists(dir / "12"));
+    CHECK(TrimConvertedCache(dir, 250) == 200);
+    CHECK(!std::filesystem::exists(dir / "14") && std::filesystem::exists(dir / "13") && std::filesystem::exists(dir / "11"));
+    CHECK(std::filesystem::exists(dir / "notes.txt") && std::filesystem::exists(dir / "15.4242.1.tmp"));
+    CHECK(TrimConvertedCache(dir / "absent", 250) == 0);
+}
+
+TEST(BudgetTrimsAtStartAndOncePublishesPassTheCap) {
+    auto dir = ScratchDir("budget");
+    WriteFile(dir / "21", 100, 3);
+    WriteFile(dir / "22", 100, 2);
+    WriteFile(dir / "23", 100, 1);
+
+    ConvertedCacheBudget budget;
+    budget.Start(dir, 250);
+    budget.Wait();
+    CHECK(!std::filesystem::exists(dir / "21") && std::filesystem::exists(dir / "22"));
+
+    WriteFile(dir / "24", 20, 0);
+    budget.Added(20);
+    budget.Wait();
+    CHECK(std::filesystem::exists(dir / "22"));
+
+    WriteFile(dir / "25", 100, 0);
+    budget.Added(100);
+    budget.Wait();
+    CHECK(!std::filesystem::exists(dir / "22") && std::filesystem::exists(dir / "23"));
+    CHECK(std::filesystem::exists(dir / "24") && std::filesystem::exists(dir / "25"));
+}
+
+TEST(UncappedBudgetsDeleteNothing) {
+    auto dir = ScratchDir("uncapped");
+    WriteFile(dir / "31", 100, 3);
+
+    ConvertedCacheBudget budget;
+    budget.Start(dir, 0);
+    budget.Added(1u << 30);
+    budget.Wait();
+    CHECK(std::filesystem::exists(dir / "31"));
 }
 
 TEST(MissingConvertedEntriesAreMisses) {

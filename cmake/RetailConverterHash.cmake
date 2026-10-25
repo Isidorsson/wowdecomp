@@ -1,7 +1,7 @@
 # cmake -DSOURCE_DIR=<Engine/Source/Retail> -DOUTPUT=<header> -P RetailConverterHash.cmake
 # Writes RETAIL_CONVERTER_SOURCE_HASH: one hash over the converter's sources, which keys the converted cache in dev builds.
 file(GLOB sources RELATIVE ${SOURCE_DIR} ${SOURCE_DIR}/*.cpp ${SOURCE_DIR}/*.h)
-list(FILTER sources EXCLUDE REGEX "^(CascSource|ConvertedCache|DecodedCache|RetailConfig)\\.(cpp|h)$")
+list(FILTER sources EXCLUDE REGEX "^(CascSource|CompressedBlocks|ConvertedCache|ConvertedCacheBudget|DecodedCache|RetailConfig)\\.(cpp|h)$")
 list(SORT sources)
 
 set(combined "")

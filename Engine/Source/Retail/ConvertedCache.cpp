@@ -3,6 +3,7 @@
 #include <cstring>
 #include <fstream>
 #include <windows.h>
+#include "Engine/Source/Retail/CompressedBlocks.h"
 #if WOWDECOMP_RETAIL_SOURCE_HASH
 #include "RetailConverterHash.h"
 #else
@@ -11,39 +12,25 @@
 
 namespace Retail {
 
-// Entry layout: magic, converter key, the m2's size and checksum, the rest's size and checksum, the m2, then the rest:
-// the skin FileDataIDs, the skins (a count of NO_SKIN_BYTES when the conversion kept none), the remapped sequences and
-// the warnings. The m2 is read straight into place, since it is most of a large entry.
-static constexpr uint32_t CACHE_MAGIC = 0x31434352; // "RCC1"
-static constexpr uint64_t HEADER_SIZE = 44;
+// Entry layout: magic, converter key, the m2's size, the rest's size, the packed size, then the m2 followed by the rest
+// as CompressedBlocks. The rest is the skin FileDataIDs, the skins (a count of NO_SKIN_BYTES when the conversion kept
+// none), the remapped sequences and the warnings.
+static constexpr uint32_t CACHE_MAGIC = 0x32434352; // "RCC2"
+static constexpr uint32_t MAGIC_FAMILY_MASK = 0x00FFFFFF;
+static constexpr uint64_t HEADER_SIZE = 36;
 static constexpr uint32_t NO_SKIN_BYTES = 0xFFFFFFFF;
-
-// Word-wise, so a 36 MB entry checks in a few milliseconds; the tail is mixed in byte by byte.
-static uint64_t Checksum(const std::vector<uint8_t>& bytes) {
-    uint64_t hash = 14695981039346656037ull ^ bytes.size();
-    size_t words = bytes.size() / 8;
-
-    for (size_t i = 0; i < words; i++) {
-        uint64_t word;
-        std::memcpy(&word, bytes.data() + i * 8, 8);
-        hash = (hash ^ word) * 0x9e3779b97f4a7c15ull;
-        hash ^= hash >> 29;
-    }
-
-    for (size_t i = words * 8; i < bytes.size(); i++) {
-        hash = (hash ^ bytes[i]) * 1099511628211ull;
-    }
-
-    return hash;
-}
 
 uint64_t ConverterKey() {
     return (uint64_t(CONVERTER_VERSION) * 0x9e3779b97f4a7c15ull) ^ RETAIL_CONVERTER_SOURCE_HASH;
 }
 
-std::filesystem::path ConvertedCachePath(const Config& config, uint32_t fileDataId) {
+std::filesystem::path ConvertedCacheFolder(const Config& config) {
     std::string build = config.build.empty() ? "local" : config.build;
-    return config.cache / (config.product + "-" + build) / "converted" / std::to_string(fileDataId);
+    return config.cache / (config.product + "-" + build) / "converted";
+}
+
+std::filesystem::path ConvertedCachePath(const Config& config, uint32_t fileDataId) {
+    return ConvertedCacheFolder(config) / std::to_string(fileDataId);
 }
 
 namespace {
@@ -180,53 +167,98 @@ static bool Deserialize(const std::vector<uint8_t>& payload, ConvertedModel& mod
     return in.Left() == 0;
 }
 
+#pragma pack(push, 1)
 struct Header {
     uint32_t magic;
     uint64_t key;
     uint64_t m2Size;
-    uint64_t m2Checksum;
     uint64_t restSize;
-    uint64_t restChecksum;
+    uint64_t packedSize;
 };
+#pragma pack(pop)
+static_assert(sizeof(Header) == HEADER_SIZE, "the header is written as it is laid out");
 
 static bool ReadExactly(HANDLE file, void* out, uint64_t size) {
     DWORD read = 0;
     return size == 0 || (ReadFile(file, out, static_cast<DWORD>(size), &read, nullptr) && read == size);
 }
 
+enum class Entry {
+    Hit,
+    Miss,
+    Stale,
+};
+
+// Another converted cache format or another converter's entry, as opposed to damage.
+static bool IsStale(const Header& header, uint64_t key) {
+    return (header.magic & MAGIC_FAMILY_MASK) == (CACHE_MAGIC & MAGIC_FAMILY_MASK) && (header.magic != CACHE_MAGIC || header.key != key);
+}
+
 // Win32 reads: a 36 MB entry through ifstream takes twice as long.
-static bool ReadEntry(HANDLE file, uint64_t key, ConvertedModel& model) {
+static Entry ReadEntry(HANDLE file, uint64_t key, ConvertedModel& model) {
     LARGE_INTEGER size;
     Header header;
-    if (!GetFileSizeEx(file, &size) || !ReadExactly(file, &header.magic, 4) || !ReadExactly(file, &header.key, 40)) {
-        return false;
+    if (!GetFileSizeEx(file, &size) || !ReadExactly(file, &header, HEADER_SIZE)) {
+        return Entry::Miss;
+    }
+    if (IsStale(header, key)) {
+        return Entry::Stale;
     }
 
-    if (header.magic != CACHE_MAGIC || header.key != key || header.m2Size > CONVERTED_CACHE_LIMIT || header.restSize > CONVERTED_CACHE_LIMIT
-        || uint64_t(size.QuadPart) != HEADER_SIZE + header.m2Size + header.restSize) {
-        return false;
+    if (header.magic != CACHE_MAGIC || header.m2Size > CONVERTED_CACHE_LIMIT || header.restSize > CONVERTED_CACHE_LIMIT
+        || uint64_t(size.QuadPart) != HEADER_SIZE + header.packedSize) {
+        return Entry::Miss;
     }
 
-    std::vector<uint8_t> rest(static_cast<size_t>(header.restSize));
-    model.m2.resize(static_cast<size_t>(header.m2Size));
-    return ReadExactly(file, model.m2.data(), header.m2Size) && ReadExactly(file, rest.data(), header.restSize)
-        && Checksum(model.m2) == header.m2Checksum && Checksum(rest) == header.restChecksum && Deserialize(rest, model);
+    std::vector<uint8_t> packed(static_cast<size_t>(header.packedSize));
+    size_t m2Size = static_cast<size_t>(header.m2Size);
+    model.m2.resize(m2Size + static_cast<size_t>(header.restSize));
+    if (!ReadExactly(file, packed.data(), header.packedSize) || !DecompressBlocks(packed.data(), packed.size(), model.m2.data(), model.m2.size())) {
+        return Entry::Miss;
+    }
+
+    std::vector<uint8_t> rest(model.m2.begin() + m2Size, model.m2.end());
+    model.m2.resize(m2Size);
+    return Deserialize(rest, model) ? Entry::Hit : Entry::Miss;
+}
+
+// With the right to set its times when the file allows it, so a hit can mark the entry used.
+static HANDLE OpenEntry(const std::filesystem::path& path) {
+    DWORD share = FILE_SHARE_READ | FILE_SHARE_DELETE;
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ | FILE_WRITE_ATTRIBUTES, share, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if (file == INVALID_HANDLE_VALUE && GetLastError() == ERROR_ACCESS_DENIED) {
+        file = CreateFileW(path.c_str(), GENERIC_READ, share, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    }
+    return file;
+}
+
+static void MarkUsed(HANDLE file) {
+    FILETIME now;
+    GetSystemTimeAsFileTime(&now);
+    SetFileTime(file, nullptr, nullptr, &now);
 }
 
 bool ReadConvertedCache(const std::filesystem::path& path, uint64_t key, ConvertedModel& model) {
     model = ConvertedModel();
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    HANDLE file = OpenEntry(path);
     if (file == INVALID_HANDLE_VALUE) {
         return false;
     }
 
     ConvertedModel read;
-    bool ok = ReadEntry(file, key, read);
+    Entry entry = ReadEntry(file, key, read);
+    if (entry == Entry::Hit) {
+        MarkUsed(file);
+    }
     CloseHandle(file);
-    if (ok) {
+
+    if (entry == Entry::Stale) {
+        DeleteFileW(path.c_str());
+    }
+    if (entry == Entry::Hit) {
         model = std::move(read);
     }
-    return ok;
+    return entry == Entry::Hit;
 }
 
 bool WriteConvertedCache(const std::filesystem::path& path, uint64_t key, const ConvertedModel& model, std::string& error) {
@@ -243,19 +275,23 @@ bool WriteConvertedCache(const std::filesystem::path& path, uint64_t key, const 
         return false;
     }
 
+    std::vector<uint8_t> payload;
+    payload.reserve(model.m2.size() + rest.size());
+    payload.insert(payload.end(), model.m2.begin(), model.m2.end());
+    payload.insert(payload.end(), rest.begin(), rest.end());
+    std::vector<uint8_t> packed = CompressBlocks(payload.data(), payload.size());
+
     // Unique per process and call: two clients sharing a cache never write the same temporary file.
     static std::atomic<uint32_t> s_serial { 0 };
     std::filesystem::path temporary = path;
     temporary += "." + std::to_string(GetCurrentProcessId()) + "." + std::to_string(++s_serial) + ".tmp";
 
-    Header header = { CACHE_MAGIC, key, model.m2.size(), Checksum(model.m2), rest.size(), Checksum(rest) };
+    Header header = { CACHE_MAGIC, key, model.m2.size(), rest.size(), packed.size() };
     bool written;
     {
         std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-        output.write(reinterpret_cast<const char*>(&header.magic), 4);
-        output.write(reinterpret_cast<const char*>(&header.key), 40);
-        output.write(reinterpret_cast<const char*>(model.m2.data()), model.m2.size());
-        output.write(reinterpret_cast<const char*>(rest.data()), rest.size());
+        output.write(reinterpret_cast<const char*>(&header), HEADER_SIZE);
+        output.write(reinterpret_cast<const char*>(packed.data()), packed.size());
         output.close();
         written = !output.fail();
     }

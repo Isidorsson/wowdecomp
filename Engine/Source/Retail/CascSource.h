@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include "Engine/Source/Retail/AnimationFallbacks.h"
+#include "Engine/Source/Retail/ConvertedCacheBudget.h"
 #include "Engine/Source/Retail/HelmFit.h"
 #include "Engine/Source/Retail/ModelSkins.h"
 #include "Engine/Source/Retail/RetailConfig.h"
@@ -119,6 +120,7 @@ class CascSource {
     StockReader m_readStock;
     std::mutex m_fitMutex;
     std::map<uint32_t, HelmFit> m_fits;
+    ConvertedCacheBudget m_convertedBudget;
 };
 
 }
