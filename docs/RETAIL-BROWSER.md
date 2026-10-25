@@ -32,6 +32,9 @@ addon only prints that retail assets are not configured.
   scale and NPC Extra row (race, sex, bakes); item id, quality, item level, slot, class/subclass, icon, and per
   appearance the ItemDisplayInfo id, appearance and ItemModifiedAppearance ids; set pieces with item and display ids;
   what uses a model.
+- Items also list their ItemSparse stats: each stat type with its budget share (StatPercentEditor / 100) and its value
+  at the item's own level, sockets (retail SocketType numbers and the socket bonus enchantment), required level,
+  weapon delay, damage variance and damage type as stored, and whether the item scales with the player's level.
 - Each display says "served" (the client draws the retail row) or "custom row wins" (the installed DBC has that id,
   so the client draws your row instead).
 - Click any field to copy it. Clicking a display line also picks that display for the preview and the commands.
@@ -49,17 +52,104 @@ addon only prints that retail assets are not configured.
 | Copy id / Copy all / Copy GM command | Copies the id, every field as plain text, or the command above |
 | Favourite | Saves the entry (kept in `WTF\...\SavedVariables\RetailBrowser.lua`) |
 | Export CSV | Writes every match of the current search to `Logs\RetailBrowser\<kind>-<time>.csv` |
+| Build SQL | Opens the Build panel (items, sets and creatures) |
+
+## Build: world DB SQL
+
+The Build panel writes TrinityCore 3.3.5 world DB SQL for the shown item, set or creature. It never writes a row by
+hand: every statement copies a stock row (the base) and overrides only the columns it names, listing every column of
+the table so a different schema fails instead of shifting values. Each statement first deletes its new entry, so
+running an export again replaces the rows it wrote:
+
+```sql
+-- retail item 263851 Breastplate of Voidwrath at item level 200, copied from item 39239
+DELETE FROM `item_template` WHERE `entry` = 9000000;
+INSERT INTO `item_template` (`entry`, `class`, `subclass`, ..., `VerifiedBuild`)
+SELECT 9000000, 4, 4, `SoundOverrideSubclass`, 'Breastplate of Voidwrath', 737435, 4, `Flags`, ..., `VerifiedBuild`
+FROM `item_template` WHERE `entry` = 39239;
+```
+
+- **Item level** (default 200): the level the retail stats are computed at, and the item's `ItemLevel`.
+- **Start entry** (default 9000000): the first new entry; a set's pieces take the next ones. The client cannot see
+  which entries are free, so pick a range you know is empty (the status line says the next free one after this build).
+  Creature entries must stay below 16777216 (the GUID keeps 24 bits of the entry).
+- **Base entry**: the stock row to copy. Blank uses a suggestion per class, subclass and slot (an epic of item level 200
+  to 245 without spells, set or sockets, taken from the world DB; `SuggestedBaseItem` in `BuildSql.cpp`), or creature
+  15166 (a plain level 60 humanoid, friendly to all, no AI). A set always uses the suggestion per piece.
+- **Required level** (blank keeps the base's), **Name** (blank: the retail name), **Subname** and **Scale** (creatures).
+- **Hybrid primary**: what "Strength or Intellect" and the other hybrid stats become (Any: the first named).
+- **Retail stamina multiplier** (off): retail multiplies stamina by StaminaMultByILvl (x9.49 at 200, so a plate chest
+  gets 824 stamina instead of 135); leave it off for 3.3.5-sized stamina, turn it on for retail's exact values.
+- **Every set variant**: a row per set piece instead of one per slot (a slot prefers the piece with stat allocations,
+  since sets also list stat-less transmog copies).
+- **Other displays as modelid2-4**: a creature's other displays after the picked one (else 0).
+
+The mapping box lists every retail stat, its value, what it became and why; Copy SQL copies the SQL box (edit it
+first if you like) and Export SQL writes it to `Logs\RetailBrowser\<kind>-<id>-<time>.sql`.
+
+What an item row overrides: `entry`, `class`, `subclass`, `name`, `displayid` (the served retail ItemDisplayInfo of
+the first appearance), `Quality` (heirloom at most), `InventoryType`, `ItemLevel`, `RequiredLevel` when set,
+`StatsCount`, `stat_type1..10` / `stat_value1..10`, `ScalingStatDistribution` / `ScalingStatValue` (0), the six
+resistance columns, `socketColor_1..3` and `socketBonus` (0). Damage, speed, armour, bonding, flags, spells and price
+stay the base's. A creature row overrides `entry`, `difficulty_entry_1..3` (0), `modelid1..4`, `name`, `subname` and
+`scale` when set; level, faction, flags, AI and loot stay the base's. `creature_model_info` already has rows for the
+retail displays. Sets write item rows only: no `ItemSet.dbc` row or set bonus yet.
+
+New `item_template` and `creature_template` rows load when the worldserver starts (TrinityCore 3.3.5 has no reload for
+new entries), so restart it after applying the SQL.
+
+### Retail stat values
+
+ItemSparse stores allocations, not values. They are computed the way the retail client does (TrinityCore master
+`Item::GetItemStatValue` and `GetRandomPropertyPoints`, with the pinned build's own tables):
+
+```
+points     = RandPropPoints[itemLevel].{Good,Superior,Epic}F[cell]
+budget     = StatPercentEditor * points / 10000
+budget    -= int(StatPercentageOfSocket * ItemSocketCostPerLevel[itemLevel])
+value      = floor(budget * multiplier + 0.5)        resistances: floor(budget)
+multiplier = StaminaMultByILvl for stamina, CombatRatingsMultByILvl for ratings, else 1
+```
+
+The cell is the slot's: 0 head, chest, legs, two-hand and ranged; 1 shoulders, waist, feet, hands and trinkets; 2 neck,
+wrists, fingers, back, shields and off-hand items; 3 one-hand weapons and wands; 4 relics. The multiplier column is the
+slot's too: weapon for weapons, shields and off-hand items, trinket, jewellery for neck and finger, else armour.
+Uncommon items read Good, rare and heirloom Superior, epic to artifact Epic; poor and common items get no stats.
+
+Tables: RandPropPoints (1310245), `gametables\combatratingsmultbyilvl.txt` (1391670), `staminamultbyilvl.txt`
+(1980632) and `itemsocketcostperlevel.txt` (1391643). Checked against wowhead's tooltips at the item level wowhead
+shows: 14 items without sockets match on every stat (legacy and Midnight armour, weapons, cloaks, rings and necks, item
+levels 13 to 684; `Tools/Tests/StatBudgetTests.cpp`). Items with sockets come out 1 or 2 points above wowhead on the
+stats that pay for sockets: wowhead's socket cost does not follow the integer socket table, so treat those as
+approximate.
+
+### Stat mapping
+
+| Retail | 3.3.5 |
+|---|---|
+| Stats both have: mana, health, primaries, stamina, ratings 12 to 37, attack power, spell power, regeneration, spell penetration, block value | Same type and value |
+| Versatility (40) | Stamina, 1:1 (40 is feral attack power on 3.3.5) |
+| Agility or Strength or Intellect (71), Agility or Strength (72), Agility or Intellect (73), Strength or Intellect (74) | One primary: the first named, or the chosen hybrid primary when it is one of them |
+| Fire, frost, holy, shadow, nature, arcane resistance (51 to 56) | `fire_res` and the other resistance columns, at most 255 |
+| Mastery, bonus armour, PvP power, multistrike, readiness, speed, leech, avoidance, indestructible, cleave, corruption, anything else | Dropped |
+
+Equal 3.3.5 types are summed (an item's two intellect allocations, versatility into stamina); at most 10 stat slots,
+values up to 32767 (`stat_value` is a smallint). Retail socket types map to colours: 1 meta, 2 red, 3 yellow, 4 blue,
+7 prismatic (red, yellow and blue); the retail-only kinds (cogwheel, domination...) are left empty.
 
 ## Lua functions (for other addons)
 
 `RetailSearch(kind, text [, filters [, page]])`, `RetailDetails(kind, id)`, `RetailBrowserInfo()`,
-`RetailExportCsv(kind, text [, filters])`, `CopyToClipboard(text)`, `GetClipboardText()`, and the model methods
+`RetailExportCsv(kind, text [, filters])`, `RetailBuildSql(kind, id [, options])` (the Build panel's options,
+`MarshalBuild` in `BrowserMarshal.h`), `RetailExportSql(name, sql)`, `CopyToClipboard(text)`, `GetClipboardText()`, and the model methods
 `model:SetDisplayInfo(displayId)` and `dressUpModel:TryOnDisplay(displayId, inventoryType [, sheathe, class, subclass])`.
 Kinds are `creature`, `item`, `set`, `model`, `mount`. A bad kind or id returns `nil, error`; before the index is
 ready a search returns `{ status = "building" }`.
 
 ## Known limits
 
-- Retail item stats are not shown yet: they live in ItemSparse, a sparse table the client's db2 reader does not read.
+- Items that scale with the player's level (a level curve) show their stored item level; the Build panel's item level
+  is what counts.
+- Retail armour and weapon damage are not computed (ItemArmorQuality does not parse yet): rows keep the base's.
 - Item names, quality and item level come from ItemSearchName, which lists the 104k searchable items, not every item.
 - Rows still encrypted in the build (unreleased content) are skipped; `Logs/RetailAssets.log` says how many.
