@@ -88,8 +88,10 @@ TEST(FlagsAre3_3_5Masked) {
     CHECK(GetU32(model.m2, RecordAt(model.m2, M2At::TEXTURES, 0, 0x10)) == 0);
 }
 
-TEST(SharedSkeletonsAreRefusedByName) {
-    CHECK(Refused(Md21File(MinimalMd20(), { Chunk("SKID", U32s({ 1 })) }), "SKID"));
+TEST(ModelsWhoseSkeletonIsNotReadAreRefused) {
+    std::vector<uint8_t> md20 = NewMd20();
+    AddArray(md20, M2At::VERTICES, 1, Vertex(255, 0, 0, 0));
+    CHECK(Refused(Md21File(md20, { Chunk("SKID", U32s({ 1 })) }), "skeleton 1"));
 }
 
 TEST(ArraysPastTheBlobAreRefused) {
@@ -132,6 +134,15 @@ TEST(RetailEffectsZeroToTwoBecomeClientEffects) {
     CHECK(ConvertSkin({ RetailSkin({ SkinBatch(0, 0x8000, 2), SkinBatch(0, 0x8002, 2) }), WeightedModel(1), 0 }, out, error));
     CHECK(BatchShader(out, 0) == 0x8001);
     CHECK(BatchShader(out, 1) == 0x8003);
+}
+
+TEST(SkinsOfModelsOnASkeletonConvert) {
+    std::vector<uint8_t> out;
+    std::string error;
+    std::vector<uint8_t> model = Concat({ WeightedModel(1), Chunk("SKID", U32s({ 1 })) });
+
+    // A skin reads only geometry, which the model keeps; no skeleton file is read.
+    CHECK(ConvertSkin({ RetailSkin({ SkinBatch(0, 0, 1) }), model, 0 }, out, error));
 }
 
 TEST(BatchesPastTheTextureCombosAreRefused) {

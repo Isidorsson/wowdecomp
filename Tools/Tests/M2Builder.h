@@ -13,11 +13,14 @@
 namespace M2At {
     constexpr size_t VERSION = 0x04;
     constexpr size_t FLAGS = 0x10;
+    constexpr size_t GLOBAL_LOOPS = 0x14;
     constexpr size_t SEQUENCES = 0x1C;
     constexpr size_t SEQUENCE_LOOKUP = 0x24;
     constexpr size_t BONES = 0x2C;
+    constexpr size_t KEY_BONE_LOOKUP = 0x34;
     constexpr size_t VERTICES = 0x3C;
     constexpr size_t VIEWS = 0x44;
+    constexpr size_t COLORS = 0x48;
     constexpr size_t TEXTURES = 0x50;
     constexpr size_t MATERIALS = 0x70;
     constexpr size_t BONE_COMBOS = 0x78;
@@ -25,6 +28,8 @@ namespace M2At {
     constexpr size_t COORD_COMBOS = 0x88;
     constexpr size_t WEIGHT_COMBOS = 0x90;
     constexpr size_t TRANSFORM_COMBOS = 0x98;
+    constexpr size_t ATTACHMENTS = 0xF0;
+    constexpr size_t ATTACHMENT_LOOKUP = 0xF8;
     constexpr size_t EVENTS = 0x100;
     constexpr size_t CAMERAS = 0x110;
     constexpr size_t PARTICLES = 0x128;

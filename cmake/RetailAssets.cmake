@@ -12,6 +12,7 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ItemSkins.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailModel.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailAnimation.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailSkeleton.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailRecords.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailShading.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailEffects.cpp

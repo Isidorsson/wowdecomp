@@ -85,6 +85,18 @@ TEST(ChunkedAnimFilesCountFromTheAfm2Payload) {
     CHECK(GetU32(model.m2, times.second + 4) == 500);
 }
 
+TEST(AnimFilesWithoutAfm2AreRefusedOnlyForKeysInIt) {
+    AnimatedModel walk = WithExternalWalk();
+    ConvertedModel model;
+    std::string error;
+    std::vector<uint8_t> bonesOnly = Chunk("AFSB", AnimBody());
+
+    CHECK(!ConvertModel(Md21File(walk.md20, { Chunk("AFID", AfidRow(4, 0, 777)) }), Reading({ { 777, bonesOnly } }), model, error) && error.find("AFM2") != std::string::npos);
+
+    SetTrack(walk.md20, walk.track, { { { 1, uint32_t(walk.embeddedTimes) }, { 0, 0 } }, { { 1, 0 }, { 0, 0 } } });
+    CHECK(ConvertModel(Md21File(walk.md20, { Chunk("AFID", AfidRow(4, 0, 777)) }), Reading({ { 777, bonesOnly } }), model, error));
+}
+
 TEST(SequencesWhoseAnimFileIsMissingAreEmptied) {
     AnimatedModel walk = WithExternalWalk();
     ConvertedModel model;
@@ -137,6 +149,20 @@ TEST(EntriesPastTheAnimFileAreRefused) {
 
     CHECK(!ConvertModel(Md21File(walk.md20, { Chunk("AFID", AfidRow(4, 0, 777)) }), Reading({ { 777, AnimBody() } }), model, error));
     CHECK(error.find(".anim") != std::string::npos);
+}
+
+TEST(AliasRunsCountFromTheirTargetsAnimFile) {
+    AnimatedModel walk = WithExternalWalk();
+    AddArray(walk.md20, M2At::SEQUENCES, 3, Concat({ Sequence(0, 0x20), Sequence(4, 0), Sequence(5, 0x40, 0, 0, 1) }));
+    SetTrack(walk.md20, walk.track, { { { 1, uint32_t(walk.embeddedTimes) }, { 2, 0 }, { 1, 4 } }, { { 0, 0 }, { 2, 8 }, { 1, 8 } } });
+    ConvertedModel model;
+    std::string error;
+
+    CHECK(ConvertModel(Md21File(walk.md20, { Chunk("AFID", AfidRow(4, 0, 777)) }), Reading({ { 777, AnimBody() } }), model, error));
+    auto walkTimes = TrackEntry(model.m2, walk.track, 1, false);
+    auto aliasTimes = TrackEntry(model.m2, walk.track, 2, false);
+    CHECK(aliasTimes.first == 1 && GetU32(model.m2, aliasTimes.second) == 500 && aliasTimes.second == walkTimes.second + 4);
+    CHECK(SequenceFlags(model.m2, 2) == (0x40 | 0x20));
 }
 
 TEST(AliasesOfEmbeddedSequencesAreEmbedded) {

@@ -4,6 +4,7 @@
 #include "Engine/Source/Retail/RetailModelData.h"
 #include "Engine/Source/Retail/RetailRecords.h"
 #include "Engine/Source/Retail/RetailShading.h"
+#include "Engine/Source/Retail/RetailSkeleton.h"
 #include <algorithm>
 #include <cstring>
 #include <map>
@@ -23,6 +24,11 @@ constexpr uint16_t BLEND_ADD = 4;
 constexpr uint8_t BATCH_HIDDEN_IN_335 = 0x80;
 constexpr uint16_t CLIENT_MAX_TEXTURES = 2;
 constexpr uint16_t EFFECT_FLAG = 0x8000;
+// Character skin, hair and extra skin, and the Shadowlands layers from 19: a model on a skeleton with one is a player
+// race model, built from character customization tables 3.3.5 has no equivalent for (downport/read/skeletal.rs).
+constexpr uint32_t CHARACTER_TEXTURE_TYPES[] = { 1, 6, 8 };
+constexpr uint32_t FIRST_CUSTOMIZATION_LAYER_TYPE = 19;
+constexpr size_t ATTACHMENT_RECORD_SIZE = 0x28;
 
 static bool MaskBonesAndMaterials(std::vector<uint8_t>& m2, std::string& error) {
     Span bones;
@@ -100,16 +106,60 @@ static bool MaskTextureTypes(std::vector<uint8_t>& m2, std::string& error) {
     return true;
 }
 
+// A model naming a skeleton keeps no sequences, bones or attachments itself; one that does is refused, as which copy is
+// meant is not known. So is a player race model.
+static bool CheckSkeletalModel(const std::vector<uint8_t>& m2, std::string& error) {
+    Span sequences;
+    Span bones;
+    Span attachments;
+    Span textures;
+    if (!ReadSpan(m2, M2At::SEQUENCES, SEQUENCE_SIZE, "sequences", sequences, error) || !ReadSpan(m2, M2At::BONES, BONE_SIZE, "bones", bones, error)
+        || !ReadSpan(m2, M2At::ATTACHMENTS, ATTACHMENT_RECORD_SIZE, "attachments", attachments, error) || !ReadSpan(m2, M2At::TEXTURES, TEXTURE_SIZE, "textures", textures, error)) {
+        return false;
+    }
+
+    std::string filled;
+    for (const auto& block : { std::make_pair(sequences.count, "sequences"), std::make_pair(bones.count, "bones"), std::make_pair(attachments.count, "attachments") }) {
+        if (block.first) {
+            filled += (filled.empty() ? "" : ", ") + std::to_string(block.first) + " " + block.second;
+        }
+    }
+
+    if (!filled.empty()) {
+        return Fail(error, "the model names a skeleton file (SKID) and also stores " + filled + " itself, so which copy is meant is not known");
+    }
+
+    for (uint32_t i = 0; i < textures.count; i++) {
+        uint32_t type = Get<uint32_t>(m2, textures.At(i, TEXTURE_SIZE));
+        if (std::count(std::begin(CHARACTER_TEXTURE_TYPES), std::end(CHARACTER_TEXTURE_TYPES), type) || type >= FIRST_CUSTOMIZATION_LAYER_TYPE) {
+            return Fail(error, "the model has a character texture (type " + std::to_string(type) + ") and a skeleton file, so it is a player race model, "
+                "assembled from character customization tables 3.3.5 has no equivalent for");
+        }
+    }
+
+    return true;
+}
+
+// The sequences, bones and attachments of the skeleton the model names, merged with its parents.
+static bool TakeSkeleton(const std::vector<uint8_t>& skid, std::vector<uint8_t>& m2, const FileReader& read, ConvertedModel& converted, std::string& error) {
+    if (skid.size() < 4) {
+        return Fail(error, "the SKID chunk is truncated");
+    }
+
+    std::vector<SkeletonFile> chain;
+    converted.skeleton.fileDataId = Get<uint32_t>(skid, 0);
+    return CheckSkeletalModel(m2, error) && LoadSkeletonChain(converted.skeleton.fileDataId, read, chain, error)
+        && MergeSkeleton(m2, chain, read, converted.skeleton, converted.warnings, error);
+}
+
 // The parts of a model every conversion needs, skins included: header checks, masks, TXID texture names and the
-// shading tables. Animation and records come after it in ConvertModel only.
-static bool ConvertGeometry(const std::map<std::string, std::vector<uint8_t>>& chunks, std::vector<uint8_t>& m2, std::string& error) {
+// shading tables. Animation and records come after it in ConvertModel only. A model conversion (converted) also
+// merges the skeleton a model names; a skin needs only the geometry, which the model keeps.
+static bool ConvertGeometry(const std::map<std::string, std::vector<uint8_t>>& chunks, std::vector<uint8_t>& m2, const FileReader* read, ConvertedModel* converted,
+    std::string& error) {
     auto md21 = chunks.find("MD21");
     if (md21 == chunks.end()) {
         return Fail(error, "no MD21 chunk");
-    }
-
-    if (chunks.count("SKID")) {
-        return Fail(error, "shared skeletons (SKID) are merged by converter slice C3");
     }
 
     m2 = md21->second;
@@ -124,6 +174,11 @@ static bool ConvertGeometry(const std::map<std::string, std::vector<uint8_t>>& c
 
     Span vertices;
     if (!ReadSpan(m2, M2At::VERTICES, VERTEX_SIZE, "vertices", vertices, error)) {
+        return false;
+    }
+
+    auto skid = chunks.find("SKID");
+    if (converted && skid != chunks.end() && !TakeSkeleton(skid->second, m2, *read, *converted, error)) {
         return false;
     }
 
@@ -216,9 +271,18 @@ bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources,
     std::vector<uint32_t> compressedGravity;
     ConvertedModel converted;
 
-    if (!ConvertGeometry(chunks, m2, error) || !ConvertCameras(m2, error) || !ConvertParticles(m2, compressedGravity, converted.warnings, error)
-        || !InlineAnimations(m2, chunks["AFID"], sources.read, converted.warnings, error) || !DecodeParticleGravity(m2, compressedGravity, error)
-        || !EmbedAliases(m2, error) || !RemapSequences(m2, sources.fallbacks, converted.remapped, error)) {
+    if (!ConvertGeometry(chunks, m2, &sources.read, &converted, error) || !ConvertCameras(m2, error) || !ConvertParticles(m2, compressedGravity, converted.warnings, error)) {
+        return false;
+    }
+
+    const ModelSkeleton& skeleton = converted.skeleton;
+    std::vector<uint8_t> afid = chunks["AFID"];
+    afid.insert(afid.end(), skeleton.afid.begin(), skeleton.afid.end());
+
+    if ((skeleton.fileDataId && !PadRuns(m2, skeleton.own, static_cast<uint32_t>(skeleton.parentIndex.size()), error))
+        || !InlineAnimations(m2, afid, sources.read, skeleton, converted.warnings, error)
+        || (skeleton.fileDataId && !ApplyParentEvents(m2, chunks["PEDC"], skeleton, converted.warnings, error))
+        || !DecodeParticleGravity(m2, compressedGravity, error) || !EmbedAliases(m2, error) || !RemapSequences(m2, sources.fallbacks, converted.remapped, error)) {
         return false;
     }
 
@@ -336,7 +400,7 @@ bool ConvertSkin(const SkinInput& input, std::vector<uint8_t>& out, std::string&
     }
 
     std::vector<uint8_t> m2;
-    if (!ConvertGeometry(ReadChunks(input.modelFile), m2, error)) {
+    if (!ConvertGeometry(ReadChunks(input.modelFile), m2, nullptr, nullptr, error)) {
         return false;
     }
 

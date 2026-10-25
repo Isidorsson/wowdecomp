@@ -15,7 +15,8 @@ using FileReader = std::function<bool(uint32_t fileDataId, std::vector<uint8_t>&
 // What a conversion reads besides the model itself.
 struct ModelSources {
     const AnimationFallbacks* fallbacks = nullptr;  // Without them, animation ids past 505 are refused.
-    FileReader read;                                 // AFID .anim files. Without it, sequences needing one are emptied.
+    FileReader read;                                 // AFID .anim files and SKID .skel files. Without it, sequences needing
+                                                     // an .anim are emptied and models on a skeleton refused.
     const ModelSkin* skin = nullptr;              // The model's default skin. Without it, skin slots stay unnamed.
 };
 
@@ -27,11 +28,22 @@ struct RemappedSequence {
     uint16_t id;
 };
 
+// What a model on a shared skeleton (SKID) took from it; fileDataId 0 for a model with sequences of its own.
+struct ModelSkeleton {
+    uint32_t fileDataId = 0;
+    std::vector<uint32_t> parents;      // Nearest first.
+    uint32_t own = 0;                   // Sequences of the model's skeleton: the runs the model's own tracks have.
+    uint32_t parentCount = 0;           // Sequences of the parent's merged list.
+    std::vector<int32_t> parentIndex;   // Per merged sequence: its index in the parent's list when its keys came from it, else -1.
+    std::vector<uint8_t> afid;          // The chain's AFID rows, nearest skeleton first.
+};
+
 // A retail model as the 3.3.5 loader reads it: an MD20 version 264 blob, plus the skins its views use.
 struct ConvertedModel {
     std::vector<uint8_t> m2;
     std::vector<uint32_t> skins;                // SFID FileDataIDs of views 0 to numSkinProfiles - 1.
     std::vector<RemappedSequence> remapped;
+    ModelSkeleton skeleton;
     std::vector<std::string> warnings;          // Data dropped on the way, such as a missing .anim file.
 };
 

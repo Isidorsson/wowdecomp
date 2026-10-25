@@ -18,6 +18,7 @@ if (TARGET RetailCore)
         AnimationFallbacksTests.cpp
         RetailModelTests.cpp
         RetailAnimationTests.cpp
+        RetailSkeletonTests.cpp
         RetailParticlesTests.cpp
         RetailShadingTests.cpp
         RetailSecondUvTests.cpp

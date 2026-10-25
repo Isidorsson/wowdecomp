@@ -9,8 +9,16 @@
 namespace Retail {
 
 // Appends the AFID .anim data of every sequence that needs a file and rebases that sequence's entry in every
-// animated track, so the client never asks for an .anim file (flag 0x20 on all of them).
-bool InlineAnimations(std::vector<uint8_t>& m2, const std::vector<uint8_t>& afid, const FileReader& read, std::vector<std::string>& warnings, std::string& error);
+// animated track, so the client never asks for an .anim file (flag 0x20 on all of them). The first AFID row of an
+// (id, variation) wins. A model on a skeleton has its bone and attachment keys from MergeSkeleton: only its own
+// tracks are rebased here, from AFM2, for the sequences of its own skeleton.
+bool InlineAnimations(std::vector<uint8_t>& m2, const std::vector<uint8_t>& afid, const FileReader& read, const ModelSkeleton& skeleton, std::vector<std::string>& warnings,
+    std::string& error);
+
+// A model on a skeleton has a run per sequence of its skeleton (own) in its own per-sequence tracks: each gets one per
+// merged sequence (merged), the new ones empty. Tracks without runs, or with one run every sequence shares, stay as
+// they are; any other run count is refused (downport/read/skeletal.rs pad_runs).
+bool PadRuns(std::vector<uint8_t>& m2, uint32_t own, uint32_t merged, std::string& error);
 
 // Aliases whose chain ends at an embedded sequence are embedded too: the client follows the chain to play them.
 bool EmbedAliases(std::vector<uint8_t>& m2, std::string& error);
