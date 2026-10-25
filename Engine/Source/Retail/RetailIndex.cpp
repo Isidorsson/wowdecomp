@@ -1,4 +1,5 @@
 #include "Engine/Source/Retail/RetailIndex.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include "Engine/Source/Retail/ItemTables.h"
@@ -213,6 +214,21 @@ void RetailIndex::BuildItems(const BrowserTables& tables, const ItemJoins& joins
         }
         this->m_itemKeys.push_back(std::move(keys));
     }
+}
+
+bool RetailIndex::AttachSparse(const Db2Table& itemSparse, std::string& error) {
+    if (!KnownLayout(itemSparse, ITEM_SPARSE_LAYOUT, "ItemSparse", error)) {
+        return false;
+    }
+    for (size_t r = 0; r < itemSparse.RowCount(); r++) {
+        uint32_t id = itemSparse.RowId(r);
+        auto item = std::lower_bound(this->m_items.begin(), this->m_items.end(), id, [](const BrowseItem& i, uint32_t key) { return i.id < key; });
+        if (item != this->m_items.end() && item->id == id) {
+            item->hasSparse = ReadSparseItem(itemSparse, r, item->sparse);
+        }
+    }
+    this->m_skippedRows += itemSparse.SkippedRows();
+    return true;
 }
 
 const BrowseCreature* RetailIndex::Creature(uint32_t id) const {

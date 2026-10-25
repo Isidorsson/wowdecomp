@@ -1,5 +1,6 @@
 #include <cstdio>
 #include "Engine/Source/Retail/BrowserMarshal.h"
+#include "Engine/Source/Retail/ClassicStats.h"
 
 // RetailDetails(kind, id): every id of an entry as named fields and as the labelled field list the UI shows and
 // copies. A display id the installed DBC has is flagged custom: the client draws the installed row, not the retail one.
@@ -149,6 +150,63 @@ void AddAppearance(BrowserValue& looks, FieldList& fields, size_t slot, const Br
     fields.Add(label + " models", std::to_string(look.facts.models[0]) + ", " + std::to_string(look.facts.models[1]), std::to_string(look.facts.models[0]));
 }
 
+std::string SocketList(const SparseItem& sparse) {
+    std::string list;
+    for (uint32_t socket : sparse.sockets) {
+        if (socket) {
+            list += (list.empty() ? "" : ", ") + std::to_string(socket);
+        }
+    }
+    return list.empty() ? "none" : "types " + list + (sparse.socketBonus ? ", bonus enchant " + std::to_string(sparse.socketBonus) : "");
+}
+
+// ItemSparse: each stat with its budget share and its value at the item's own level, sockets and weapon fields as stored.
+void AddSparse(const RetailIndex& index, const BrowseItem& item, BrowserValue& details, FieldList& fields) {
+    if (!item.hasSparse) {
+        fields.Add("Stats", "no ItemSparse row (still locked, or the table did not load)");
+        return;
+    }
+    const SparseItem& sparse = item.sparse;
+    StatRequest request;
+    request.itemLevel = sparse.itemLevel;
+    request.subclass = item.subclassId;
+    std::vector<RetailStat> values = ComputeRetailStats(sparse, index.Budget(), request);
+    BrowserValue& stats = details.Set("stats", BrowserValue::Table());
+    size_t computed = 0;
+    for (size_t slot = 0; slot < ITEM_STAT_SLOTS; slot++) {
+        if (sparse.statTypes[slot] < 0 || sparse.statPercents[slot] == 0) {
+            continue;
+        }
+        int32_t type = sparse.statTypes[slot];
+        bool known = computed < values.size() && values[computed].type == type;
+        BrowserValue& stat = stats.Add(BrowserValue::Table());
+        SetNumber(stat, "type", type);
+        stat.Set("name", BrowserValue::String(RetailStatName(type)));
+        SetNumber(stat, "percent", sparse.statPercents[slot]);
+        SetNumber(stat, "socketCost", sparse.socketCosts[slot]);
+        char share[96];
+        std::snprintf(share, sizeof(share), "%.2f%%", sparse.statPercents[slot] / 100.0);
+        std::string value = RetailStatName(type) + ", " + share;
+        if (known) {
+            SetNumber(stat, "value", values[computed].value);
+            value += ", " + std::to_string(values[computed].value) + " at item level " + std::to_string(sparse.itemLevel);
+            computed++;
+        }
+        fields.Add("Stat " + std::to_string(stats.items.size()), value, std::to_string(type));
+    }
+    SetNumber(details, "sparseItemLevel", sparse.itemLevel);
+    SetNumber(details, "requiredLevel", sparse.requiredLevel);
+    fields.Add("Sockets", SocketList(sparse));
+    if (sparse.delay) {
+        fields.Add("Weapon", "delay " + std::to_string(sparse.delay) + " ms, damage variance " + Number(sparse.damageVariance) + ", damage type " +
+            std::to_string(sparse.damageType), std::to_string(sparse.delay));
+    }
+    fields.AddId("Required level", sparse.requiredLevel);
+    if (sparse.levelCurve) {
+        fields.Add("Scales", "with the player's level (curve " + std::to_string(sparse.levelCurve) + ")", std::to_string(sparse.levelCurve));
+    }
+}
+
 void ItemDetails(const RetailIndex& index, const BrowseItem& i, const InstalledDisplays& installed, BrowserValue& out) {
     BrowserValue& details = Begin(out, BrowseKind::Item, i.id, i.name);
     SetNumber(details, "itemId", i.id);
@@ -176,8 +234,7 @@ void ItemDetails(const RetailIndex& index, const BrowseItem& i, const InstalledD
     fields.AddId("Allowable classes", i.allowableClass);
     fields.AddId("Expansion", i.expansion);
     fields.AddId("Icon fdid", i.icon);
-    // Retail stats live in ItemSparse, a sparse table Db2Table does not read yet: the stat mapping's input.
-    fields.Add("Stats", "not read (ItemSparse)");
+    AddSparse(index, i, details, fields);
     BrowserValue& looks = details.Set("appearances", BrowserValue::Table());
     for (size_t slot = 0; slot < i.appearances.size(); slot++) {
         AddAppearance(looks, fields, slot, i.appearances[slot], installed);

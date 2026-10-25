@@ -1,5 +1,5 @@
--- GM commands and plain-text copies built from a RetailDetails table. The SQL builders of a later slice start from
--- the same details: every id they need is a named field there.
+-- GM commands and plain-text copies built from a RetailDetails table. The SQL of the Build panel (Build.lua) comes
+-- from RetailBuildSql, which reads the same entry.
 
 local RB = RetailBrowser
 

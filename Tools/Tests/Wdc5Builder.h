@@ -26,6 +26,10 @@ struct Wdc5Section {
     std::vector<std::pair<uint32_t, uint32_t>> copies;  // New id, source id.
     std::vector<std::pair<uint32_t, uint32_t>> relations;  // Foreign id, record index in the section.
     std::vector<uint8_t> strings;   // The section's string block, written after its records.
+    // A sparse table's (flags 0x1) records, each its own size with strings inline, in place of records. ids then
+    // fill the offset map's id list; the id list is written too unless noIdList.
+    std::vector<std::vector<uint8_t>> sparseRecords;
+    bool noIdList = false;
 };
 
 struct Wdc5Spec {
@@ -38,14 +42,48 @@ struct Wdc5Spec {
     std::vector<Wdc5Section> sections;
 };
 
+// Sparse layout (DBCD WDC5Reader): records up to the records end, then the id list, the copy table, the offset map
+// (absolute offset u32, size u16), the relationship map (none here) and the offset map's id list.
+inline void AppendSparseSection(std::vector<uint8_t>& file, size_t header, const Wdc5Section& section) {
+    PutU32(file, header + 8, static_cast<uint32_t>(file.size()));
+    PutU32(file, header + 12, static_cast<uint32_t>(section.sparseRecords.size()));
+    std::vector<std::pair<uint32_t, uint16_t>> offsets;
+    for (const auto& record : section.sparseRecords) {
+        offsets.push_back({ static_cast<uint32_t>(file.size()), static_cast<uint16_t>(record.size()) });
+        file.insert(file.end(), record.begin(), record.end());
+    }
+    PutU32(file, header + 20, static_cast<uint32_t>(file.size()));
+    if (!section.noIdList) {
+        PutU32(file, header + 24, static_cast<uint32_t>(section.ids.size() * 4));
+        for (uint32_t id : section.ids) {
+            AppendU32(file, id);
+        }
+    }
+    PutU32(file, header + 32, static_cast<uint32_t>(offsets.size()));
+    PutU32(file, header + 36, static_cast<uint32_t>(section.copies.size()));
+    for (const auto& copy : section.copies) {
+        AppendU32(file, copy.first);
+        AppendU32(file, copy.second);
+    }
+    for (const auto& [offset, size] : offsets) {
+        AppendU32(file, offset);
+        file.resize(file.size() + 2);
+        PutU16(file, file.size() - 2, size);
+    }
+    for (uint32_t id : section.ids) {
+        AppendU32(file, id);
+    }
+}
+
 inline std::vector<uint8_t> BuildWdc5(const Wdc5Spec& spec) {
     std::vector<uint8_t> file(204, 0);
     std::memcpy(file.data(), "WDC5", 4);
     PutU32(file, 4, 5);
 
+    bool sparse = spec.flags & 0x1;
     uint32_t records = 0;
     for (const auto& section : spec.sections) {
-        records += static_cast<uint32_t>(section.records.size() / spec.recordSize);
+        records += static_cast<uint32_t>(sparse ? section.sparseRecords.size() : section.records.size() / spec.recordSize);
     }
 
     PutU32(file, 136, records);
@@ -86,6 +124,10 @@ inline std::vector<uint8_t> BuildWdc5(const Wdc5Spec& spec) {
         const Wdc5Section& section = spec.sections[s];
         size_t header = sectionHeaders + s * 40;
         std::memcpy(file.data() + header, &section.tactKey, 8);
+        if (sparse) {
+            AppendSparseSection(file, header, section);
+            continue;
+        }
         PutU32(file, header + 8, static_cast<uint32_t>(file.size()));
         PutU32(file, header + 12, static_cast<uint32_t>(section.records.size() / spec.recordSize));
         PutU32(file, header + 16, static_cast<uint32_t>(section.strings.size()));

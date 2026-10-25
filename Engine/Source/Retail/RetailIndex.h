@@ -7,12 +7,14 @@
 #include <string_view>
 #include <vector>
 #include "Engine/Source/Retail/BrowserTables.h"
+#include "Engine/Source/Retail/ItemSparse.h"
+#include "Engine/Source/Retail/StatBudget.h"
 
 namespace Retail {
 
 // The in-memory search index of the retail browser (Interface\AddOns\RetailBrowser): creatures, items, sets, models
 // and mounts of the pinned build, joined once from BrowserTables. Search is case and accent insensitive; a number
-// searches ids. Details carry every id server and DB work needs (the SQL builders of a later slice start from them).
+// searches ids. Details carry every id server and DB work needs (the SQL builders, BrowserBuild.cpp, start from them).
 
 enum class BrowseKind : uint8_t { Creature, Item, Set, Model, Mount };
 
@@ -73,6 +75,8 @@ struct BrowseItem {
     uint32_t sheatheType = 0;
     uint32_t icon = 0;   // Item's own icon, else the first appearance's.
     std::vector<BrowseAppearance> appearances;   // By ItemModifiedAppearance order.
+    bool hasSparse = false;   // Its ItemSparse row was read (AttachSparse): stats, sockets, delay.
+    SparseItem sparse;
 };
 
 enum class SetSource : uint8_t { Transmog, ItemSet };
@@ -160,6 +164,11 @@ struct ItemJoins;
 class RetailIndex {
     public:
     bool Build(const BrowserTables& tables, const BrowserLookups& lookups, std::string& error);
+    // After Build: each indexed item's ItemSparse row (parsed with ItemSparseStrings()), and the budget tables that
+    // turn its allocations into values. Without them items have no stats and the SQL builders no stat lines.
+    bool AttachSparse(const Db2Table& itemSparse, std::string& error);
+    void SetBudget(StatBudget budget) { this->m_budget = std::move(budget); }
+    const StatBudget& Budget() const { return this->m_budget; }
 
     // Exact name or id first, then prefix, then substring; ties by name, then id. No text and no filter finds nothing;
     // a filter alone lists everything it passes.
@@ -217,6 +226,7 @@ class RetailIndex {
     std::map<uint32_t, std::string> m_familyNames;
     std::map<uint32_t, std::string> m_subclassNames;
     size_t m_skippedRows = 0;
+    StatBudget m_budget;
 };
 
 }

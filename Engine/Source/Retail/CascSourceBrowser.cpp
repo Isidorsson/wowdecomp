@@ -88,7 +88,43 @@ bool CascSource::LoadBrowserIndex(std::string& error) {
     }
     BrowserTables browser = { creatures, items, searchNames, modifiedAppearances, appearances, transmogSets, transmogSetItems, itemSets, mounts,
         mountDisplays, creatureTypes, creatureFamilies, itemSubClasses };
-    return this->m_browserIndex.Build(browser, this->BrowserDisplayLookups(), error);
+    if (!this->m_browserIndex.Build(browser, this->BrowserDisplayLookups(), error)) {
+        return false;
+    }
+    std::string statsError;
+    if (!this->LoadBrowserStats(statsError)) {
+        this->Warn("retail browser: item stats: " + statsError);
+    }
+    return true;
+}
+
+// ItemSparse and the stat budget tables: without them the browser still searches, its items just have no stats.
+bool CascSource::LoadBrowserStats(std::string& error) {
+    std::vector<uint8_t> bytes;
+    Db2Table sparse;
+    if (!this->ReadTable(ITEM_SPARSE_FDID, bytes, error) || !sparse.Parse(std::move(bytes), error, ItemSparseStrings()) ||
+        !this->m_browserIndex.AttachSparse(sparse, error)) {
+        return false;
+    }
+    if (sparse.SkippedRows()) {
+        this->Warn("table " + std::to_string(ITEM_SPARSE_FDID) + ": skipped " + std::to_string(sparse.SkippedRows()) + " still-locked rows");
+    }
+    Db2Table randProp;
+    StatBudget budget;
+    if (!this->ReadTables({ { RAND_PROP_POINTS_FDID, &randProp } }, error) || !ReadRandPropPoints(randProp, budget.randProp, error)) {
+        return false;
+    }
+    const std::pair<uint32_t, GameTable*> gameTables[] = { { COMBAT_RATINGS_MULT_FDID, &budget.combatRatings }, { STAMINA_MULT_FDID, &budget.stamina },
+        { SOCKET_COST_FDID, &budget.socketCost } };
+    for (const auto& [fileDataId, table] : gameTables) {
+        std::vector<uint8_t> text;
+        if (!this->ReadTable(fileDataId, text, error) || !ParseGameTable(std::string(text.begin(), text.end()), *table, error)) {
+            error = "game table " + std::to_string(fileDataId) + ": " + error;
+            return false;
+        }
+    }
+    this->m_browserIndex.SetBudget(std::move(budget));
+    return true;
 }
 
 }

@@ -184,10 +184,6 @@ TEST(Db2RefusesBrokenFiles) {
 
     CHECK(!table.Parse(std::vector<uint8_t>(100, 0), error));
 
-    Wdc5Spec sparse = spec;
-    sparse.flags = 0x1;
-    CHECK(!table.Parse(BuildWdc5(sparse), error));
-
     Wdc5Spec zeroed = spec;
     zeroed.sections = { { 0, std::vector<uint8_t>(6, 0), { 1 }, {} } };
     CHECK(!table.Parse(BuildWdc5(zeroed), error));

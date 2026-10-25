@@ -156,6 +156,7 @@ class CascSource {
     bool LoadItemTables(std::string& error);
     bool OpenStorage(std::string& error);
     bool LoadBrowserIndex(std::string& error);
+    bool LoadBrowserStats(std::string& error);
     BrowserLookups BrowserDisplayLookups();
     bool ReadStorage(uint32_t fileDataId, uint32_t openFlags, std::vector<uint8_t>& bytes, std::string& error);
 

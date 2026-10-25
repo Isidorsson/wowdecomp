@@ -113,6 +113,7 @@ AddAction("favourite", "Favourite", function(d)
     if RB.state.source == "favourites" then RB.ShowSaved("favourites") end
     RB.Print((on and "added " or "removed ") .. d.name .. (on and " to" or " from") .. " favourites")
 end)
+AddAction("build", "Build SQL", function() RB.ToggleBuild() end)
 
 local function Enable(button, enabled)
     if enabled then button:Enable() else button:Disable() end
@@ -125,6 +126,7 @@ function RB.UpdateActions()
     Enable(buttons.npcModel, commands.npcModel and UnitExists("target"))
     Enable(buttons.addItem, #commands.addItem > 0)
     Enable(buttons.trySet, d and d.kind == "set")
+    Enable(buttons.build, d and (d.kind == "item" or d.kind == "set" or d.kind == "creature"))
     for _, key in ipairs({ "copyId", "copyAll", "copyGm", "favourite" }) do
         Enable(buttons[key], d)
     end

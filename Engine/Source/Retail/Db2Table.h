@@ -12,10 +12,11 @@ namespace Retail {
 // A read-only WDC5 (.db2) table: retail DBFilesClient tables. Integer columns by physical column number
 // (WoWDBDefs order, noninline fields excluded), row ids from the id list or inline, copied rows. Sections
 // encrypted for unreleased content arrive zero-filled and are skipped, as the retail client does without the
-// key. Sparse tables are not read yet.
+// key. A sparse table (ItemSparse) has records of their own size with strings inline: inlineStrings names its string
+// columns, which the file gives no other way to skip.
 class Db2Table {
     public:
-    bool Parse(std::vector<uint8_t> bytes, std::string& error);
+    bool Parse(std::vector<uint8_t> bytes, std::string& error, std::vector<size_t> inlineStrings = {});
 
     uint32_t LayoutHash() const { return this->m_layoutHash; }
     size_t RowCount() const { return this->m_rows.size(); }
@@ -60,6 +61,7 @@ class Db2Table {
         uint32_t id;
         size_t offset;
         uint32_t relation = 0;
+        size_t size = 0;   // A sparse record's bytes.
     };
 
     // Where a section's records and strings lie. A string offset counts from its field as if every section's
@@ -74,7 +76,12 @@ class Db2Table {
     };
 
     bool ParseSection(size_t header, size_t recordSize, size_t idIndex, std::string& error);
+    bool ParseSparseSection(size_t header, std::string& error);
+    void AddCopies(size_t first, size_t copyTable, size_t copies);
     std::string StringAt(int64_t key) const;
+    // A sparse row's column: its byte offset, walking the columns before it; false past the record's end.
+    bool SparseField(const Row& row, size_t column, size_t& at) const;
+    std::string SparseString(const Row& row, size_t column) const;
 
     std::vector<uint8_t> m_data;
     uint32_t m_layoutHash = 0;
@@ -83,6 +90,8 @@ class Db2Table {
     std::vector<Section> m_sections;
     size_t m_recordSize = 0;
     size_t m_skippedRows = 0;
+    bool m_sparse = false;
+    std::vector<bool> m_inlineString;   // By column, for a sparse table.
 };
 
 // Refuses table, by name, when its layout is not the one a loader reads.

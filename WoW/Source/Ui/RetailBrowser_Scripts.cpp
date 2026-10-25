@@ -2,7 +2,7 @@
 
 // Not in the original. The Lua functions of the retail browser addon (Interface\AddOns\RetailBrowser): a search over the
 // retail tables of the pinned CASC build, built on a worker on first use (Engine/Source/Retail/RetailIndex.h), its
-// details, a CSV export and the clipboard. Registered only when retail assets are configured, so the addon can test
+// details, world DB SQL built from an entry (RetailBuildSql, RetailExportSql), a CSV export and the clipboard. Registered only when retail assets are configured, so the addon can test
 // for RetailSearch to know whether it runs on such a client.
 
 #if defined(WOWDECOMP_RETAIL_ASSETS)
@@ -122,13 +122,31 @@ static int32_t Script_RetailBrowserInfo(lua_State* L) {
     return 1;
 }
 
-static std::string ExportPath(const std::string& kind) {
+// Logs\RetailBrowser\<name>-<time>.<extension>; the name keeps letters, digits, '-' and '_'.
+static std::string ExportPath(const std::string& name, const char* extension) {
+    std::string safe;
+    for (char c : name) {
+        bool kept = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+        safe += kept ? c : '_';
+    }
     std::time_t now = std::time(nullptr);
     std::tm local = {};
     localtime_s(&local, &now);
     char stamp[32];
     std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
-    return std::string(EXPORT_FOLDER) + "\\" + kind + "-" + stamp + ".csv";
+    return std::string(EXPORT_FOLDER) + "\\" + (safe.empty() ? "export" : safe) + "-" + stamp + "." + extension;
+}
+
+// Pushes the path written, or nil, error.
+static int32_t WriteExport(lua_State* L, const std::string& path, const std::string& text) {
+    std::error_code created;
+    std::filesystem::create_directories(EXPORT_FOLDER, created);
+    std::ofstream file(path, std::ios::binary);
+    if (!file.write(text.data(), static_cast<std::streamsize>(text.size()))) {
+        return PushError(L, "cannot write " + path);
+    }
+    lua_pushstring(L, path.c_str());
+    return 1;
 }
 
 // RetailExportCsv(kind, text [, filters]): every match written to Logs\RetailBrowser\<kind>-<time>.csv; the path, or
@@ -140,15 +158,44 @@ static int32_t Script_RetailExportCsv(lua_State* L) {
     if (!Retail::SearchCsv(Retail::CascSource::Instance().BrowserIndex(), kind, StringArg(L, 2), FilterArg(L, 3), csv, error)) {
         return PushError(L, error);
     }
-    std::error_code created;
-    std::filesystem::create_directories(EXPORT_FOLDER, created);
-    std::string path = ExportPath(kind);
-    std::ofstream file(path, std::ios::binary);
-    if (!file.write(csv.data(), static_cast<std::streamsize>(csv.size()))) {
-        return PushError(L, "cannot write " + path);
+    return WriteExport(L, ExportPath(kind, "csv"), csv);
+}
+
+// The number and string fields of an options table.
+static Retail::BuildOptions BuildOptionsArg(lua_State* L, int index) {
+    Retail::BuildOptions options;
+    options.numbers = FilterArg(L, index);
+    if (!lua_istable(L, index)) {
+        return options;
     }
-    lua_pushstring(L, path.c_str());
+    lua_pushnil(L);
+    while (lua_next(L, index)) {
+        if (lua_type(L, -2) == LUA_TSTRING && lua_type(L, -1) == LUA_TSTRING) {
+            options.texts[lua_tolstring(L, -2, nullptr)] = lua_tolstring(L, -1, nullptr);
+        }
+        lua_pop(L, 1);
+    }
+    return options;
+}
+
+// RetailBuildSql(kind, id [, options]): see MarshalBuild.
+static int32_t Script_RetailBuildSql(lua_State* L) {
+    uint32_t id = lua_isnumber(L, 2) ? static_cast<uint32_t>(lua_tonumber(L, 2)) : 0;
+    Retail::BrowserValue result;
+    std::string error;
+    if (!Retail::MarshalBuild(Retail::CascSource::Instance().BrowserIndex(), StringArg(L, 1), id, BuildOptionsArg(L, 3), result, error)) {
+        return PushError(L, error);
+    }
+    PushValue(L, result);
     return 1;
+}
+
+// RetailExportSql(name, sql): sql written to Logs\RetailBrowser\<name>-<time>.sql; the path, or nil, error.
+static int32_t Script_RetailExportSql(lua_State* L) {
+    if (!lua_isstring(L, 2)) {
+        return PushError(L, "Usage: RetailExportSql(name, sql)");
+    }
+    return WriteExport(L, ExportPath(StringArg(L, 1), "sql"), StringArg(L, 2));
 }
 
 // CopyToClipboard(text): true, or nil, error.
@@ -183,6 +230,8 @@ void RetailBrowserRegister() {
     FrameScript_RegisterFunction("RetailDetails", Script_RetailDetails);
     FrameScript_RegisterFunction("RetailBrowserInfo", Script_RetailBrowserInfo);
     FrameScript_RegisterFunction("RetailExportCsv", Script_RetailExportCsv);
+    FrameScript_RegisterFunction("RetailBuildSql", Script_RetailBuildSql);
+    FrameScript_RegisterFunction("RetailExportSql", Script_RetailExportSql);
     FrameScript_RegisterFunction("CopyToClipboard", Script_CopyToClipboard);
     FrameScript_RegisterFunction("GetClipboardText", Script_GetClipboardText);
     RetailModelFramesRegister();

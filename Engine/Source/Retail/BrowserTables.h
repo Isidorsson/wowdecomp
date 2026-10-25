@@ -9,8 +9,8 @@
 namespace Retail {
 
 // DBFilesClient tables the retail browser searches, and the WoWDBDefs layouts read from them (12.x; wow-toolbox-editor
-// casc/model_names.rs reads the same joins). ItemSparse is a sparse table Db2Table does not read, so names, quality and
-// item level come from ItemSearchName, and retail stats are not read yet.
+// casc/model_names.rs reads the same joins). Names, quality and item level come from ItemSearchName; stats and sockets
+// from ItemSparse, attached after the build (RetailIndex::AttachSparse, ItemSparse.h).
 constexpr uint32_t CREATURE_FDID = 841631;
 constexpr uint32_t CREATURE_LAYOUT = 0x6E14C900;
 constexpr uint32_t ITEM_FDID = 841626;

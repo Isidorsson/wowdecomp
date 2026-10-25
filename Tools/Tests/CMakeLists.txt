@@ -18,6 +18,7 @@ if (TARGET RetailCore)
         DecodedCacheTests.cpp
         ConvertedCacheTests.cpp
         Db2TableTests.cpp
+        Db2SparseTests.cpp
         AnimationFallbacksTests.cpp
         RetailModelTests.cpp
         RetailAnimationTests.cpp
@@ -41,6 +42,10 @@ if (TARGET RetailCore)
         RetailBodyLookTests.cpp
         RetailIndexTests.cpp
         BrowserMarshalTests.cpp
+        StatBudgetTests.cpp
+        ClassicStatsTests.cpp
+        BuildSqlTests.cpp
+        BrowserBuildTests.cpp
     )
     target_link_libraries(WowdecompTests PRIVATE RetailCore)
     target_sources(WowdecompTests PRIVATE
