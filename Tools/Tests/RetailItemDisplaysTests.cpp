@@ -368,7 +368,36 @@ TEST(RacesHidingAGroupShareItsMask) {
 
 TEST(GroupsAndRacesTheClientLacksAreIgnored) {
     CHECK(HelmetVisMasks(Hidden({ { 1, 4 }, { 1, 5 }, { 1, 6 }, { 1, 8 }, { 1, 18 }, { 1, 32 } })) == HelmetMasks());
-    CHECK(HelmetVisMasks(Hidden({ { 0, 0 }, { 12, 0 }, { 31, 0 }, { 32, 0 }, { 70, 1 } })) == HelmetMasks());
+    CHECK(HelmetVisMasks(Hidden({ { 0, 0 }, { 32, 0 }, { 70, 1 } })) == HelmetMasks());
+}
+
+TEST(TheMasksCoverEveryRaceBelow32) {
+    HelmetMasks masks = HelmetVisMasks(Hidden({ { 12, 0 }, { 22, 0 }, { 31, 1 } }));
+
+    CHECK(masks[0] == ((1 << 12) | (1 << 22)));
+    CHECK(static_cast<uint32_t>(masks[1]) == (1u << 31));
+}
+
+using Retail::HelmetHideSlots;
+
+TEST(HelmetHidesNameTheSlotsOfAnyRace) {
+    Hidden hidden = { { 32, 0 }, { 32, 7 }, { 84, 1 }, { 1, 3 } };
+
+    CHECK(Retail::HelmetHidesFor(hidden, 32) == HelmetHideSlots({ true, false, false, false, true, false, false }));
+    CHECK(Retail::HelmetHidesFor(hidden, 84) == HelmetHideSlots({ false, true, false, false, false, false, false }));
+    CHECK(Retail::HelmetHidesFor(hidden, 1) == HelmetHideSlots({ false, false, false, true, false, false, false }));
+    CHECK(Retail::HelmetHidesFor(hidden, 85) == HelmetHideSlots());
+}
+
+TEST(AHelmetVisHidesItsGroupsForARaceAbove31) {
+    Fixture fixture;
+    fixture.helmetGeosets = { { 4021, 32, 0 }, { 4021, 36, 17 }, { 4022, 1, 0 } };
+    RetailItemDisplays retail = Loaded(fixture);
+
+    CHECK(retail.HelmetHides(4021, 32) == HelmetHideSlots({ true, false, false, false, false, false, false }));
+    CHECK(retail.HelmetHides(4021, 36) == HelmetHideSlots({ false, false, false, false, false, false, true }));
+    CHECK(retail.HelmetHides(4022, 32) == HelmetHideSlots());
+    CHECK(retail.HelmetHides(9999, 32) == HelmetHideSlots());
 }
 
 TEST(ADisplayNamesItsHelmetVisPerGender) {

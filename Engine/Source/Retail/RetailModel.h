@@ -18,6 +18,8 @@ struct ModelSources {
     FileReader read;                                 // AFID .anim files and SKID .skel files. Without it, sequences needing
                                                      // an .anim are emptied and models on a skeleton refused.
     const ModelSkin* skin = nullptr;              // The model's default skin. Without it, skin slots stay unnamed.
+    bool playerBody = false;                      // A player race body asked for as an NPC body: converted with its
+                                                  // character textures, which the NPC's bake and hair replace.
 };
 
 // A sequence whose retail id 3.3.5 does not know, renumbered to its fallback.

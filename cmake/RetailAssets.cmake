@@ -30,6 +30,8 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BodyMatch.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BakeWarp.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BakeBlp.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailRaces.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailBodyLook.cpp
 )
 target_include_directories(RetailCore PUBLIC ${CMAKE_SOURCE_DIR})
 # The Windows Compression API, for the converted cache.

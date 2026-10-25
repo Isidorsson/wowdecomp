@@ -22,6 +22,10 @@ struct HelmFit {
 // The measured fit of a stock race (1 to 11) and gender (0 male, 1 female) on the 3.3.5 bodies; null otherwise.
 const HelmFit* HelmFitFor(uint32_t race, uint32_t gender);
 
+// Whether retail helms hang unmoved on the race: every race without a measured fit and the goblin, which draw on
+// their own retail bodies (slice b) or wear their helms as retail made them.
+bool HelmFitsUnmoved(uint32_t race, uint32_t gender);
+
 // The race and gender of a race-named helm read, "item/objectcomponents/head/retail-<fdid>_<prefix><m|f>.m2";
 // false for any other path, a weapon-style "retail-<fdid>" name included.
 bool HelmRaceForPath(const std::string& normalized, uint32_t& race, uint32_t& gender);

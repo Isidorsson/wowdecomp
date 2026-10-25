@@ -192,3 +192,58 @@ TEST(Db2RefusesBrokenFiles) {
     zeroed.sections = { { 0, std::vector<uint8_t>(6, 0), { 1 }, {} } };
     CHECK(!table.Parse(BuildWdc5(zeroed), error));
 }
+
+// Strings: a string column holds the distance from the field to its string, as if every section's records came first
+// and every section's string block after them (DBCD WDC5Reader).
+static std::vector<uint8_t> StringRecord(uint32_t offset, uint32_t value) {
+    std::vector<uint8_t> record(8);
+    std::memcpy(record.data(), &offset, 4);
+    std::memcpy(record.data() + 4, &value, 4);
+    return record;
+}
+
+static Wdc5Spec StringSpec() {
+    Wdc5Spec spec;
+    spec.recordSize = 8;
+    spec.columns = { { 0, 0, 32, 0, 0, { 0, 0, 0 } }, { 0, 32, 32, 0, 0, { 0, 0, 0 } } };
+    return spec;
+}
+
+static std::vector<uint8_t> Text(const char* text, size_t size) {
+    return std::vector<uint8_t>(text, text + size);
+}
+
+TEST(Db2StringsReadFromTheSectionsStringBlock) {
+    // Two records, block "\0Wo\0Worgen\0": record 0's string at 1 ("Wo"), record 1's at 4 ("Worgen"), 0 for none.
+    Wdc5Spec spec = StringSpec();
+    Wdc5Section section{ 0, Join({ StringRecord(2 * 8 + 1 - 0, 7), StringRecord(2 * 8 + 4 - 8, 8) }), { 22, 32 }, {} };
+    section.strings = Text("\0Wo\0Worgen\0", 11);
+    spec.sections = { section };
+    Db2Table table;
+    std::string error;
+
+    CHECK(table.Parse(BuildWdc5(spec), error));
+    CHECK(table.String(0, 0) == "Wo" && table.String(1, 0) == "Worgen");
+    CHECK(table.Value(1, 1) == 8);
+    CHECK(table.String(5, 0).empty() && table.String(0, 9).empty());
+
+    spec.sections[0].records = StringRecord(0, 7);
+    spec.sections[0].ids = { 22 };
+    CHECK(table.Parse(BuildWdc5(spec), error));
+    CHECK(table.String(0, 0).empty());
+}
+
+TEST(Db2StringsOfALaterSectionCountTheEarlierBlocks) {
+    // Records 0 (section 0) and 1 (section 1); 2 records of 8 bytes in all; block 0 "\0Hu\0" (4), block 1 "\0Kt\0".
+    Wdc5Spec spec = StringSpec();
+    Wdc5Section first{ 0, StringRecord(2 * 8 + 1 - 0, 1), { 1 }, {} };
+    first.strings = Text("\0Hu\0", 4);
+    Wdc5Section second{ 0, StringRecord(2 * 8 + 4 + 1 - 8, 2), { 32 }, {} };
+    second.strings = Text("\0Kt\0", 4);
+    spec.sections = { first, second };
+    Db2Table table;
+    std::string error;
+
+    CHECK(table.Parse(BuildWdc5(spec), error));
+    CHECK(table.String(0, 0) == "Hu" && table.String(1, 0) == "Kt");
+}

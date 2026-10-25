@@ -60,9 +60,18 @@ struct CustomizationGeoset {
     bool operator==(const CustomizationGeoset& other) const { return type == other.type && id == other.id; }
 };
 
+// A chosen material: its ChrModelTextureTarget and file, which a retail body places by its texture layers.
+struct ChosenMaterial {
+    uint32_t target;
+    uint32_t file;
+
+    bool operator==(const ChosenMaterial& other) const { return target == other.target && file == other.file; }
+};
+
 // What an Extra row's customization choices show that a 3.3.5 NPC can: geosets and the hair colour.
 struct NpcLook {
     std::vector<CustomizationGeoset> geosets;
+    std::vector<ChosenMaterial> materials;   // Every chosen material with a file.
     bool hasHairColor = false;
     uint32_t hairColorOrder = 0;   // The Hair Color choice's order index, which is the installed colour index.
     uint32_t hairTexture = 0;      // Its texture (target 10), for the log.
@@ -98,10 +107,19 @@ enum class BakeUse {
 };
 
 struct NpcPlan {
-    int32_t bodyModelId = 0;   // The stock CreatureModelData id of the race and gender's body.
+    int32_t bodyModelId = 0;   // The stock CreatureModelData id of the race and gender's body, or a retail body's
+                               // SyntheticNpcBodyModelId.
     BakeUse bake = BakeUse::AsIs;
     uint32_t bakeFile = 0;
     std::string bakeName;      // What the served Extra row names, under Textures\BakedNpcTextures\.
+    uint32_t race = 0;         // The race the served Extra row names: the installed body's.
+    bool retailBody = false;   // Drawn on the retail model, shaped by RetailBodyLook.
+};
+
+// The retail model a display draws its NPC with: its CreatureModelData id and file.
+struct NpcBody {
+    uint32_t retailModelId = 0;
+    uint32_t fileDataId = 0;
 };
 
 // Whether the installed body of race and gender is the HD port the HD bakes can be warped onto
@@ -111,6 +129,17 @@ using BodyFits = std::function<bool(uint32_t race, uint32_t sex)>;
 // The plan for a retail Extra row, or false with the reason the display keeps its missing model: an unsupported
 // race (Goblin, 22 and up), a body that is not the HD port, or no usable bake.
 bool BuildNpcPlan(const NpcExtra& extra, const BodyFits& bodyFits, NpcPlan& plan, std::string& reason);
+
+// Goblin (9) and races 22 and up (slice b): the installed body when it is a port of the display's model (HdPortRace,
+// fitting), with the bake warped onto it, else the display's retail model with the bake as is (these bakes are in
+// the retail 2:1 layout of their own model). Refused without a model or a bake.
+bool BuildRetailRacePlan(const NpcExtra& extra, const NpcBody& body, const BodyFits& bodyFits, NpcPlan& plan, std::string& reason);
+
+// BuildRetailRacePlan for Goblin and races 22 and up, BuildNpcPlan for the rest.
+bool PlanNpc(const NpcExtra& extra, const NpcBody& body, const BodyFits& bodyFits, NpcPlan& plan, std::string& reason);
+
+// Goblin and races 22 and up, whose installed bodies (if any) are no ports of their retail ones.
+bool IsRetailBodyRace(uint32_t race);
 
 // The stock body's CreatureModelData id for race 1 to 21 and sex; 0 otherwise.
 int32_t StockBodyModelId(uint32_t race, uint32_t sex);

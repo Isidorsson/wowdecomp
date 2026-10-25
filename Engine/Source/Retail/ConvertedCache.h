@@ -21,6 +21,9 @@ uint64_t ConverterKey();
 std::filesystem::path ConvertedCacheFolder(const Config& config);
 std::filesystem::path ConvertedCachePath(const Config& config, uint32_t fileDataId);
 
+// A player race body converted as an NPC body (RetailPath NpcBodyModelName), which a plain conversion refuses.
+std::filesystem::path ConvertedNpcBodyPath(const Config& config, uint32_t fileDataId);
+
 // A warped NPC bake (RetailPath WarpedBakeName) of the bake file onto the installed body of race and gender.
 std::filesystem::path ConvertedBakePath(const Config& config, uint32_t bakeFileDataId, uint32_t race, uint32_t gender);
 

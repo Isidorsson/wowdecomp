@@ -1,4 +1,6 @@
 #include <algorithm>
+#include "Engine/Source/Retail/BodyMatch.h"
+#include "Engine/Source/Retail/RetailDisplays.h"
 #include "Engine/Source/Retail/RetailNpcDisplay.h"
 #include "Engine/Source/Retail/RetailNpcLook.h"
 #include "Tools/Tests/Check.h"
@@ -48,6 +50,11 @@ TEST(NpcTablesReadTheChoicesGeosetsAndHairColour) {
     CHECK(Has(extra->look.geosets, 3, 5));    // Moustache.
     CHECK(Has(extra->look.geosets, 2, 0));    // Sideburns.
     CHECK(extra->look.hasHairColor && extra->look.hairColorOrder == 12 && extra->look.hairTexture == 3582353);
+    // Every chosen material by target: skin 1, eyes 25, hair 10, the scalp 13; target 8 only with choice 73 chosen.
+    auto has = [&](uint32_t target, uint32_t file) {
+        return std::find(extra->look.materials.begin(), extra->look.materials.end(), Retail::ChosenMaterial{ target, file }) != extra->look.materials.end();
+    };
+    CHECK(has(1, 1027776) && has(25, 3484651) && has(10, 3582353) && has(13, 1027743) && has(8, 3685141));
 }
 
 TEST(NpcTablesRefuseAnUnknownLayout) {
@@ -213,4 +220,114 @@ TEST(ServedNpcExtraFillsTheRowAndEmptiesUnservableSlots) {
     CHECK(fields.items[0] == 100 && fields.items[3] == 0);
     CHECK(fields.bakeName == "retail-8046191_bake1m.blp");
     CHECK(notes.size() == 1 && notes[0].find("200") != std::string::npos);
+}
+
+// --- B7: the body of a Goblin or retail race NPC -----------------------------------------------------------------
+
+using Retail::NpcBody;
+
+// Real rows: display 28601 (ext 18975, goblin male on retail model 831 = GoblinMale.m2 119376, SD bake 253789), 30164
+// (ext 19994, worgen male, 3141 = WorgenMale.m2 307454, bake 319801), 86324 and 85555 (ext 146013 / 145546, Mag'har on
+// 10844 = OrcMale_HD 917116 / 10845 = OrcFemale_HD 949470, bakes 2029169 / 1989274), 86326 (ext 146015, Mag'har male
+// on 10883 = orcmaleupright 1968587).
+static NpcExtra RetailRaceExtra(uint32_t id, uint32_t race, uint32_t sex, uint32_t sd) {
+    NpcExtra extra = Extra(race, sex, sd, 0);
+    extra.id = id;
+    return extra;
+}
+
+TEST(HdPortRaceNamesTheInstalledBodyMadeFromARetailBody) {
+    CHECK(Retail::HdPortRace(917116, 0) == 2);
+    CHECK(Retail::HdPortRace(949470, 1) == 2);
+    CHECK(Retail::HdPortRace(1011653, 0) == 1);
+    CHECK(Retail::HdPortRace(917116, 1) == 0);
+    CHECK(Retail::HdPortRace(119376, 0) == 0);
+    CHECK(Retail::HdPortRace(1968587, 0) == 0);
+}
+
+TEST(AGoblinDrawsOnItsRetailBodyWithItsBakeAsIs) {
+    NpcPlan plan;
+    std::string reason;
+    CHECK(Retail::PlanNpc(RetailRaceExtra(18975, 9, 0, 253789), NpcBody{ 831, 119376 }, FITS, plan, reason));
+    CHECK(plan.retailBody && plan.race == 9 && plan.bodyModelId == static_cast<int32_t>(Retail::SyntheticNpcBodyModelId(831)));
+    CHECK(plan.bake == BakeUse::AsIs && plan.bakeFile == 253789 && plan.bakeName == "retail-253789_npc18975.blp");
+}
+
+TEST(AWorgenDrawsOnItsRetailBody) {
+    NpcPlan plan;
+    std::string reason;
+    CHECK(Retail::PlanNpc(RetailRaceExtra(19994, 22, 0, 319801), NpcBody{ 3141, 307454 }, FITS, plan, reason));
+    CHECK(plan.retailBody && plan.race == 22 && plan.bodyModelId == static_cast<int32_t>(Retail::SyntheticNpcBodyModelId(3141)));
+    CHECK(plan.bakeName == "retail-319801_npc19994.blp");
+}
+
+TEST(AMagharOnTheOrcHdBodyDrawsOnTheInstalledOrcWithAWarpedBake) {
+    NpcPlan plan;
+    std::string reason;
+    CHECK(Retail::PlanNpc(RetailRaceExtra(146013, 36, 0, 2029169), NpcBody{ 10844, 917116 }, FITS, plan, reason));
+    CHECK(!plan.retailBody && plan.race == 2 && plan.bodyModelId == 51);
+    CHECK(plan.bake == BakeUse::Warp && plan.bakeFile == 2029169 && plan.bakeName == "retail-2029169_bake2m.blp");
+
+    CHECK(Retail::PlanNpc(RetailRaceExtra(145546, 36, 1, 1989274), NpcBody{ 10845, 949470 }, FITS, plan, reason));
+    CHECK(plan.race == 2 && plan.bodyModelId == 52 && plan.bakeName == "retail-1989274_bake2f.blp");
+}
+
+TEST(AMagharKeepsItsRetailBodyWhenTheInstalledBodyIsNoPort) {
+    NpcPlan plan;
+    std::string reason;
+    Retail::BodyFits misfit = [](uint32_t, uint32_t) { return false; };
+    CHECK(Retail::PlanNpc(RetailRaceExtra(146013, 36, 0, 2029169), NpcBody{ 10844, 917116 }, misfit, plan, reason));
+    CHECK(plan.retailBody && plan.race == 36 && plan.bodyModelId == static_cast<int32_t>(Retail::SyntheticNpcBodyModelId(10844)));
+    CHECK(plan.bake == BakeUse::AsIs);
+
+    CHECK(Retail::PlanNpc(RetailRaceExtra(146015, 36, 0, 2029191), NpcBody{ 10883, 1968587 }, FITS, plan, reason));
+    CHECK(plan.retailBody && plan.bodyModelId == static_cast<int32_t>(Retail::SyntheticNpcBodyModelId(10883)));
+}
+
+TEST(ARetailRaceNpcWithoutABakeOrBodyIsRefused) {
+    NpcPlan plan;
+    std::string reason;
+    CHECK(!Retail::PlanNpc(RetailRaceExtra(19994, 22, 0, 0), NpcBody{ 3141, 307454 }, FITS, plan, reason));
+    CHECK(reason.find("no bake") != std::string::npos);
+    CHECK(!Retail::PlanNpc(RetailRaceExtra(19994, 22, 0, 319801), NpcBody{}, FITS, plan, reason));
+    CHECK(reason.find("model") != std::string::npos);
+}
+
+TEST(PlanNpcLeavesSliceAPlansAsTheyWere) {
+    NpcPlan plan;
+    std::string reason;
+    CHECK(Retail::PlanNpc(Extra(1, 0, 0, 8046191), NpcBody{ 7661, 1011653 }, FITS, plan, reason));
+    CHECK(!plan.retailBody && plan.race == 1 && plan.bodyModelId == 49 && plan.bakeName == "retail-8046191_bake1m.blp");
+    CHECK(Retail::PlanNpc(Extra(12, 0, 600002, 0), NpcBody{ 1, 2 }, FITS, plan, reason));
+    CHECK(!plan.retailBody && plan.bodyModelId == 2299 && plan.bakeName == "retail-600002.blp");
+}
+
+TEST(TheServedRowOfAMagharNamesTheOrc) {
+    NpcPlan plan;
+    std::string reason;
+    NpcExtra extra = RetailRaceExtra(146013, 36, 0, 2029169);
+    CHECK(Retail::PlanNpc(extra, NpcBody{ 10844, 917116 }, FITS, plan, reason));
+    std::vector<std::string> notes;
+    Retail::NpcExtraFields fields = Retail::ServedNpcExtra(extra, plan, Retail::NpcAppearance(), [](uint32_t) { return true; }, notes);
+    CHECK(fields.race == 2 && fields.id == 1146013);
+}
+
+// A helm with no file for the served row's race (retail ships none for Earthen on display 165676's model; the race
+// file never borrows another race's) would draw the missing-model cube on the head: the slot stays empty, with a note.
+TEST(AHelmWithoutAFileForTheRaceIsLeftOff) {
+    Retail::NpcExtraFields fields;
+    fields.id = 1156199;
+    fields.race = 84;
+    fields.items[0] = 165676;
+    fields.items[3] = 200;
+    std::vector<std::string> notes;
+
+    Retail::DropUnwearableHelm(fields, [](uint32_t) { return false; }, notes);
+    CHECK(fields.items[0] == 0 && fields.items[3] == 200);
+    CHECK(notes.size() == 1 && notes[0].find("165676") != std::string::npos && notes[0].find("race 84") != std::string::npos);
+
+    fields.items[0] = 165676;
+    notes.clear();
+    Retail::DropUnwearableHelm(fields, [](uint32_t display) { return display == 165676; }, notes);
+    CHECK(fields.items[0] == 165676 && notes.empty());
 }

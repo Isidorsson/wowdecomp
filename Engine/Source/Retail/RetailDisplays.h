@@ -18,8 +18,14 @@ constexpr uint32_t SYNTHETIC_MODEL_ID_BASE = 0x01000000;
 
 uint32_t SyntheticModelId(uint32_t retailModelId);
 
-// False for an id below the synthetic range.
+// False for an id outside the synthetic range.
 bool RetailModelIdOf(uint32_t syntheticModelId, uint32_t& retailModelId);
+
+// A retail player-race body drawn as an NPC body (RetailNpcDisplay) is served as its own model row, which names
+// the body by NpcBodyModelName, in a range of its own above the plain synthetic ids.
+constexpr uint32_t SYNTHETIC_NPC_BODY_MODEL_ID_BASE = 0x02000000;
+uint32_t SyntheticNpcBodyModelId(uint32_t retailModelId);
+bool RetailNpcBodyModelIdOf(uint32_t syntheticModelId, uint32_t& retailModelId);
 
 // The name a served model row gives the client: "retail\<fdid>.m2". The backslash matters: ReplaceMonsterSkin
 // finds the folder for the skin files after the last one.

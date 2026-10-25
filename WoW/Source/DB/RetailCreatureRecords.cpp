@@ -71,17 +71,18 @@ static void FillDisplay(ServedDisplay& served, const Retail::RetailDisplay& disp
 
     int32_t modelId = 0;
     int32_t extraId = 0;
-    if (display.extendedDisplayId && ServeRetailNpcDisplay(display.id, display.extendedDisplayId, modelId, extraId)) {
+    if (display.extendedDisplayId && ServeRetailNpcDisplay(display.id, display.extendedDisplayId, display.modelId, modelId, extraId)) {
         FillNpcDisplay(served, modelId, extraId);
     }
 }
 
-// Footprints, foley, camera shakes and sounds are retail ids too, so they stay 0; effect scales are 1.
-static void FillModel(ServedModel& served, int32_t id, const Retail::RetailCreatureModel& model) {
+// Footprints, foley, camera shakes and sounds are retail ids too, so they stay 0; effect scales are 1. An NPC body
+// (a player race model drawn with an NPC's bake) has a name of its own, which the converter takes as one.
+static void FillModel(ServedModel& served, int32_t id, const Retail::RetailCreatureModel& model, bool npcBody) {
     CreatureModelDataRec& rec = served.record;
     // The record's constructor leaves its fields as they were, so {} would not clear what the row does not set.
     std::memset(&rec, 0, sizeof(rec));
-    served.name = Retail::CreatureModelName(model.fileDataId);
+    served.name = npcBody ? Retail::NpcBodyModelName(model.fileDataId) : Retail::CreatureModelName(model.fileDataId);
     rec.m_id = id;
     rec.m_modelName = served.name.c_str();
     rec.m_sizeClass = model.sizeClass;
@@ -119,7 +120,8 @@ static CreatureDisplayInfoRec* ServedDisplayRecord(int32_t id) {
 
 static CreatureModelDataRec* ServedModelRecord(int32_t id) {
     uint32_t retailId = 0;
-    if (id <= 0 || !Retail::RetailModelIdOf(static_cast<uint32_t>(id), retailId)) {
+    bool npcBody = id > 0 && Retail::RetailNpcBodyModelIdOf(static_cast<uint32_t>(id), retailId);
+    if (id <= 0 || (!npcBody && !Retail::RetailModelIdOf(static_cast<uint32_t>(id), retailId))) {
         return nullptr;
     }
     const Retail::RetailDisplays* retail = Retail::CascSource::Instance().Displays();
@@ -131,7 +133,7 @@ static CreatureModelDataRec* ServedModelRecord(int32_t id) {
     std::lock_guard<std::mutex> lock(s_servedMutex);
     auto [served, added] = s_models.try_emplace(id);
     if (added) {
-        FillModel(served->second, id, *model);
+        FillModel(served->second, id, *model, npcBody);
     }
     return &served->second.record;
 }

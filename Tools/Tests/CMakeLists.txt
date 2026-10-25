@@ -35,6 +35,8 @@ if (TARGET RetailCore)
         NpcDisplayTests.cpp
         BodyMatchTests.cpp
         BakeWarpTests.cpp
+        RetailRacesTests.cpp
+        RetailBodyLookTests.cpp
     )
     target_link_libraries(WowdecompTests PRIVATE RetailCore)
     target_sources(WowdecompTests PRIVATE

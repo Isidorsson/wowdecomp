@@ -144,6 +144,8 @@ class CCharacterComponent {
     static int32_t Update(const void* data, void* param);
     static void UpdateBaseTexture(EGxTexCommand command, uint32_t width, uint32_t height, uint32_t face, uint32_t level, void* userArg, uint32_t& texelStrideInBytes, const void*& texels);
     static void ValidateComponentData(ComponentData* data, COMPONENT_CONTEXT context);
+    // Not in the original: whether race * 2 + sex indexes the race-sized tables (s_chrVarArray and the facial hair counts).
+    static bool RaceFitsTables(uint32_t raceID, uint32_t sexID);
 
     /* 0000 */ TSLink<CCharacterComponent> m_link;
     /* 0008 */ uint32_t m_flags;

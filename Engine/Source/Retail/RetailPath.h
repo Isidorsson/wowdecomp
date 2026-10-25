@@ -33,11 +33,13 @@ std::string RetailBodyTextureName(uint32_t male, uint32_t female);
 // resource for that race and gender (RetailItemDisplays::RaceFile).
 struct RaceFileRequest {
     uint32_t fileDataId = 0;
-    uint32_t race = 0;     // ChrRaces id.
+    uint32_t race = 0;     // ChrRaces id of a stock race (1 to 11); 0 for another prefix, which the race tables resolve.
     uint32_t gender = 0;   // 0 male, 1 female.
+    std::string prefix;    // The two letters, lowercase.
 };
 
-// "retail-<fdid>_<prefix><m|f>.<ext>" in any folder, for the stock races' prefixes only.
+// "retail-<fdid>_<prefix><m|f>.<ext>" in any folder, for any two-letter prefix: the stock races' by the table here,
+// a served race's (a retail ClientPrefix, "kt") by RetailRaces.
 bool ParseRaceFileName(const std::string& normalized, RaceFileRequest& request);
 
 // A retail HD bake warped onto an installed body, as a served Extra row names it: "retail-<fdid>_bake<race><m|f>.blp"
@@ -50,6 +52,17 @@ struct WarpedBakeRequest {
 
 std::string WarpedBakeName(uint32_t fileDataId, uint32_t race, uint32_t gender);
 bool ParseWarpedBakeName(const std::string& normalized, WarpedBakeRequest& request);
+
+// A retail NPC body's bake as a served Extra row names it: "retail-<fdid>_npc<extra>.blp", the file as is. The Extra
+// id lets the character component find the row's look (RetailBodyLook) by the skin it draws.
+std::string NpcBakeName(uint32_t fileDataId, uint32_t extraId);
+bool ParseNpcBakeName(const std::string& normalized, uint32_t& fileDataId, uint32_t& extraId);
+
+// A retail player-race body asked for as an NPC body, as a served CreatureModelData row names it:
+// "Character\retail-<fdid>_npcbody.m2". It converts with its character textures (ModelSources::playerBody), which a
+// plain read of the same file refuses.
+std::string NpcBodyModelName(uint32_t fileDataId);
+bool ParseNpcBodyPath(const std::string& normalized, uint32_t& fileDataId);
 
 // The stock race's ClientPrefix, lowercase as a normalized path has it: "hu" for 1 to "dr" for 11; empty otherwise.
 std::string RacePrefix(uint32_t race);

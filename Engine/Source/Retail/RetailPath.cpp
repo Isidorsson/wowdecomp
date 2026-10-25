@@ -61,7 +61,37 @@ static bool ParseBodyTexture(const std::string& stem, uint32_t& fileDataId) {
     return fileDataId != 0;
 }
 
-// A retail file name, "retail-<fdid>.<ext>" or a body texture's, as the last part of a path in any folder.
+constexpr const char* NPC_BAKE_MARK = "_npc";
+constexpr const char* NPC_BODY_MARK = "_npcbody";
+
+// "<fdid><mark><number>", the number empty when allowed.
+static bool ParseMarkedStem(const std::string& stem, const char* mark, uint32_t& fileDataId, uint32_t& number, bool numbered = true) {
+    size_t at = stem.find(mark);
+    if (at == std::string::npos) {
+        return false;
+    }
+    std::string rest = stem.substr(at + std::strlen(mark));
+    number = 0;
+    return ParseFileDataId(stem.substr(0, at), fileDataId) && (numbered ? ParseFileDataId(rest, number) : rest.empty());
+}
+
+// The stem of a retail file name in any folder ("retail-<stem>.<ext>"), false for another name.
+static bool RetailStem(const std::string& normalized, std::string& stem, std::string* extension = nullptr) {
+    size_t name = normalized.rfind('/') + 1;   // 0 without a folder.
+    if (normalized.compare(name, std::strlen(RETAIL_FILE_PREFIX), RETAIL_FILE_PREFIX) != 0) {
+        return false;
+    }
+    stem = normalized.substr(name + std::strlen(RETAIL_FILE_PREFIX));
+    size_t dot = stem.find('.');
+    if (extension) {
+        *extension = dot == std::string::npos ? std::string() : stem.substr(dot);
+    }
+    stem = stem.substr(0, dot);
+    return true;
+}
+
+// A retail file name, "retail-<fdid>.<ext>", a body texture's or a retail NPC body's bake, as the last part of a path
+// in any folder.
 static bool ParseRetailFileName(const std::string& normalized, uint32_t& fileDataId) {
     size_t name = normalized.rfind('/') + 1;   // 0 without a folder.
     if (normalized.compare(name, std::strlen(RETAIL_FILE_PREFIX), RETAIL_FILE_PREFIX) != 0) {
@@ -70,7 +100,8 @@ static bool ParseRetailFileName(const std::string& normalized, uint32_t& fileDat
 
     std::string stem = normalized.substr(name + std::strlen(RETAIL_FILE_PREFIX));
     stem = stem.substr(0, stem.find('.'));
-    return ParseFileDataId(stem, fileDataId) || ParseBodyTexture(stem, fileDataId);
+    uint32_t extraId = 0;
+    return ParseFileDataId(stem, fileDataId) || ParseBodyTexture(stem, fileDataId) || ParseMarkedStem(stem, NPC_BAKE_MARK, fileDataId, extraId);
 }
 
 bool ParseRetailPath(const std::string& normalized, uint32_t& fileDataId) {
@@ -107,11 +138,12 @@ bool ParseRaceFileName(const std::string& normalized, RaceFileRequest& request) 
         race++;
     }
     uint32_t fileDataId = 0;
-    if ((gender != 'm' && gender != 'f') || race > STOCK_RACES || !ParseFileDataId(stem.substr(0, stem.size() - RACE_SUFFIX), fileDataId)) {
+    bool letters = std::isalpha(static_cast<unsigned char>(prefix[0])) && std::isalpha(static_cast<unsigned char>(prefix[1]));
+    if ((gender != 'm' && gender != 'f') || !letters || !ParseFileDataId(stem.substr(0, stem.size() - RACE_SUFFIX), fileDataId)) {
         return false;
     }
 
-    request = { fileDataId, race, gender == 'm' ? 0u : 1u };
+    request = { fileDataId, race <= STOCK_RACES ? race : 0u, gender == 'm' ? 0u : 1u, prefix };
     return true;
 }
 
@@ -198,7 +230,7 @@ bool ClaimsPath(const std::string& normalized, const AliasTable& aliases) {
     RaceFileRequest request;
     WarpedBakeRequest bake;
     return ParseRetailPath(normalized, id) || ParseRaceFileName(normalized, request) || ParseWarpedBakeName(normalized, bake)
-        || (aliases.Size() && aliases.Find(normalized, id));
+        || ParseNpcBodyPath(normalized, id) || (aliases.Size() && aliases.Find(normalized, id));
 }
 
 std::string SkinPathFor(const std::string& model, uint32_t view) {
@@ -215,6 +247,27 @@ bool AliasTable::Find(const std::string& normalized, uint32_t& fileDataId) const
 
     fileDataId = it->second;
     return true;
+}
+
+std::string NpcBakeName(uint32_t fileDataId, uint32_t extraId) {
+    return RetailFileName(fileDataId) + NPC_BAKE_MARK + std::to_string(extraId) + ".blp";
+}
+
+bool ParseNpcBakeName(const std::string& normalized, uint32_t& fileDataId, uint32_t& extraId) {
+    std::string stem;
+    return RetailStem(normalized, stem) && ParseMarkedStem(stem, NPC_BAKE_MARK, fileDataId, extraId);
+}
+
+std::string NpcBodyModelName(uint32_t fileDataId) {
+    return "Character\\" + RetailFileName(fileDataId) + NPC_BODY_MARK + ".m2";
+}
+
+// Only the model: its skins are the dependency map's, by the model's name.
+bool ParseNpcBodyPath(const std::string& normalized, uint32_t& fileDataId) {
+    std::string stem;
+    std::string extension;
+    uint32_t none = 0;
+    return RetailStem(normalized, stem, &extension) && (extension == ".m2" || extension == ".mdx") && ParseMarkedStem(stem, NPC_BODY_MARK, fileDataId, none, false);
 }
 
 }

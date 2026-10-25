@@ -12,7 +12,7 @@ namespace Retail {
 // A read-only WDC5 (.db2) table: retail DBFilesClient tables. Integer columns by physical column number
 // (WoWDBDefs order, noninline fields excluded), row ids from the id list or inline, copied rows. Sections
 // encrypted for unreleased content arrive zero-filled and are skipped, as the retail client does without the
-// key. Sparse tables and strings are not read yet.
+// key. Sparse tables are not read yet.
 class Db2Table {
     public:
     bool Parse(std::vector<uint8_t> bytes, std::string& error);
@@ -27,6 +27,8 @@ class Db2Table {
     // The first (or only) value of column. Signed bit-packed columns come sign-extended.
     uint32_t Value(size_t row, size_t column) const;
     std::vector<uint32_t> Values(size_t row, size_t column) const;
+    // The string of a string column, empty for none (offset 0) or one outside the string blocks.
+    std::string String(size_t row, size_t column) const;
 
     // Records of the sections skipped as still locked (encrypted with a key the build does not ship).
     size_t SkippedRows() const { return this->m_skippedRows; }
@@ -60,12 +62,26 @@ class Db2Table {
         uint32_t relation = 0;
     };
 
+    // Where a section's records and strings lie. A string offset counts from its field as if every section's
+    // records came first and every string block after them, in section order (DBCD WDC5Reader).
+    struct Section {
+        size_t records = 0;       // File offset of the first record.
+        size_t count = 0;
+        size_t firstRecord = 0;   // Records of the sections before it.
+        size_t strings = 0;       // File offset of its string block.
+        size_t stringSize = 0;
+        size_t firstString = 0;   // String bytes of the sections before it.
+    };
+
     bool ParseSection(size_t header, size_t recordSize, size_t idIndex, std::string& error);
+    std::string StringAt(int64_t key) const;
 
     std::vector<uint8_t> m_data;
     uint32_t m_layoutHash = 0;
     std::vector<Column> m_columns;
     std::vector<Row> m_rows;
+    std::vector<Section> m_sections;
+    size_t m_recordSize = 0;
     size_t m_skippedRows = 0;
 };
 

@@ -55,8 +55,12 @@ struct HelmetGeoset {
     uint32_t group = 0;
 };
 
-// Groups outside the seven slots and races outside 1 to 11 are ignored.
+// Groups outside the seven slots and races outside 1 to 31 (the bits of a mask) are ignored.
 HelmetMasks HelmetVisMasks(const std::vector<HelmetGeoset>& hidden);
+
+// Per slot, whether a helm hides the group for one race: what the masks say for races up to 31, for any race.
+using HelmetHideSlots = std::array<bool, HELMET_HIDE_SLOTS>;
+HelmetHideSlots HelmetHidesFor(const std::vector<HelmetGeoset>& hidden, uint32_t race);
 
 // One file of a model resource: a race and gender's (a helm), a side's (a shoulder pair) or everyone's.
 struct ModelFile {
@@ -95,12 +99,15 @@ class RetailItemDisplays {
 
     // Null for vis id 0 and for an id HelmetGeosetData has no rows for.
     const HelmetMasks* HelmetVis(uint32_t retailId) const;
+    // The slots a retail vis id hides for a race, races above 31 included; none for an unknown id.
+    HelmetHideSlots HelmetHides(uint32_t retailId, uint32_t race) const;
 
     private:
     std::vector<RetailItemDisplay> m_displays;   // By id.
     ModelFilesByResource m_filesOf;
     std::map<uint32_t, uint32_t> m_resourceOf;   // By file.
     std::map<uint32_t, HelmetMasks> m_helmetVis;   // By retail vis id.
+    std::map<uint32_t, std::vector<HelmetGeoset>> m_helmetHidden;   // By retail vis id.
 };
 
 }

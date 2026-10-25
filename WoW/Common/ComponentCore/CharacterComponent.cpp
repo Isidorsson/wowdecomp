@@ -49,6 +49,9 @@
 #include "WoW/Source/DB/Rec/ItemVisualEffectsRec.h"
 #include "WoW/Source/DB/Rec/ItemVisualsRec.h"
 #include "WoW/Source/DB/Rec/ParticleColorRec.h"
+#include "WoW/Source/DB/RetailHelmetRecords.h"
+#include "WoW/Source/DB/RetailNpcRecords.h"
+#include "WoW/Source/DB/RetailRaceRecords.h"
 #include "WoW/Source/Object/ObjectClient/Player_C.h"
 
 // STATIC: 0x009F6A00
@@ -75,6 +78,71 @@ static const char* s_fileDecorations[3] = { "M", "F", "U" };
 
 // STATIC: 0x00AC46D0
 static CStatus s_status;
+
+// Not in the original. A retail body (a served Goblin or retail race NPC, RetailBodyLook.h) draws the look its served
+// Extra row names: per geoset group one mesh, and its chosen textures by type (hair, eyes, jewelry, fur). The 3.3.5 groups go through m_geosets (so a
+// helm still hides hair, beard, ears); only the face and hair ones, as items set the others. Groups past 3.3.5's are
+// shown by ShowRetailBodyGroups.
+static const uint32_t s_retailLookGroups[] = { CHARGEOSET_HAIR, CHARGEOSET_BEARD, CHARGEOSET_SIDEBURN, CHARGEOSET_MOUSTACHE, CHARGEOSET_EAR, CHARGEOSET_FACIALJEWELRY, CHARGEOSET_EYEEFFECTS };
+static const uint32_t GEOSET_GROUP_SIZE = 100;
+static const uint32_t LAST_GEOSET_ID = 0xFFFF;
+
+static void ApplyRetailBodyLook(ComponentData& data) {
+    RetailBodyLookView look;
+    if (!(data.m_flags & 0x1) || !FindRetailBodyLook(data.m_npcSkinTexture, look)) {
+        return;
+    }
+    for (size_t i = 0; i < look.count; i++) {
+        uint32_t group = look.geosets[i] / GEOSET_GROUP_SIZE;
+        for (uint32_t lookGroup : s_retailLookGroups) {
+            if (group == lookGroup) {
+                data.m_geosets[group] = look.geosets[i];
+            }
+        }
+    }
+    for (size_t i = 0; i < look.textureCount; i++) {
+        CTexture* texture = CreateTexture(look.textures[i].path, &s_status);
+        if (texture) {
+            data.m_model->ReplaceTexture(look.textures[i].type, texture);
+            HandleClose(reinterpret_cast<HOBJECT>(texture));
+        }
+    }
+}
+
+static void ShowRetailBodyGroups(const ComponentData& data) {
+    RetailBodyLookView look;
+    if (!FindRetailBodyLook(data.m_npcSkinTexture, look)) {
+        return;
+    }
+    uint32_t first = NUM_CHARGEOSETS * GEOSET_GROUP_SIZE;
+    data.m_model->SetGeometryVisible(first, LAST_GEOSET_ID, 0);
+    for (size_t i = 0; i < look.count; i++) {
+        if (look.geosets[i] >= first) {
+            data.m_model->SetGeometryVisible(look.geosets[i], look.geosets[i], 1);
+        }
+    }
+}
+
+// Not in the original. The hide slots of HelmetGeosetVisDataRec in order and the geoset each sets. A mask holds
+// 1 << race (races 1 to 31); a served race above asks the retail rows instead.
+struct HelmHideGeoset {
+    uint32_t geoset;
+    uint32_t hidden;
+};
+
+static const HelmHideGeoset s_helmHideGeosets[] = {
+    { CHARGEOSET_HAIR, 1 }, { CHARGEOSET_BEARD, 101 }, { CHARGEOSET_SIDEBURN, 201 }, { CHARGEOSET_MOUSTACHE, 301 },
+    { CHARGEOSET_EAR, 701 }, { CHARGEOSET_FACIALJEWELRY, 1601 }, { CHARGEOSET_EYEEFFECTS, 1701 },
+};
+static const size_t HELM_HIDE_SLOTS = sizeof(s_helmHideGeosets) / sizeof(s_helmHideGeosets[0]);
+static const uint32_t LAST_MASK_RACE = 31;
+
+static bool HelmHides(const HelmetGeosetVisDataRec* visRec, uint32_t raceID, size_t slot) {
+    if (raceID > LAST_MASK_RACE) {
+        return RetailHelmHides(visRec->m_id, raceID, slot);
+    }
+    return ((1u << raceID) & static_cast<uint32_t>(visRec->m_hideGeoset[slot])) != 0;
+}
 
 // STATIC: 0x00AC46E4
 TSExplicitList<CCharacterComponent, 0> CCharacterComponent::s_queue;
@@ -1803,7 +1871,8 @@ void CCharacterComponent::SetHairColor(int32_t hairColorID, bool loadHair, const
     this->m_data.m_preferences.m_hairColorId = hairColorID;
     ChrRacesRec* raceRec = g_chrRacesDB.GetRecord(this->m_data.m_preferences.m_raceID);
 
-    if (!this->m_data.m_preferences.m_sexID && !this->m_data.m_preferences.m_hairStyleId && (raceRec->m_flags & 0x8)) {
+    // Not in the original: raceRec is null for a race without a ChrRaces row.
+    if (!this->m_data.m_preferences.m_sexID && !this->m_data.m_preferences.m_hairStyleId && raceRec && (raceRec->m_flags & 0x8)) {
         this->ReplaceHairTexture(1, debug);
     }
 
@@ -3449,6 +3518,8 @@ void CCharacterComponent::GeosRenderPrep() {
         }
     }
 
+    ShowRetailBodyGroups(this->m_data);
+
     ItemDisplayInfoRec rec;
 
     if (this->m_itemDisplayID[ITEMSLOT_GLOVES] && g_itemDisplayInfoDB.GetRecord(this->m_itemDisplayID[ITEMSLOT_GLOVES], &rec) && rec.m_geosetGroup[0]) {
@@ -3863,34 +3934,10 @@ void CCharacterComponent::AddHelm(int32_t itemVisual) {
         return;
     }
 
-    uint32_t raceMask = 1 << this->m_data.m_preferences.m_raceID;
-
-    if (raceMask & visRec->m_hideGeoset[0]) {
-        this->m_data.m_geosets[CHARGEOSET_HAIR] = 1;
-    }
-
-    if (raceMask & visRec->m_hideGeoset[1]) {
-        this->m_data.m_geosets[CHARGEOSET_BEARD] = 101;
-    }
-
-    if (raceMask & visRec->m_hideGeoset[2]) {
-        this->m_data.m_geosets[CHARGEOSET_SIDEBURN] = 201;
-    }
-
-    if (raceMask & visRec->m_hideGeoset[3]) {
-        this->m_data.m_geosets[CHARGEOSET_MOUSTACHE] = 301;
-    }
-
-    if (raceMask & visRec->m_hideGeoset[4]) {
-        this->m_data.m_geosets[CHARGEOSET_EAR] = 701;
-    }
-
-    if (raceMask & visRec->m_hideGeoset[5]) {
-        this->m_data.m_geosets[CHARGEOSET_FACIALJEWELRY] = 1601;
-    }
-
-    if (raceMask & visRec->m_hideGeoset[6]) {
-        this->m_data.m_geosets[CHARGEOSET_EYEEFFECTS] = 1701;
+    for (size_t slot = 0; slot < HELM_HIDE_SLOTS; slot++) {
+        if (HelmHides(visRec, this->m_data.m_preferences.m_raceID, slot)) {
+            this->m_data.m_geosets[s_helmHideGeosets[slot].geoset] = s_helmHideGeosets[slot].hidden;
+        }
     }
 }
 
@@ -5303,7 +5350,8 @@ bool CCharacterComponent::Initialize(EGxTexFormat format, uint32_t mipLevels, in
 
     TextureCacheResetLoadCount();
 
-    uint32_t count = 2 * g_chrRacesDB.m_maxID + 2;
+    // Not in the original: sized for the served retail races too (RetailRaceRecords.h), not the installed rows only.
+    uint32_t count = 2 * ChrRaceCapacity() + 2;
     CCharacterComponent::s_chrVarArrayLength = count;
     BuildComponentArray(count, &CCharacterComponent::s_chrVarArray);
     CountFacialFeatures(count, &CCharacterComponent::s_characterFacialHairStylesList);
@@ -5522,7 +5570,11 @@ bool CCharacterComponent::Init(ComponentData* data, const char* debug) {
     this->m_handItemDisplayID[1] = 0;
     this->m_handItemDisplayID[2] = 0;
 
-    if (static_cast<int32_t>(data->m_preferences.m_raceID) < 0 || static_cast<int32_t>(data->m_preferences.m_raceID) > g_chrRacesDB.m_maxID || !ComponentValidateBase(CCharacterComponent::s_chrVarArray, this->m_data.m_preferences.m_raceID, this->m_data.m_preferences.m_sexID, CHARTEXTUREVAR_SKIN, 0, this->m_data.m_preferences.m_skinID)) {
+    // Not in the original: the race must fit the race-sized tables (the original compared it to ChrRaces' highest id only,
+    // not the sex), and a baked served race has no CharSections base skin to validate.
+    bool baked = (data->m_flags & 0x1) != 0;
+    if (!CCharacterComponent::RaceFitsTables(this->m_data.m_preferences.m_raceID, this->m_data.m_preferences.m_sexID)
+        || (ChrRaceNeedsCharSections(this->m_data.m_preferences.m_raceID, baked) && !ComponentValidateBase(CCharacterComponent::s_chrVarArray, this->m_data.m_preferences.m_raceID, this->m_data.m_preferences.m_sexID, CHARTEXTUREVAR_SKIN, 0, this->m_data.m_preferences.m_skinID))) {
         return false;
     }
 
@@ -5541,8 +5593,9 @@ bool CCharacterComponent::Init(ComponentData* data, const char* debug) {
         this->m_gxTexFormat = CCharacterComponent::s_gxFormatHigh;
     }
 
+    // Not in the original: a race without a ChrRaces row is read as flags 0 instead of through a null record.
     ChrRacesRec* raceRec = g_chrRacesDB.GetRecord(this->m_data.m_preferences.m_raceID);
-    this->m_flags = (this->m_flags & ~0x10) | (((raceRec->m_flags & 0x2) != 0) << 4);
+    this->m_flags = (this->m_flags & ~0x10) | (((raceRec && (raceRec->m_flags & 0x2)) != 0) << 4);
 
     if (dataFlags & 0x1) {
         this->SkinNpc(debug);
@@ -5551,8 +5604,14 @@ bool CCharacterComponent::Init(ComponentData* data, const char* debug) {
     this->SetSkinColor(this->m_data.m_preferences.m_skinID, false, true, debug);
     this->SetHairStyle(this->m_data.m_preferences.m_hairStyleId, debug);
     this->SetBeardStyle(this->m_data.m_preferences.m_facialHairId, false, debug);
+    ApplyRetailBodyLook(this->m_data);
 
     return true;
+}
+
+// Not in the original.
+bool CCharacterComponent::RaceFitsTables(uint32_t raceID, uint32_t sexID) {
+    return sexID <= 1 && raceID < CCharacterComponent::s_chrVarArrayLength / 2;
 }
 
 // VERIFY: 474cb696 manual

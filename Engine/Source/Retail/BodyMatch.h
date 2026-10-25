@@ -63,6 +63,9 @@ std::string InstalledBodySkinPath(uint32_t race, uint32_t sex);
 // The installed base skin (CharSections skin 0), whose eyes the warp keeps.
 std::string InstalledBaseSkinPath(uint32_t race, uint32_t sex);
 uint32_t RetailHdBodyFileDataId(uint32_t race, uint32_t sex);
+// The race (1 to 8, 10, 11) whose installed body of that sex is a port of the retail model, 0 for none: Mag'har
+// NPCs on OrcMale_HD are orcs to the installed client.
+uint32_t HdPortRace(uint32_t fileDataId, uint32_t sex);
 
 }
 

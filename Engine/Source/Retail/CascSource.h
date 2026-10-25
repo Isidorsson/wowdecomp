@@ -21,6 +21,7 @@
 #include "Engine/Source/Retail/RetailItemDisplays.h"
 #include "Engine/Source/Retail/RetailNpcDisplay.h"
 #include "Engine/Source/Retail/RetailPath.h"
+#include "Engine/Source/Retail/RetailRaces.h"
 
 namespace Retail {
 
@@ -72,6 +73,13 @@ class CascSource {
     // BODY_MATCH_THRESHOLD), so HD bakes can be warped onto it. Matched once per body.
     bool InstalledBodyFits(uint32_t race, uint32_t sex);
 
+    // The retail races (ChrRaces with their body displays), read on first use; null as NpcTables is.
+    const RetailRaces* Races();
+
+    // The geoset ids of a retail model's first view (its SFID skin), read once per model; empty when unreadable,
+    // which a warning explains.
+    const std::vector<uint32_t>& ModelGeosets(uint32_t fileDataId);
+
     // Where a read reports data it dropped but did not fail on, such as a missing .anim file.
     void SetWarningSink(std::function<void(const std::string&)> sink) { this->m_warn = std::move(sink); }
     void Warn(const std::string& message) const;
@@ -91,6 +99,7 @@ class CascSource {
         uint32_t model;
         uint32_t view;
         std::shared_ptr<ConvertedSkins> converted;   // Until one of the model's skins is read.
+        bool npcBody = false;                         // The model was converted as an NPC body.
     };
 
     // A race-named helm resolves to the file RetailItemDisplays::RaceFile chooses, which reads the item tables.
@@ -98,8 +107,17 @@ class CascSource {
     bool FindDependency(const std::string& normalized, Dependency& dependency) const;
     bool IsServableUnread(uint32_t fileDataId) const;
     bool ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error);
-    bool Convert(uint32_t fileDataId, const std::vector<uint8_t>& file, ConvertedModel& model, std::string& error);
-    bool Serve(const std::string& normalized, uint32_t fileDataId, ConvertedModel& model, std::vector<uint8_t>& bytes, std::string& error);
+    // A model's conversion, kept at cachePath; as an NPC body (playerBody) a player race model converts too.
+    struct Conversion {
+        uint32_t fileDataId;
+        std::filesystem::path cachePath;
+        bool playerBody;
+    };
+    bool Convert(const Conversion& conversion, const std::vector<uint8_t>& file, ConvertedModel& model, std::string& error);
+    bool Serve(const std::string& normalized, const Conversion& conversion, ConvertedModel& model, std::vector<uint8_t>& bytes, std::string& error);
+    Conversion ConversionFor(const std::string& normalized, uint32_t fileDataId) const;
+    bool ResolveRaceFile(const RaceFileRequest& request, uint32_t& fileDataId, std::string& error);
+    bool LoadRaceTables(std::string& error);
     bool ReadSkin(const std::string& normalized, const Dependency& dependency, std::vector<uint8_t>& bytes, std::string& error);
     bool TakeConvertedSkin(const std::string& normalized, std::vector<uint8_t>& bytes);
     // An installed body matched to its retail HD body, once: whether it fits, and the warp HD bakes take onto it.
@@ -156,6 +174,11 @@ class CascSource {
     bool m_hasNpcTables = false;
     std::mutex m_bodyMutex;
     std::map<uint32_t, NpcBody> m_bodies;
+    std::once_flag m_raceTablesRead;
+    RetailRaces m_races;
+    bool m_hasRaces = false;
+    std::mutex m_geosetMutex;
+    std::map<uint32_t, std::vector<uint32_t>> m_modelGeosets;
     std::mutex m_fitMutex;
     std::map<uint32_t, HelmFit> m_fits;
     CacheBudget m_convertedBudget;

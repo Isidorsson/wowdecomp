@@ -4,10 +4,11 @@
 #include "Engine/Source/Retail/ConvertedCache.h"
 #include "Engine/Source/Retail/HelmFit.h"
 #include "Engine/Source/Retail/ItemTables.h"
+#include "Engine/Source/Retail/RetailBodyLook.h"
 #include "Engine/Source/Retail/RetailModelData.h"
 
-// The retail NPC half of CascSource: the NPC tables, the installed bodies matched to the retail HD ones, and the HD
-// bakes warped onto them (RetailNpcDisplay.h).
+// The retail NPC half of CascSource: the NPC and race tables, the installed bodies matched to the retail HD ones, the
+// HD bakes warped onto them (RetailNpcDisplay.h) and the geosets of the retail bodies (RetailBodyLook.h).
 
 namespace Retail {
 
@@ -41,6 +42,74 @@ const RetailNpcTables* CascSource::NpcTables() {
         }
     });
     return this->m_hasNpcTables ? &this->m_npcTables : nullptr;
+}
+
+bool CascSource::LoadRaceTables(std::string& error) {
+    Db2Table races, raceModels, models, layers;
+    if (!this->ReadTables({ { CHR_RACES_FDID, &races }, { CHR_RACE_X_CHR_MODEL_FDID, &raceModels }, { CHR_MODEL_FDID, &models },
+            { CHR_MODEL_TEXTURE_LAYER_FDID, &layers } }, error)) {
+        return false;
+    }
+    this->m_hasRaces = this->m_races.Load({ races, raceModels, models, layers }, error);
+    return this->m_hasRaces;
+}
+
+const RetailRaces* CascSource::Races() {
+    if (!this->m_configured) {
+        return nullptr;
+    }
+    std::call_once(this->m_raceTablesRead, [this] {
+        std::string error;
+        if (!this->LoadRaceTables(error)) {
+            this->Warn("race tables: " + error);
+        }
+    });
+    return this->m_hasRaces ? &this->m_races : nullptr;
+}
+
+// A stock race by its prefix, a served one by the retail ChrRaces row of that ClientPrefix.
+bool CascSource::ResolveRaceFile(const RaceFileRequest& request, uint32_t& fileDataId, std::string& error) {
+    const RetailRaces* races = request.race ? nullptr : this->Races();
+    uint32_t race = request.race ? request.race : (races ? races->RaceOfPrefix(request.prefix) : 0);
+    if (!race) {
+        error = "no race has the prefix " + request.prefix;
+        return false;
+    }
+    const RetailItemDisplays* displays = this->ItemDisplays();
+    fileDataId = displays ? displays->RaceFile(request.fileDataId, race, request.gender) : 0;
+    if (!fileDataId) {
+        error = displays ? "model " + std::to_string(request.fileDataId) + " has no file for race " + std::to_string(race) + (request.gender ? " female" : " male")
+                         : "no item tables to choose the race file from";
+    }
+    return fileDataId != 0;
+}
+
+const std::vector<uint32_t>& CascSource::ModelGeosets(uint32_t fileDataId) {
+    std::lock_guard<std::mutex> lock(this->m_geosetMutex);
+    auto [found, added] = this->m_modelGeosets.try_emplace(fileDataId);
+    if (!added) {
+        return found->second;
+    }
+    std::vector<uint8_t> model;
+    std::vector<uint8_t> skin;
+    std::string error;
+    std::vector<uint32_t> skins;
+    bool read = this->ReadOriginal(fileDataId, model, error);
+    if (read) {
+        skins = U32s(ReadChunks(model)["SFID"]);
+        read = !skins.empty() && this->ReadOriginal(skins[0], skin, error) && SkinGeosetIds(skin, found->second, error);
+    }
+    if (!read) {
+        this->Warn("retail body " + std::to_string(fileDataId) + ": no geosets, " + (error.empty() ? std::string("no skin") : error));
+    }
+    return found->second;
+}
+
+// An NPC body's own entry, apart from the plain model's (which refuses a player race model).
+CascSource::Conversion CascSource::ConversionFor(const std::string& normalized, uint32_t fileDataId) const {
+    uint32_t bodyId = 0;
+    bool playerBody = ParseNpcBodyPath(normalized, bodyId);
+    return { fileDataId, playerBody ? ConvertedNpcBodyPath(this->m_config, fileDataId) : ConvertedCachePath(this->m_config, fileDataId), playerBody };
 }
 
 bool CascSource::InstalledBodyFits(uint32_t race, uint32_t sex) {

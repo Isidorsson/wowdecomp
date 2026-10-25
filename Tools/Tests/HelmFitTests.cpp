@@ -237,3 +237,12 @@ TEST(OnlyConvertedModelsAreFitted) {
     CHECK(!FitHelmToStockHead(file, *HelmFitFor(1, 0), error) && error.find("MD20") != std::string::npos);
     CHECK(!FitHelmToStockHead(broken, *HelmFitFor(1, 0), error));
 }
+
+// B6: a served race draws on its own retail body, which the retail helms were made for: they hang unmoved.
+TEST(RetailBodyRacesWearRetailHelmsUnmoved) {
+    CHECK(Retail::HelmFitsUnmoved(22, 0) && Retail::HelmFitsUnmoved(32, 1) && Retail::HelmFitsUnmoved(84, 0));
+    CHECK(Retail::HelmFitsUnmoved(0, 0));
+    // Goblins wear retail helms only on their retail body (the installed one is no port of it).
+    CHECK(Retail::HelmFitsUnmoved(9, 0) && Retail::HelmFitsUnmoved(9, 1));
+    CHECK(!Retail::HelmFitsUnmoved(1, 0) && !Retail::HelmFitsUnmoved(11, 1));
+}

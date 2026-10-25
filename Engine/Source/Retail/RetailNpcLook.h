@@ -67,6 +67,13 @@ using ItemServable = std::function<bool(uint32_t displayId)>;
 NpcExtraFields ServedNpcExtra(const NpcExtra& extra, const NpcPlan& plan, const NpcAppearance& appearance, const ItemServable& servable,
     std::vector<std::string>& notes);
 
+// Whether the client finds a helm display's model for the served row's race and gender.
+using HelmWearable = std::function<bool(uint32_t displayId)>;
+
+// A helm the row's race has no file for is left off (slot 0 emptied, with a note): the client would draw the
+// missing-model cube in its place.
+void DropUnwearableHelm(NpcExtraFields& fields, const HelmWearable& wearable, std::vector<std::string>& notes);
+
 }
 
 #endif

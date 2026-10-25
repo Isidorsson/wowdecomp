@@ -274,14 +274,17 @@ static void BorrowIcons(std::vector<RetailItemDisplay>& displays) {
 }
 
 // Each vis id's masks, for the ids HelmetGeosetData has rows for.
-static std::map<uint32_t, HelmetMasks> HelmetVisById(const Db2Table& helmetGeosets) {
+static std::map<uint32_t, std::vector<HelmetGeoset>> HiddenByVis(const Db2Table& helmetGeosets) {
     std::map<uint32_t, std::vector<HelmetGeoset>> hidden;
     for (size_t row = 0; row < helmetGeosets.RowCount(); row++) {
         if (uint32_t vis = helmetGeosets.Relation(row)) {
             hidden[vis].push_back({ helmetGeosets.Value(row, HELMET_GEOSET_RACE), helmetGeosets.Value(row, HELMET_GEOSET_GROUP) });
         }
     }
+    return hidden;
+}
 
+static std::map<uint32_t, HelmetMasks> HelmetVisById(const std::map<uint32_t, std::vector<HelmetGeoset>>& hidden) {
     std::map<uint32_t, HelmetMasks> masks;
     for (const auto& [vis, geosets] : hidden) {
         masks[vis] = HelmetVisMasks(geosets);
@@ -302,7 +305,8 @@ bool RetailItemDisplays::Load(const ItemDisplayTables& tables, std::string& erro
             this->m_resourceOf[file.fdid] = resource;
         }
     }
-    this->m_helmetVis = HelmetVisById(tables.helmetGeosets);
+    this->m_helmetHidden = HiddenByVis(tables.helmetGeosets);
+    this->m_helmetVis = HelmetVisById(this->m_helmetHidden);
     this->m_displays.clear();
     for (size_t row = 0; row < tables.displays.RowCount(); row++) {
         this->m_displays.push_back(DisplayAt(tables.displays, row, lookups));
@@ -320,17 +324,29 @@ const RetailItemDisplay* RetailItemDisplays::Display(uint32_t id) const {
 
 // HelmetGeosetVisDataRec's slots: the retail geoset group each hides.
 constexpr std::array<uint32_t, HELMET_HIDE_SLOTS> HELMET_SLOT_GROUPS = { 0, 1, 2, 3, 7, 16, 17 };
-constexpr uint32_t LAST_STOCK_RACE = 11;
+// The client tests 1 << race, so a mask holds races 1 to 31; AddHelm asks HelmetHides for the races above.
+constexpr uint32_t LAST_MASK_RACE = 31;
 
 HelmetMasks HelmetVisMasks(const std::vector<HelmetGeoset>& hidden) {
     HelmetMasks masks = {};
     for (const HelmetGeoset& geoset : hidden) {
         auto slot = std::find(HELMET_SLOT_GROUPS.begin(), HELMET_SLOT_GROUPS.end(), geoset.group);
-        if (slot != HELMET_SLOT_GROUPS.end() && geoset.race >= 1 && geoset.race <= LAST_STOCK_RACE) {
-            masks[slot - HELMET_SLOT_GROUPS.begin()] |= 1 << geoset.race;
+        if (slot != HELMET_SLOT_GROUPS.end() && geoset.race >= 1 && geoset.race <= LAST_MASK_RACE) {
+            masks[slot - HELMET_SLOT_GROUPS.begin()] |= static_cast<int32_t>(1u << geoset.race);
         }
     }
     return masks;
+}
+
+HelmetHideSlots HelmetHidesFor(const std::vector<HelmetGeoset>& hidden, uint32_t race) {
+    HelmetHideSlots slots = {};
+    for (const HelmetGeoset& geoset : hidden) {
+        auto slot = std::find(HELMET_SLOT_GROUPS.begin(), HELMET_SLOT_GROUPS.end(), geoset.group);
+        if (slot != HELMET_SLOT_GROUPS.end() && geoset.race == race) {
+            slots[slot - HELMET_SLOT_GROUPS.begin()] = true;
+        }
+    }
+    return slots;
 }
 
 // How well a file suits a race and gender: 1 for theirs, 2 the race's for either gender, 3 every race's of the
@@ -368,6 +384,11 @@ uint32_t RetailItemDisplays::RaceFile(uint32_t fileDataId, uint32_t race, uint32
 const HelmetMasks* RetailItemDisplays::HelmetVis(uint32_t retailId) const {
     auto masks = this->m_helmetVis.find(retailId);
     return retailId && masks != this->m_helmetVis.end() ? &masks->second : nullptr;
+}
+
+HelmetHideSlots RetailItemDisplays::HelmetHides(uint32_t retailId, uint32_t race) const {
+    auto hidden = this->m_helmetHidden.find(retailId);
+    return hidden == this->m_helmetHidden.end() ? HelmetHideSlots() : HelmetHidesFor(hidden->second, race);
 }
 
 }

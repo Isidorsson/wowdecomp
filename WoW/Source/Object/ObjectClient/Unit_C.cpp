@@ -20,6 +20,7 @@
 #include "WoW/Source/DB/DBClient/CreatureStats_C.h"
 #include "WoW/Source/DB/DBClient/DBCacheInstances.h"
 #include "WoW/Source/DB/DBClient/DBClient.h"
+#include "WoW/Source/DB/RetailRaceRecords.h"
 #include "WoW/Source/DB/Rec/AnimationDataRec.h"
 #include "WoW/Source/DB/Rec/AreaGroupRec.h"
 #include "WoW/Source/DB/Rec/AreaTableRec.h"
@@ -13877,13 +13878,20 @@ int32_t CGUnit_C::InitializeExtendedDisplay(CGPlayer_C* player, int32_t hasDispl
         }
     }
 
+    // Not in the original: ValidateComponentData indexes the race-sized tables unchecked, so a race past them is
+    // refused before (with a log line), and a baked served race has no CharSections rows to validate against.
+    if (!CCharacterComponent::RaceFitsTables(data.m_preferences.m_raceID, data.m_preferences.m_sexID)) {
+        LogChrRaceRefused(data.m_preferences.m_raceID, data.m_preferences.m_sexID);
+        return 0;
+    }
+
     data.m_model = this->m_worldModel;
     data.m_flags ^= (data.m_flags ^ (static_cast<uint32_t>(this->m_obj->m_guid == ClntObjMgrGetActivePlayer()) << 1)) & 0x2;
     data.m_model->m_refCount++;
 
     if (player) {
         CCharacterComponent::ValidateComponentData(&data, COMPONENT_CONTEXT_1);
-    } else {
+    } else if (ChrRaceNeedsCharSections(data.m_preferences.m_raceID, (data.m_flags & 0x1) != 0)) {
         CCharacterComponent::ValidateComponentData(&data, COMPONENT_CONTEXT_2);
     }
 

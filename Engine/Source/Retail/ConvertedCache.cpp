@@ -32,6 +32,10 @@ std::filesystem::path ConvertedCachePath(const Config& config, uint32_t fileData
     return ConvertedCacheFolder(config) / std::to_string(fileDataId);
 }
 
+std::filesystem::path ConvertedNpcBodyPath(const Config& config, uint32_t fileDataId) {
+    return ConvertedCacheFolder(config) / ("npcbody-" + std::to_string(fileDataId));
+}
+
 std::filesystem::path ConvertedBakePath(const Config& config, uint32_t bakeFileDataId, uint32_t race, uint32_t gender) {
     return ConvertedCacheFolder(config) / ("bake-" + std::to_string(bakeFileDataId) + "-" + std::to_string(race) + "-" + std::to_string(gender));
 }

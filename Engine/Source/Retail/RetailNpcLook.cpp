@@ -88,7 +88,7 @@ NpcExtraFields ServedNpcExtra(const NpcExtra& extra, const NpcPlan& plan, const 
     std::vector<std::string>& notes) {
     NpcExtraFields fields;
     fields.id = static_cast<int32_t>(SyntheticExtraId(extra.id));
-    fields.race = static_cast<int32_t>(extra.race);
+    fields.race = static_cast<int32_t>(plan.race);
     fields.sex = static_cast<int32_t>(extra.sex);
     fields.hairStyle = static_cast<int32_t>(appearance.hairStyle);
     fields.hairColor = static_cast<int32_t>(appearance.hairColor);
@@ -104,6 +104,16 @@ NpcExtraFields ServedNpcExtra(const NpcExtra& extra, const NpcPlan& plan, const 
         }
     }
     return fields;
+}
+
+void DropUnwearableHelm(NpcExtraFields& fields, const HelmWearable& wearable, std::vector<std::string>& notes) {
+    uint32_t helm = static_cast<uint32_t>(fields.items[0]);
+    if (!helm || wearable(helm)) {
+        return;
+    }
+    notes.push_back("extra " + std::to_string(fields.id - static_cast<int32_t>(SYNTHETIC_EXTRA_ID_BASE)) + ": helm display " + std::to_string(helm)
+        + " has no file for race " + std::to_string(fields.race) + (fields.sex ? " female" : " male") + ", slot left empty");
+    fields.items[0] = 0;
 }
 
 }

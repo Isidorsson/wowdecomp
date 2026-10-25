@@ -25,6 +25,7 @@ struct Wdc5Section {
     std::vector<uint32_t> ids;
     std::vector<std::pair<uint32_t, uint32_t>> copies;  // New id, source id.
     std::vector<std::pair<uint32_t, uint32_t>> relations;  // Foreign id, record index in the section.
+    std::vector<uint8_t> strings;   // The section's string block, written after its records.
 };
 
 struct Wdc5Spec {
@@ -87,10 +88,12 @@ inline std::vector<uint8_t> BuildWdc5(const Wdc5Spec& spec) {
         std::memcpy(file.data() + header, &section.tactKey, 8);
         PutU32(file, header + 8, static_cast<uint32_t>(file.size()));
         PutU32(file, header + 12, static_cast<uint32_t>(section.records.size() / spec.recordSize));
+        PutU32(file, header + 16, static_cast<uint32_t>(section.strings.size()));
         PutU32(file, header + 24, static_cast<uint32_t>(section.ids.size() * 4));
         PutU32(file, header + 36, static_cast<uint32_t>(section.copies.size()));
 
         file.insert(file.end(), section.records.begin(), section.records.end());
+        file.insert(file.end(), section.strings.begin(), section.strings.end());
         for (uint32_t id : section.ids) {
             AppendU32(file, id);
         }

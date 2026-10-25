@@ -178,7 +178,7 @@ TEST(HelmPathsNameTheRaceAndGender) {
 TEST(MalformedHelmPathsAreRefused) {
     RaceFileRequest request;
 
-    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9100_xxm.m2", request));    // Unknown prefix.
+    CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9100_x1m.m2", request));    // Not a prefix.
     CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9100_hu.m2", request));     // No gender.
     CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9100_hux.m2", request));
     CHECK(!ParseRaceFileName("item/objectcomponents/head/retail-9100_humm.m2", request));
@@ -206,7 +206,46 @@ TEST(BodyTexturesAndHelmsDoNotReadAsEachOther) {
 TEST(HelmPathsAreClaimed) {
     CHECK(Retail::ClaimsPath("item/objectcomponents/head/retail-9100_hum.m2", AliasTable()));
     CHECK(Retail::ClaimsPath("item/objectcomponents/head/retail-9100_drf.m2", AliasTable()));
-    CHECK(!Retail::ClaimsPath("item/objectcomponents/head/retail-9100_xxm.m2", AliasTable()));
+    CHECK(Retail::ClaimsPath("item/objectcomponents/head/retail-9100_ktm.m2", AliasTable()));
+    CHECK(!Retail::ClaimsPath("item/objectcomponents/head/retail-9100_k1m.m2", AliasTable()));
+}
+
+// A served race's helm (B6): its prefix comes from the retail ChrRaces row, which only the race tables resolve.
+TEST(ServedRaceHelmPathsKeepTheirPrefix) {
+    RaceFileRequest request;
+    CHECK(ParseRaceFileName("item/objectcomponents/head/retail-9100_ktm.m2", request));
+    CHECK(request.fileDataId == 9100 && request.race == 0 && request.prefix == "kt" && request.gender == 0);
+    CHECK(ParseRaceFileName("item/objectcomponents/head/retail-9100_edf.m2", request));
+    CHECK(request.race == 0 && request.prefix == "ed" && request.gender == 1);
+    CHECK(ParseRaceFileName("item/objectcomponents/head/retail-9100_hum.m2", request));
+    CHECK(request.race == 1 && request.prefix == "hu");
+}
+
+// A retail player-race body asked for as an NPC body (B3): its own name, which no plain model read shares.
+TEST(NpcBodyNamesRoundTrip) {
+    CHECK(Retail::NpcBodyModelName(119376) == "Character\\retail-119376_npcbody.m2");
+    uint32_t id = 0;
+    CHECK(Retail::ParseNpcBodyPath("character/retail-119376_npcbody.m2", id) && id == 119376);
+    CHECK(Retail::ParseNpcBodyPath("creature/retail-307454_npcbody.m2", id) && id == 307454);
+    CHECK(!Retail::ParseNpcBodyPath("character/retail-119376.m2", id));
+    CHECK(!Retail::ParseNpcBodyPath("character/retail-119376_npcbody00.skin", id));
+    CHECK(!Retail::ParseNpcBodyPath("character/retail-x_npcbody.m2", id));
+    CHECK(!ParseRetailPath("character/retail-119376_npcbody.m2", id));
+    CHECK(Retail::ClaimsPath("character/retail-119376_npcbody.m2", AliasTable()));
+}
+
+// A retail body's bake (B4, B7): the bake file and the Extra row, so the client finds the row's look by its skin.
+TEST(NpcBakeNamesCarryTheBakeAndTheExtraRow) {
+    CHECK(Retail::NpcBakeName(253789, 18975) == "retail-253789_npc18975.blp");
+    uint32_t file = 0;
+    uint32_t extra = 0;
+    CHECK(Retail::ParseNpcBakeName("textures/bakednpctextures/retail-253789_npc18975.blp", file, extra) && file == 253789 && extra == 18975);
+    CHECK(!Retail::ParseNpcBakeName("textures/bakednpctextures/retail-253789.blp", file, extra));
+    CHECK(!Retail::ParseNpcBakeName("textures/bakednpctextures/retail-253789_npc.blp", file, extra));
+    CHECK(!Retail::ParseNpcBakeName("textures/bakednpctextures/retail-253789_bake9m.blp", file, extra));
+    uint32_t id = 0;
+    CHECK(ParseRetailPath("textures/bakednpctextures/retail-253789_npc18975.blp", id) && id == 253789);
+    CHECK(Retail::ClaimsPath("textures/bakednpctextures/retail-253789_npc18975.blp", AliasTable()));
 }
 
 TEST(WarpedBakeNamesCarryTheBakeAndBody) {

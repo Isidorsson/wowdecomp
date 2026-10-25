@@ -356,4 +356,13 @@ double BodyMatchRatio(const BodyMesh& installed, const VertexMatches& matches) {
     return double(matched) / double(used.size());
 }
 
+uint32_t HdPortRace(uint32_t fileDataId, uint32_t sex) {
+    for (uint32_t race = 1; race <= BODY_RACES && fileDataId && sex <= 1; race++) {
+        if (RETAIL_HD_BODIES[race - 1][sex] == fileDataId) {
+            return race;
+        }
+    }
+    return 0;
+}
+
 }

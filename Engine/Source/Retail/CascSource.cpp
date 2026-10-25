@@ -198,19 +198,13 @@ bool CascSource::Resolve(const std::string& normalized, uint32_t& fileDataId, st
         return false;
     }
 
-    if (this->m_aliases.Find(normalized, fileDataId) || ParseRetailPath(normalized, fileDataId)) {
+    if (this->m_aliases.Find(normalized, fileDataId) || ParseRetailPath(normalized, fileDataId) || ParseNpcBodyPath(normalized, fileDataId)) {
         return true;
     }
 
     RaceFileRequest request;
     if (ParseRaceFileName(normalized, request)) {
-        const RetailItemDisplays* displays = this->ItemDisplays();
-        fileDataId = displays ? displays->RaceFile(request.fileDataId, request.race, request.gender) : 0;
-        if (!fileDataId) {
-            error = displays ? "model " + std::to_string(request.fileDataId) + " has no file for race " + std::to_string(request.race) + (request.gender ? " female" : " male")
-                             : "no item tables to choose the race file from";
-        }
-        return fileDataId != 0;
+        return this->ResolveRaceFile(request, fileDataId, error);
     }
 
     error = "not a retail/<FileDataID> path or alias";
@@ -249,6 +243,10 @@ bool CascSource::Exists(const char* name, std::string& error) {
 
     if (ParseWarpedBakeName(normalized, bake)) {
         if (HasConvertedCache(ConvertedBakePath(this->m_config, bake.fileDataId, bake.race, bake.gender), ConverterKey())) {
+            return true;
+        }
+    } else if (ParseNpcBodyPath(normalized, id)) {
+        if (HasConvertedCache(ConvertedNpcBodyPath(this->m_config, id), ConverterKey())) {
             return true;
         }
     } else if (!this->FindDependency(normalized, dependency) && !HelmRaceForPath(normalized, race, gender)) {
@@ -298,8 +296,9 @@ bool CascSource::ReadModel(const std::string& normalized, std::vector<uint8_t>& 
         return false;
     }
 
+    Conversion conversion = this->ConversionFor(normalized, id);
     ConvertedModel model;
-    if (!ReadConvertedCache(ConvertedCachePath(this->m_config, id), ConverterKey(), model)) {
+    if (!ReadConvertedCache(conversion.cachePath, ConverterKey(), model)) {
         if (!this->ReadOriginal(id, bytes, error)) {
             return false;
         }
@@ -308,19 +307,21 @@ bool CascSource::ReadModel(const std::string& normalized, std::vector<uint8_t>& 
             return true;
         }
 
-        if (!this->Convert(id, bytes, model, error)) {
+        if (!this->Convert(conversion, bytes, model, error)) {
             return false;
         }
     }
 
-    return this->Serve(normalized, id, model, bytes, error);
+    return this->Serve(normalized, conversion, model, bytes, error);
 }
 
 // Published unless what it read may differ next time: online, tables that failed to load or a fetch that failed
 // may succeed on a later try. Locally they fail the same way every time.
-bool CascSource::Convert(uint32_t id, const std::vector<uint8_t>& file, ConvertedModel& model, std::string& error) {
+bool CascSource::Convert(const Conversion& conversion, const std::vector<uint8_t>& file, ConvertedModel& model, std::string& error) {
+    uint32_t id = conversion.fileDataId;
     bool readFailed = false;
     ModelSources sources;
+    sources.playerBody = conversion.playerBody;
     sources.fallbacks = this->Fallbacks();
     sources.skin = this->Skins() ? this->Skins()->Default(id) : nullptr;
     sources.read = [this, &readFailed](uint32_t dependency, std::vector<uint8_t>& data, std::string& readError) {
@@ -337,7 +338,7 @@ bool CascSource::Convert(uint32_t id, const std::vector<uint8_t>& file, Converte
     if (complete || this->m_config.mode == StorageMode::Local) {
         // A failed cache write only costs a conversion next time.
         std::string cacheError;
-        std::filesystem::path path = ConvertedCachePath(this->m_config, id);
+        const std::filesystem::path& path = conversion.cachePath;
         std::error_code ec;
         uintmax_t size = WriteConvertedCache(path, ConverterKey(), model, cacheError) ? std::filesystem::file_size(path, ec) : 0;
         if (size && !ec) {
@@ -347,12 +348,13 @@ bool CascSource::Convert(uint32_t id, const std::vector<uint8_t>& file, Converte
     return true;
 }
 
-bool CascSource::Serve(const std::string& normalized, uint32_t id, ConvertedModel& model, std::vector<uint8_t>& bytes, std::string& error) {
+bool CascSource::Serve(const std::string& normalized, const Conversion& conversion, ConvertedModel& model, std::vector<uint8_t>& bytes, std::string& error) {
     // Fitted per read, never cached: both caches hold the model by FileDataID, which a weapon-style name or another
-    // race's helm may share.
+    // race's helm may share. A served race's helm (race 0 here) hangs on its retail body unmoved.
+    uint32_t id = conversion.fileDataId;
     uint32_t race;
     uint32_t gender;
-    if (HelmRaceForPath(normalized, race, gender) && !FitHelmToStockHead(model.m2, this->FitFor(race, gender), error)) {
+    if (HelmRaceForPath(normalized, race, gender) && !HelmFitsUnmoved(race, gender) && !FitHelmToStockHead(model.m2, this->FitFor(race, gender), error)) {
         return false;
     }
 
@@ -372,7 +374,7 @@ bool CascSource::Serve(const std::string& normalized, uint32_t id, ConvertedMode
     {
         std::unique_lock<std::shared_mutex> lock(this->m_dependencyMutex);
         for (uint32_t view = 0; view < model.skins.size(); view++) {
-            this->m_dependencies[SkinPathFor(normalized, view)] = { model.skins[view], id, view, converted };
+            this->m_dependencies[SkinPathFor(normalized, view)] = { model.skins[view], id, view, converted, conversion.playerBody };
         }
     }
 
@@ -422,7 +424,8 @@ bool CascSource::ReadSkin(const std::string& normalized, const Dependency& depen
     }
 
     ConvertedModel cached;
-    if (ReadConvertedCache(ConvertedCachePath(this->m_config, dependency.model), ConverterKey(), cached) && dependency.view < cached.skinBytes.size()
+    std::filesystem::path modelCache = dependency.npcBody ? ConvertedNpcBodyPath(this->m_config, dependency.model) : ConvertedCachePath(this->m_config, dependency.model);
+    if (ReadConvertedCache(modelCache, ConverterKey(), cached) && dependency.view < cached.skinBytes.size()
         && !cached.skinBytes[dependency.view].empty()) {
         bytes = std::move(cached.skinBytes[dependency.view]);
         return true;

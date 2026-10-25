@@ -2,7 +2,9 @@
 #include <algorithm>
 #include <map>
 #include <set>
+#include "Engine/Source/Retail/BodyMatch.h"
 #include "Engine/Source/Retail/ItemTables.h"
+#include "Engine/Source/Retail/RetailDisplays.h"
 #include "Engine/Source/Retail/RetailPath.h"
 
 namespace Retail {
@@ -133,6 +135,10 @@ static NpcLook LookOf(const std::set<uint32_t>& chosen, const NpcTables& tables,
                 look.geosets.push_back(geoset->second);
             }
             auto material = index.materials.find(tables.elements.Value(row, ELEMENT_MATERIAL));
+            uint32_t file = material == index.materials.end() ? 0 : Find(files, material->second.second, 0u);
+            if (file) {
+                look.materials.push_back({ material->second.first, file });
+            }
             if (material != index.materials.end() && material->second.first == HAIR_TARGET) {
                 look.hasHairColor = true;
                 look.hairColorOrder = Find(index.order, choice, 0u);
@@ -199,6 +205,7 @@ const NpcExtra* RetailNpcTables::Extra(uint32_t id) const {
 
 bool BuildNpcPlan(const NpcExtra& extra, const BodyFits& bodyFits, NpcPlan& plan, std::string& reason) {
     plan = NpcPlan();
+    plan.race = extra.race;
     plan.bodyModelId = StockBodyModelId(extra.race, extra.sex);
     if (!plan.bodyModelId) {
         reason = "race " + std::to_string(extra.race) + " has no installed body yet (slice b)";
@@ -224,6 +231,47 @@ bool BuildNpcPlan(const NpcExtra& extra, const BodyFits& bodyFits, NpcPlan& plan
     plan.bakeFile = extra.sdBake;
     plan.bakeName = RetailFileName(extra.sdBake) + ".blp";
     return true;
+}
+
+constexpr uint32_t FIRST_RETAIL_RACE = 22;
+
+bool IsRetailBodyRace(uint32_t race) {
+    return race == GOBLIN || race >= FIRST_RETAIL_RACE;
+}
+
+// Their bakes are SD only: the layout of their own model, the same body squares as the HD bakes of the ports.
+bool BuildRetailRacePlan(const NpcExtra& extra, const NpcBody& body, const BodyFits& bodyFits, NpcPlan& plan, std::string& reason) {
+    plan = NpcPlan();
+    uint32_t bake = extra.hdBake ? extra.hdBake : extra.sdBake;
+    if (!body.fileDataId) {
+        reason = "race " + std::to_string(extra.race) + ": the display has no retail model";
+        return false;
+    }
+    if (!bake) {
+        reason = "no bake";
+        return false;
+    }
+
+    plan.bakeFile = bake;
+    uint32_t portRace = HdPortRace(body.fileDataId, extra.sex);
+    if (portRace && bodyFits(portRace, extra.sex)) {
+        plan.race = portRace;
+        plan.bodyModelId = StockBodyModelId(portRace, extra.sex);
+        plan.bake = BakeUse::Warp;
+        plan.bakeName = WarpedBakeName(bake, portRace, extra.sex);
+        return true;
+    }
+
+    plan.race = extra.race;
+    plan.retailBody = true;
+    plan.bodyModelId = static_cast<int32_t>(SyntheticNpcBodyModelId(body.retailModelId));
+    plan.bake = BakeUse::AsIs;
+    plan.bakeName = NpcBakeName(bake, extra.id);
+    return true;
+}
+
+bool PlanNpc(const NpcExtra& extra, const NpcBody& body, const BodyFits& bodyFits, NpcPlan& plan, std::string& reason) {
+    return IsRetailBodyRace(extra.race) ? BuildRetailRacePlan(extra, body, bodyFits, plan, reason) : BuildNpcPlan(extra, bodyFits, plan, reason);
 }
 
 }

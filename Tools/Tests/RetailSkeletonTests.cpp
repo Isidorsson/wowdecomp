@@ -485,3 +485,30 @@ TEST(ParentEventTimingsFillTheParentsSequences) {
     CHECK(TrackEntry(model.m2, EventTrack(model.m2), 1, false).first == 0);
     CHECK(model.warnings.size() == 1 && Contains(model.warnings[0], "PEDC"));
 }
+
+// B3: a player race body asked for as an NPC body converts, with its character textures kept for the NPC's bake;
+// asked for as a plain model it stays refused, and it still may not store its own bones.
+TEST(PlayerRaceBodiesConvertOnlyAsNpcBodies) {
+    ConvertedModel model;
+    std::string error;
+    std::vector<uint8_t> character = SkeletalMd20();
+    AddArray(character, M2At::TEXTURES, 2, Concat({ Texture(1), Texture(6) }));
+
+    ModelSources plain = Sources(ParentChain());
+    CHECK(!ConvertModel(SkeletalModel(character), plain, model, error) && Contains(error, "player race"));
+
+    ModelSources body = Sources(ParentChain());
+    body.playerBody = true;
+    CHECK(ConvertModel(SkeletalModel(character), body, model, error));
+    CHECK(GetU32(model.m2, GetU32(model.m2, M2At::TEXTURES + 4)) == 1);
+
+    // The customization layers (eyes 19, jewelry 20) keep their type, for the NPC's choices to replace.
+    std::vector<uint8_t> eyes = SkeletalMd20();
+    AddArray(eyes, M2At::TEXTURES, 2, Concat({ Texture(1), Texture(19) }));
+    CHECK(ConvertModel(SkeletalModel(eyes), body, model, error));
+    CHECK(GetU32(model.m2, GetU32(model.m2, M2At::TEXTURES + 4) + 16) == 19);
+
+    std::vector<uint8_t> ownBones = character;
+    AddArray(ownBones, M2At::BONES, 1, Bone(0));
+    CHECK(!ConvertModel(SkeletalModel(ownBones), body, model, error) && Contains(error, "bones"));
+}

@@ -294,4 +294,11 @@ bool FitHelmToStockHead(std::vector<uint8_t>& m2, const HelmFit& fit, std::strin
         && fitter.RecordArrays(M2At::PARTICLES, 0x1DC, PARTICLE_SPLINE, VEC3_SIZE, error);
 }
 
+// The installed goblin is no port of the retail one, so goblin NPCs draw on the retail body (RetailNpcDisplay).
+constexpr uint32_t GOBLIN = 9;
+
+bool HelmFitsUnmoved(uint32_t race, uint32_t gender) {
+    return race == GOBLIN || !HelmFitFor(race, gender);
+}
+
 }

@@ -1,3 +1,4 @@
+#include "WoW/Source/DB/RetailHelmetRecords.h"
 #include "WoW/Source/DB/WowClientDB.h"
 #include "WoW/Source/DB/Rec/HelmetGeosetVisDataRec.h"
 
@@ -46,10 +47,22 @@ static HelmetGeosetVisDataRec* ServedRecord(int32_t id) {
     return &served->second;
 }
 
+bool RetailHelmHides(int32_t visId, uint32_t race, size_t slot) {
+    if (visId <= static_cast<int32_t>(Retail::SYNTHETIC_HELMET_VIS_BASE) || slot >= Retail::HELMET_HIDE_SLOTS) {
+        return false;
+    }
+    const Retail::RetailItemDisplays* retail = Retail::CascSource::Instance().ItemDisplays();
+    return retail && retail->HelmetHides(static_cast<uint32_t>(visId) - Retail::SYNTHETIC_HELMET_VIS_BASE, race)[slot];
+}
+
 #else
 
 static HelmetGeosetVisDataRec* ServedRecord(int32_t) {
     return nullptr;
+}
+
+bool RetailHelmHides(int32_t, uint32_t, size_t) {
+    return false;
 }
 
 #endif

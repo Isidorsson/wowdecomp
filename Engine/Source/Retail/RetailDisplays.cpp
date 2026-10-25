@@ -45,7 +45,7 @@ uint32_t SyntheticModelId(uint32_t retailModelId) {
 }
 
 bool RetailModelIdOf(uint32_t syntheticModelId, uint32_t& retailModelId) {
-    if (syntheticModelId < SYNTHETIC_MODEL_ID_BASE) {
+    if (syntheticModelId < SYNTHETIC_MODEL_ID_BASE || syntheticModelId >= SYNTHETIC_NPC_BODY_MODEL_ID_BASE) {
         return false;
     }
     retailModelId = syntheticModelId - SYNTHETIC_MODEL_ID_BASE;
@@ -142,6 +142,18 @@ const RetailDisplay* RetailDisplays::Display(uint32_t id) const {
 
 const RetailCreatureModel* RetailDisplays::Model(uint32_t id) const {
     return FindById(this->m_models, id);
+}
+
+uint32_t SyntheticNpcBodyModelId(uint32_t retailModelId) {
+    return SYNTHETIC_NPC_BODY_MODEL_ID_BASE + retailModelId;
+}
+
+bool RetailNpcBodyModelIdOf(uint32_t syntheticModelId, uint32_t& retailModelId) {
+    if (syntheticModelId < SYNTHETIC_NPC_BODY_MODEL_ID_BASE) {
+        return false;
+    }
+    retailModelId = syntheticModelId - SYNTHETIC_NPC_BODY_MODEL_ID_BASE;
+    return true;
 }
 
 }

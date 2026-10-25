@@ -57,6 +57,7 @@ bool Db2Table::Parse(std::vector<uint8_t> bytes, std::string& error) {
     this->m_data = std::move(bytes);
     this->m_columns.clear();
     this->m_rows.clear();
+    this->m_sections.clear();
     this->m_skippedRows = 0;
     const std::vector<uint8_t>& data = this->m_data;
 
@@ -66,6 +67,7 @@ bool Db2Table::Parse(std::vector<uint8_t> bytes, std::string& error) {
 
     size_t fieldCount = Read<uint32_t>(data, 140);
     size_t recordSize = Read<uint32_t>(data, 144);
+    this->m_recordSize = recordSize;
     this->m_layoutHash = Read<uint32_t>(data, 156);
     uint16_t flags = Read<uint16_t>(data, 172);
     size_t idIndex = Read<uint16_t>(data, 174);
@@ -163,6 +165,18 @@ bool Db2Table::ParseSection(size_t header, size_t recordSize, size_t idIndex, st
     if (!Fits(data, offset, records * recordSize) || !Fits(data, idList, idListSize) || !Fits(data, copyTable, copies * 8) || !Fits(data, relationMap, relationSize)) {
         return Fail(error, "a section runs past the end of the file");
     }
+
+    Section section;
+    section.records = offset;
+    section.count = records;
+    section.strings = offset + records * recordSize;
+    section.stringSize = strings;
+    if (!this->m_sections.empty()) {
+        const Section& last = this->m_sections.back();
+        section.firstRecord = last.firstRecord + last.count;
+        section.firstString = last.firstString + last.stringSize;
+    }
+    this->m_sections.push_back(section);
 
     bool zeroed = records > 0;
     for (size_t i = offset; zeroed && i < offset + records * recordSize; i++) {
@@ -285,6 +299,42 @@ std::vector<uint32_t> Db2Table::Values(size_t row, size_t column) const {
     }
 
     return {};
+}
+
+std::string Db2Table::String(size_t row, size_t column) const {
+    uint32_t value = this->Value(row, column);
+    if (!value || row >= this->m_rows.size() || column >= this->m_columns.size() || this->m_sections.empty()) {
+        return std::string();
+    }
+
+    size_t at = this->m_rows[row].offset;
+    for (const Section& section : this->m_sections) {
+        if (at < section.records || at >= section.records + section.count * this->m_recordSize) {
+            continue;
+        }
+        const Section& last = this->m_sections.back();
+        size_t allRecords = (last.firstRecord + last.count) * this->m_recordSize;
+        size_t field = (section.firstRecord * this->m_recordSize + at - section.records) + this->m_columns[column].offsetBits / 8;
+        int64_t key = static_cast<int64_t>(field) + static_cast<int32_t>(value) - static_cast<int64_t>(allRecords);
+        return this->StringAt(key);
+    }
+    return std::string();
+}
+
+// The string at key of the concatenated string blocks.
+std::string Db2Table::StringAt(int64_t key) const {
+    for (const Section& section : this->m_sections) {
+        if (key < static_cast<int64_t>(section.firstString) || key >= static_cast<int64_t>(section.firstString + section.stringSize)) {
+            continue;
+        }
+        size_t start = section.strings + static_cast<size_t>(key) - section.firstString;
+        size_t end = start;
+        while (end < section.strings + section.stringSize && end < this->m_data.size() && this->m_data[end]) {
+            end++;
+        }
+        return std::string(this->m_data.begin() + start, this->m_data.begin() + end);
+    }
+    return std::string();
 }
 
 bool KnownLayout(const Db2Table& table, uint32_t layout, const char* name, std::string& error) {
