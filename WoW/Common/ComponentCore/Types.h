@@ -66,6 +66,8 @@ enum GEOCOMPONENTLINKS {
     ATTACH_HIP = 32,
     ATTACH_HIP_OFFHAND = 33,
     NUM_ATTACH_LINKS = 50,
+    // Not in the original: retail's belt buckle point, which the installed HD-port bodies carry (BeltBuckle.h).
+    ATTACH_BELT_BUCKLE = 53,
 };
 
 enum INVENTORY_SLOTS {

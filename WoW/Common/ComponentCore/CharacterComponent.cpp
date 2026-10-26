@@ -34,6 +34,7 @@
 #include "Engine/Source/Storm/Source/SThread.h"
 #include "Engine/Source/Tempest/CImVector.h"
 #include "Engine/Source/Tempest/CRandom.h"
+#include "WoW/Common/ComponentCore/BeltBuckle.h"
 #include "WoW/Common/ComponentCore/ComponentPasteDecoded.h"
 #include "WoW/Common/ComponentCore/ComponentUtils.h"
 #include "WoW/Common/ComponentCore/ItemGeosets.h"
@@ -3884,6 +3885,11 @@ void CCharacterComponent::RemoveItem(ITEM_SLOT itemSlot) {
             this->m_flags &= ~0x20;
             break;
 
+        // Not in the original: a belt's buckle (AttachBeltBuckle) comes off with it; its textures go below.
+        case ITEMSLOT_BELT:
+            CCharacterComponent::RemoveLinkpt(this->m_data.m_model, ATTACH_BELT_BUCKLE);
+            break;
+
         case ITEMSLOT_TABARD:
             if (this->m_flags & 0x40) {
                 this->m_itemDisplayID[itemSlot] = 0;
@@ -4194,6 +4200,17 @@ void CCharacterComponent::AddShoulders(int32_t itemVisual) {
 
     if (rightModel[0]) {
         CCharacterComponent::AddLink(this->m_data.m_model, static_cast<GEOCOMPONENTLINKS>(5), rightModel, rightTexture, itemVisual, displayRec);
+    }
+}
+
+// Not in the original. A retail belt's buckle model, hung on the body's buckle point (BeltBuckle.h); a belt without
+// one leaves the point empty.
+static void AttachBeltBuckle(CM2Model* model, const ItemDisplayInfoRec* displayRec, int32_t itemVisual) {
+    CCharacterComponent::RemoveLinkpt(model, ATTACH_BELT_BUCKLE);
+
+    BucklePaths paths;
+    if (BuckleItemPaths(displayRec->m_modelName[0], displayRec->m_modelTexture[0], paths)) {
+        CCharacterComponent::AddLink(model, ATTACH_BELT_BUCKLE, paths.model.c_str(), paths.texture.c_str(), itemVisual, displayRec);
     }
 }
 
@@ -5757,6 +5774,11 @@ void CCharacterComponent::AddItem(ITEM_SLOT itemSlot, const ItemDisplayInfoRec* 
         default:
             if (itemSlot == ITEMSLOT_CHEST) {
                 this->m_flags = (this->m_flags & ~0x20) | (32 * ((displayRec->m_flags >> 2) & 0x1));
+            }
+
+            // Not in the original: a belt's buckle, also on a baked NPC, whose textures the next check skips.
+            if (itemSlot == ITEMSLOT_BELT) {
+                AttachBeltBuckle(this->m_data.m_model, displayRec, itemVisual);
             }
 
             if (this->m_data.m_flags & 0x1) {

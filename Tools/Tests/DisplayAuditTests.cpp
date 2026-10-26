@@ -58,8 +58,9 @@ TEST(APlainCreatureWithNothingDroppedHasNoFindings) {
     CHECK(AuditDisplay(display, nullptr, Items().Lookup()).empty());
 }
 
-// Umbric (128688): his chest, belt, legs and gloves name collection models the client never attaches.
-TEST(ChestAndBeltModelsAreDroppedArmour) {
+// Umbric (128688): his chest, legs and gloves name collection models the client never attaches; his belt's buckle
+// hangs on the buckle point (BeltBuckle.h).
+TEST(ChestModelsAreDroppedArmourButBeltBucklesAreDrawn) {
     Items items;
     items.byId[699535] = ModelItem(699535, 6758314);
     items.byId[699536] = ModelItem(699536, 6758400);
@@ -69,16 +70,18 @@ TEST(ChestAndBeltModelsAreDroppedArmour) {
 
     Findings findings = AuditDisplay(NpcDisplay(160609), &extra, items.Lookup());
 
-    CHECK(findings == Findings({ { AuditFlag::ArmourModelDropped, CHEST }, { AuditFlag::ArmourModelDropped, BELT } }));
+    CHECK(findings == Findings({ { AuditFlag::ArmourModelDropped, CHEST } }));
 }
 
-TEST(HelmAndShoulderModelsAreDrawnSoNotFlagged) {
+TEST(HelmShoulderAndBeltModelsAreDrawnSoNotFlagged) {
     Items items;
     items.byId[1] = ModelItem(1, 100);
     items.byId[2] = ModelItem(2, 200);
+    items.byId[3] = ModelItem(3, 300);
     NpcExtra extra = BakedExtra();
     extra.items[HELM] = 1;
     extra.items[SHOULDERS] = 2;
+    extra.items[BELT] = 3;
 
     CHECK(AuditDisplay(NpcDisplay(160609), &extra, items.Lookup()).empty());
 }

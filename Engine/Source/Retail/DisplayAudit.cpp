@@ -3,13 +3,14 @@
 
 namespace Retail {
 
-// The NPC item slots whose models the client attaches: helm (HelmFit) and shoulders.
+// The NPC item slots whose models the client attaches: helm (HelmFit), shoulders and belt buckles (BeltBuckle.h).
 constexpr size_t HELM_SLOT = 0;
 constexpr size_t SHOULDER_SLOT = 1;
+constexpr size_t BELT_SLOT = 4;
 constexpr uint32_t SECTION_BITS = 32;
 
 static bool AttachedSlot(size_t slot) {
-    return slot == HELM_SLOT || slot == SHOULDER_SLOT;
+    return slot == HELM_SLOT || slot == SHOULDER_SLOT || slot == BELT_SLOT;
 }
 
 static void AuditItems(const NpcExtra& extra, const ItemDisplayLookup& items, std::vector<AuditFinding>& findings) {
