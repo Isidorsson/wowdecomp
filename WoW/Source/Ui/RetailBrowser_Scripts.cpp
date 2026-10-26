@@ -12,6 +12,7 @@
 #include <fstream>
 #include <map>
 #include <string>
+#include <vector>
 #include "Engine/Source/FrameScript/FrameScript.h"
 #include "Engine/Source/Os/OsClipboard.h"
 #include "Engine/Source/Retail/BrowserMarshal.h"
@@ -222,6 +223,35 @@ static int32_t Script_GetClipboardText(lua_State* L) {
     return 1;
 }
 
+// The result list's icon prefetch (CascSource::PrefetchIcons), so a new page's icons are read off the main thread.
+
+// RetailPrefetchIcons({fdid, ...}): reads those icons on a worker, in order, replacing what an earlier call still had queued.
+static int32_t Script_RetailPrefetchIcons(lua_State* L) {
+    std::vector<uint32_t> icons;
+    int count = lua_istable(L, 1) ? static_cast<int>(lua_objlen(L, 1)) : 0;
+    for (int i = 1; i <= count; i++) {
+        lua_rawgeti(L, 1, i);
+        if (lua_isnumber(L, -1)) {
+            icons.push_back(static_cast<uint32_t>(lua_tonumber(L, -1)));
+        }
+        lua_pop(L, 1);
+    }
+    Retail::CascSource::Instance().PrefetchIcons(icons);
+    return 0;
+}
+
+// RetailIconPending(fdid): whether the prefetch still has the icon queued or in flight; a texture set now would wait on it.
+static int32_t Script_RetailIconPending(lua_State* L) {
+    bool pending = lua_isnumber(L, 1) && Retail::CascSource::Instance().IconPending(static_cast<uint32_t>(lua_tonumber(L, 1)));
+    lua_pushboolean(L, pending);
+    return 1;
+}
+
+static void RetailIconsRegister() {
+    FrameScript_RegisterFunction("RetailPrefetchIcons", Script_RetailPrefetchIcons);
+    FrameScript_RegisterFunction("RetailIconPending", Script_RetailIconPending);
+}
+
 void RetailBrowserRegister() {
     if (!Retail::CascSource::Instance().Configured()) {
         return;
@@ -234,6 +264,7 @@ void RetailBrowserRegister() {
     FrameScript_RegisterFunction("RetailExportSql", Script_RetailExportSql);
     FrameScript_RegisterFunction("CopyToClipboard", Script_CopyToClipboard);
     FrameScript_RegisterFunction("GetClipboardText", Script_GetClipboardText);
+    RetailIconsRegister();
     RetailModelFramesRegister();
 }
 

@@ -1,7 +1,10 @@
+#include <atomic>
+#include <chrono>
 #include <fstream>
 #include <memory>
 #include <process.h>
 #include <string>
+#include <thread>
 #include "Engine/Source/Retail/CascSource.h"
 #include "Engine/Source/Retail/ConvertedCache.h"
 #include "Engine/Source/Retail/DecodedCache.h"
@@ -233,4 +236,134 @@ TEST(PreloadRemovesTheCachesOfOtherBuilds) {
         mentions += warning.find("wow-18b43890bb75affcb09e78272ee9d00c") != std::string::npos;
     }
     CHECK(mentions == 1);
+}
+
+// Over the memory cache's entry limit, so only the handoff from Exists can serve it once its caches are gone.
+static std::vector<uint8_t> LargeModelFile() {
+    std::vector<uint8_t> md20 = NewMd20();
+    PutU32(md20, M2At::VIEWS, 1);
+    AddArray(md20, M2At::SEQUENCES, 1, Sequence(0, 0x20));
+    AddArray(md20, M2At::VERTICES, 2, Concat({ Vertex(255, 0, 0, 0), Vertex(128, 127, 0, 0) }));
+    AddArray(md20, M2At::TEXTURE_COMBOS, 2, Concat({ { 0, 0 }, { 1, 0 } }));
+    AddArray(md20, M2At::COORD_COMBOS, 1, Concat({ { 1, 0 } }));
+    return Md21File(md20, { Chunk("SFID", U32s({ SKIN_ID })), Chunk("XPAD", std::vector<uint8_t>(256 * 1024)) });
+}
+
+TEST(ExistsHandsTheFileItReadToTheOpenThatFollows) {
+    LocalSource local;
+    std::vector<uint8_t> bytes;
+    std::string error;
+
+    CHECK(Configure(local, "exists-handoff") && Cache(local, MODEL_ID, LargeModelFile()) && Cache(local, SKIN_ID, SkinFile()));
+    CHECK(local.source.Exists(MODEL_PATH, error));
+    DropOriginals(local);
+    std::filesystem::remove(Retail::ConvertedCachePath(local.config, MODEL_ID));
+    CHECK(local.source.Read(MODEL_PATH, bytes, error) && bytes.size() > 4 && std::memcmp(bytes.data(), "MD20", 4) == 0);
+    CHECK(!local.source.Read(MODEL_PATH, bytes, error));
+}
+
+TEST(SmallFilesReadAgainComeFromMemory) {
+    LocalSource local;
+    std::vector<uint8_t> bytes;
+    std::string error;
+    std::vector<uint8_t> texture = { 'B', 'L', 'P', '2', 5, 6, 7, 8 };
+
+    CHECK(Configure(local, "memory-hit") && Cache(local, 134402, texture));
+    CHECK(local.source.Read("retail/134402.blp", bytes, error) && bytes == texture);
+    CorruptLastByte(Retail::DecodedCachePath(local.config, 134402));
+    CHECK(local.source.Read("retail/134402.blp", bytes, error) && bytes == texture);
+}
+
+// An opener that fails after a while, counting its calls.
+struct SlowOpener {
+    std::atomic<int> opens { 0 };
+    std::atomic<bool> entered { false };
+
+    Retail::CascSource::StorageOpener Make(std::chrono::milliseconds delay) {
+        return [this, delay](std::string& error) -> void* {
+            this->opens++;
+            this->entered = true;
+            std::this_thread::sleep_for(delay);
+            error = "offline";
+            return nullptr;
+        };
+    }
+
+    void WaitEntered() const {
+        while (!this->entered) {
+            std::this_thread::yield();
+        }
+    }
+};
+
+TEST(MissesDuringAnOpenWaitForItInsteadOfOpeningAgain) {
+    LocalSource local;
+    SlowOpener opener;
+    std::vector<uint8_t> bytes;
+    std::string error;
+
+    CHECK(Configure(local, "open-shared"));
+    local.source.SetStorageOpener(opener.Make(std::chrono::milliseconds(300)));
+    std::thread first([&local] {
+        std::vector<uint8_t> read;
+        std::string readError;
+        local.source.Read("retail/5.blp", read, readError);
+    });
+    opener.WaitEntered();
+    CHECK(!local.source.Read("retail/6.blp", bytes, error) && error.find("offline") != std::string::npos);
+    first.join();
+    CHECK(opener.opens == 1);
+
+    // A failed open is tried again by the next miss.
+    CHECK(!local.source.Read("retail/7.blp", bytes, error));
+    CHECK(opener.opens == 2);
+}
+
+TEST(CachedReadsDoNotWaitForAnOpen) {
+    LocalSource local;
+    SlowOpener opener;
+    std::vector<uint8_t> bytes;
+    std::string error;
+
+    CHECK(Configure(local, "open-cached") && Cache(local, 134403, { 'B', 'L', 'P', '2' }));
+    local.source.SetStorageOpener(opener.Make(std::chrono::milliseconds(600)));
+    std::thread miss([&local] {
+        std::vector<uint8_t> read;
+        std::string readError;
+        local.source.Read("retail/5.blp", read, readError);
+    });
+    opener.WaitEntered();
+    auto start = std::chrono::steady_clock::now();
+    CHECK(local.source.Read("retail/134403.blp", bytes, error) && bytes.size() == 4);
+    CHECK(std::chrono::steady_clock::now() - start < std::chrono::milliseconds(300));
+    miss.join();
+}
+
+static bool WaitPrefetched(Retail::CascSource& source, const std::vector<uint32_t>& ids) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    for (uint32_t id : ids) {
+        while (source.IconPending(id)) {
+            if (std::chrono::steady_clock::now() > deadline) {
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    return true;
+}
+
+TEST(PrefetchedIconsAreServedFromMemory) {
+    LocalSource local;
+    SlowOpener opener;
+    std::vector<uint8_t> bytes;
+    std::string error;
+    std::vector<uint8_t> icon = { 'B', 'L', 'P', '2', 9, 9 };
+
+    CHECK(Configure(local, "prefetch") && Cache(local, 134404, icon));
+    local.source.SetStorageOpener(opener.Make(std::chrono::milliseconds(0)));
+    local.source.PrefetchIcons({ 134405, 134404 });
+    CHECK(WaitPrefetched(local.source, { 134405, 134404 }));
+    std::filesystem::remove(Retail::DecodedCachePath(local.config, 134404));
+    CHECK(local.source.Read("retail/134404.blp", bytes, error) && bytes == icon);
+    CHECK(opener.opens == 1);
 }

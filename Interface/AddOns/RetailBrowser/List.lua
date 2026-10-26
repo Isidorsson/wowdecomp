@@ -88,14 +88,53 @@ export:SetPoint("TOPRIGHT", list, "BOTTOMRIGHT", 0, -4)
 local focusHint = RB.CreateText(frame, "GameFontDisableSmall")
 focusHint:SetPoint("BOTTOMRIGHT", list, "TOPRIGHT", -4, 2)
 
+-- An icon the prefetch is still reading is left blank and set once it has it, so a new page never reads its icons on
+-- the frame that shows it. Without the prefetch (RetailIconPending absent) every icon is set at once.
+local function SetIcon(row, entry)
+    local pending = entry.icon > 0 and RetailIconPending and RetailIconPending(entry.icon)
+    row.iconPending = pending
+    row.icon:SetTexture(not pending and entry.icon > 0 and RB.IconPath(entry.icon) or nil)
+    return not pending
+end
+
+local function FillPendingIcons()
+    local offset = FauxScrollFrame_GetOffset(scroll)
+    local waiting = false
+    for i, row in ipairs(buttons) do
+        local entry = RB.rows[offset + i]
+        if row.iconPending and entry and not SetIcon(row, entry) then
+            waiting = true
+        end
+    end
+    if not waiting then
+        list:SetScript("OnUpdate", nil)
+    end
+end
+
+-- The page's icons, visible rows first, read on a worker.
+local function PrefetchIcons(rows)
+    if not RetailPrefetchIcons then
+        return
+    end
+    local icons = {}
+    for _, row in ipairs(rows) do
+        if row.icon and row.icon > 0 then
+            icons[#icons + 1] = row.icon
+        end
+    end
+    RetailPrefetchIcons(icons)
+end
+
 function RB.RefreshList()
     local offset = FauxScrollFrame_GetOffset(scroll)
+    local waiting = false
     for i, row in ipairs(buttons) do
         local index = offset + i
         local entry = RB.rows[index]
+        row.iconPending = nil
         if entry then
             row.index = index
-            row.icon:SetTexture(entry.icon > 0 and RB.IconPath(entry.icon) or nil)
+            waiting = not SetIcon(row, entry) or waiting
             row.name:SetText(entry.name)
             row.name:SetTextColor(RB.QualityColor(entry.quality))
             row.detail:SetText(entry.detail)
@@ -107,6 +146,7 @@ function RB.RefreshList()
         end
     end
     FauxScrollFrame_Update(scroll, #RB.rows, VISIBLE_ROWS, ROW_HEIGHT)
+    list:SetScript("OnUpdate", waiting and FillPendingIcons or nil)
 end
 scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, RB.RefreshList)
@@ -124,6 +164,7 @@ end
 
 function RB.ShowResult(result)
     RB.result = result
+    PrefetchIcons(result.rows)
     SetRows(result.rows, RB.state.kind)
     pageText:SetText(result.total > 0 and string.format("Page %d / %d, %d matches", result.page, result.pages, result.total) or "No matches")
 end

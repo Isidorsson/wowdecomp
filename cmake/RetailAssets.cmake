@@ -5,6 +5,7 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/DecodedCache.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ConvertedCache.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CacheBudget.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/MemoryCache.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CompressedBlocks.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/Db2Table.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/Db2Read.cpp
@@ -99,6 +100,7 @@ add_library(RetailAssets STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSource.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceNpc.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceBrowser.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceStorage.cpp
 )
 target_link_libraries(RetailAssets PUBLIC RetailCore PRIVATE casc_static)
 target_compile_definitions(RetailAssets PUBLIC WOWDECOMP_RETAIL_ASSETS=1)

@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <functional>
 #include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -16,7 +18,9 @@
 #include "Engine/Source/Retail/BrowserMarshal.h"
 #include "Engine/Source/Retail/BakeWarp.h"
 #include "Engine/Source/Retail/CacheBudget.h"
+#include "Engine/Source/Retail/DecodedCache.h"
 #include "Engine/Source/Retail/HelmFit.h"
+#include "Engine/Source/Retail/MemoryCache.h"
 #include "Engine/Source/Retail/ModelSkins.h"
 #include "Engine/Source/Retail/RetailConfig.h"
 #include "Engine/Source/Retail/RetailDisplays.h"
@@ -28,6 +32,10 @@
 namespace Retail {
 
 struct ConvertedModel;
+
+// Small decoded originals kept in memory (icons, mostly): their cap and the largest file kept.
+constexpr uint64_t MEMORY_CACHE_CAP = 10 << 20;
+constexpr uint32_t MEMORY_ENTRY_LIMIT = 64 << 10;
 
 // Serves retail/<FileDataID> paths and aliased stock paths from one pinned CASC build. Reads come from the
 // decoded cache when possible; a miss opens the storage (online: downloads build metadata) and blocks.
@@ -58,7 +66,7 @@ class CascSource {
     // Cheap and lock-free: called on every SFile open.
     bool Handles(const char* name) const;
     // A converted model, or a cached original that is not a retail model, is found without reading it; anything
-    // else is read, which leaves it cached for the open that follows.
+    // else is read, and what it read is handed to the open that follows (Read of the same name).
     bool Exists(const char* name, std::string& error);
     bool IsCached(const char* name, uint32_t& size);
     bool Read(const char* name, std::vector<uint8_t>& bytes, std::string& error);
@@ -97,6 +105,16 @@ class CascSource {
     using StockReader = std::function<bool(const std::string& path, std::vector<uint8_t>& bytes)>;
     void SetStockReader(StockReader reader) { this->m_readStock = std::move(reader); }
 
+    // Opens the CASC storage: its CascLib handle, or null with the reason. CascLib's by default; tests replace it.
+    using StorageOpener = std::function<void*(std::string& error)>;
+    void SetStorageOpener(StorageOpener opener) { this->m_openStorage = std::move(opener); }
+
+    // Reads the files (a browser page's icons) on a worker, in order, so they land in the decoded and memory caches; a
+    // later call replaces what is still queued. IconPending is whether one is queued or being read: a read of it now
+    // would wait on the disk or the storage.
+    void PrefetchIcons(const std::vector<uint32_t>& fileDataIds);
+    bool IconPending(uint32_t fileDataId) const;
+
     private:
     // Every view's skin as the model's conversion converted it, shared by the model's dependencies.
     using ConvertedSkins = std::vector<std::vector<uint8_t>>;
@@ -113,7 +131,7 @@ class CascSource {
     // A race-named helm resolves to the file RetailItemDisplays::RaceFile chooses, which reads the item tables.
     bool Resolve(const std::string& normalized, uint32_t& fileDataId, std::string& error);
     bool FindDependency(const std::string& normalized, Dependency& dependency) const;
-    bool IsServableUnread(uint32_t fileDataId) const;
+    bool IsServableUnread(uint32_t fileDataId);
     bool ReadModel(const std::string& normalized, std::vector<uint8_t>& bytes, std::string& error);
     // A model's conversion, kept at cachePath; as an NPC body (playerBody) a player race model converts too.
     struct Conversion {
@@ -154,7 +172,13 @@ class CascSource {
     void ReadDisplayTables();
     bool LoadCreatureTables(std::string& error);
     bool LoadItemTables(std::string& error);
+    // Once, without m_storageMutex: a caller that arrives during an open waits for it and shares its outcome; a
+    // failed open is tried again by the next caller.
     bool OpenStorage(std::string& error);
+    void KeepForOpen(const std::string& normalized, std::vector<uint8_t> bytes);
+    bool TakeKept(const std::string& normalized, std::vector<uint8_t>& bytes);
+    void PrefetchLoop();
+    void StopPrefetch();
     bool LoadBrowserIndex(std::string& error);
     bool LoadBrowserStats(std::string& error);
     bool LoadArmourTables(ArmourTables& tables, std::string& error);
@@ -165,8 +189,25 @@ class CascSource {
     std::string m_configError;
     Config m_config;
     AliasTable m_aliases;
-    std::mutex m_storageMutex;
-    void* m_storage = nullptr;
+    std::mutex m_storageMutex;    // Serializes CascLib reads of the open storage.
+    std::mutex m_openMutex;       // Guards m_storage, m_opening and m_openError.
+    std::condition_variable m_opened;
+    bool m_opening = false;
+    std::string m_openError;
+    void* m_storage = nullptr;    // Set once; read without m_openMutex only after OpenStorage succeeded.
+    StorageOpener m_openStorage;
+    VerifiedEntries m_verified;
+    MemoryCache m_memory { MEMORY_CACHE_CAP, MEMORY_ENTRY_LIMIT };
+    std::mutex m_keptMutex;       // Guards Exists's read, kept for the open that follows.
+    std::string m_keptName;
+    std::vector<uint8_t> m_keptBytes;
+    mutable std::mutex m_prefetchMutex;   // Guards the prefetch queue, the file in flight and m_stopping.
+    std::condition_variable m_prefetchWake;
+    std::deque<uint32_t> m_prefetchQueue;
+    uint32_t m_prefetching = 0;
+    bool m_stopping = false;
+    std::once_flag m_prefetchStarted;
+    std::thread m_prefetchWorker;
     mutable std::shared_mutex m_dependencyMutex;
     std::map<std::string, Dependency> m_dependencies;
     std::once_flag m_fallbacksRead;

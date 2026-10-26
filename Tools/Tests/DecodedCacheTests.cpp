@@ -182,3 +182,42 @@ TEST(DecodedHitsMarkEntriesRecentlyUsed) {
     CHECK(ReadDecodedCache(path, read));
     CHECK(std::filesystem::last_write_time(path) - aged > std::chrono::hours(47));
 }
+
+TEST(RecentlyMarkedEntriesAreNotMarkedAgain) {
+    auto path = ScratchDir("touch-throttle") / "11";
+    std::vector<uint8_t> read;
+    std::string error;
+
+    CHECK(WriteDecodedCache(path, { 1, 2, 3 }, error));
+    auto recent = std::filesystem::file_time_type::clock::now() - std::chrono::minutes(10);
+    std::filesystem::last_write_time(path, recent);
+    CHECK(ReadDecodedCache(path, read));
+    CHECK(std::filesystem::last_write_time(path) == recent);
+}
+
+static void FlipLastByte(const std::filesystem::path& path) {
+    std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+    file.seekg(-1, std::ios::end);
+    char byte = static_cast<char>(file.get());
+    file.seekp(-1, std::ios::end);
+    file.put(static_cast<char>(byte ^ 0x5a));
+}
+
+// A damage after the first read goes unseen by that session, which is the checksum it saves; a new session sees it.
+TEST(VerifiedEntriesAreCheckedOncePerSession) {
+    auto path = ScratchDir("verified") / "12";
+    std::vector<uint8_t> read;
+    std::string error;
+    Retail::VerifiedEntries session;
+    Retail::VerifiedEntries next;
+
+    CHECK(WriteDecodedCache(path, { 1, 2, 3 }, error));
+    FlipLastByte(path);
+    CHECK(!ReadDecodedCache(path, read, &session) && !session.Has(path));
+
+    CHECK(WriteDecodedCache(path, { 1, 2, 3 }, error));
+    CHECK(ReadDecodedCache(path, read, &session) && session.Has(path));
+    FlipLastByte(path);
+    CHECK(ReadDecodedCache(path, read, &session) && read.size() == 3);
+    CHECK(!ReadDecodedCache(path, read, &next));
+}

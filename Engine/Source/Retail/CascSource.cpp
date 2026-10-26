@@ -42,11 +42,6 @@ static void WriteRemapped(const std::filesystem::path& path, const std::vector<R
     }
 }
 
-static bool CascFail(std::string& error, const std::string& message) {
-    error = message + " (CascLib error " + std::to_string(GetCascError()) + ")";
-    return false;
-}
-
 CascSource& CascSource::Instance() {
     static CascSource s_source;
     static std::once_flag s_configured;
@@ -70,6 +65,7 @@ CascSource& CascSource::Instance() {
 CascSource::CascSource() = default;
 
 CascSource::~CascSource() {
+    this->StopPrefetch();
     if (this->m_browserWorker.joinable()) {
         this->m_browserWorker.join();
     }
@@ -139,7 +135,6 @@ void CascSource::Preload() {
         this->m_preloads.emplace_back([this] { this->NpcTables(); });
         this->m_preloads.emplace_back([this] {
             std::string error;
-            std::lock_guard<std::mutex> lock(this->m_storageMutex);
             if (!this->OpenStorage(error)) {
                 this->Warn(error);
             }
@@ -263,10 +258,19 @@ bool CascSource::Exists(const char* name, std::string& error) {
     }
 
     std::vector<uint8_t> bytes;
-    return this->Read(name, bytes, error);
+    if (!this->Read(name, bytes, error)) {
+        return false;
+    }
+    this->KeepForOpen(normalized, std::move(bytes));
+    return true;
 }
 
-bool CascSource::IsServableUnread(uint32_t id) const {
+bool CascSource::IsServableUnread(uint32_t id) {
+    std::vector<uint8_t> held;
+    if (this->m_memory.Find(id, held) && (held.size() < 4 || std::memcmp(held.data(), "MD21", 4) != 0)) {
+        return true;
+    }
+
     if (HasConvertedCache(ConvertedCachePath(this->m_config, id), ConverterKey())) {
         return true;
     }
@@ -279,6 +283,10 @@ bool CascSource::Read(const char* name, std::vector<uint8_t>& bytes, std::string
     std::string normalized = NormalizePath(name);
     Dependency dependency;
     WarpedBakeRequest bake;
+
+    if (this->TakeKept(normalized, bytes)) {
+        return true;
+    }
 
     if (ParseWarpedBakeName(normalized, bake)) {
         return this->ReadWarpedBake(bake, bytes, error);
@@ -588,98 +596,6 @@ void CascSource::Warn(const std::string& message) const {
     if (this->m_warn) {
         this->m_warn(message);
     }
-}
-
-bool CascSource::ReadOriginal(uint32_t id, std::vector<uint8_t>& bytes, std::string& error) {
-    return this->ReadCached(id, CASC_STRICT_DATA_CHECK, bytes, error);
-}
-
-bool CascSource::ReadTable(uint32_t id, std::vector<uint8_t>& bytes, std::string& error) {
-    return this->ReadCached(id, CASC_STRICT_DATA_CHECK | CASC_OVERCOME_ENCRYPTED, bytes, error);
-}
-
-bool CascSource::ReadCached(uint32_t id, uint32_t openFlags, std::vector<uint8_t>& bytes, std::string& error) {
-    std::filesystem::path cachePath = DecodedCachePath(this->m_config, id);
-    if (ReadDecodedCache(cachePath, bytes)) {
-        return true;
-    }
-
-    std::lock_guard<std::mutex> lock(this->m_storageMutex);
-
-    // Another thread may have fetched it while this one waited for the lock.
-    if (ReadDecodedCache(cachePath, bytes)) {
-        return true;
-    }
-
-    if (!this->ReadStorage(id, openFlags, bytes, error)) {
-        return false;
-    }
-
-    // A failed cache write only costs a refetch next launch; the bytes are still good.
-    std::string cacheError;
-    if (WriteDecodedCache(cachePath, bytes, cacheError)) {
-        this->m_decodedBudget.Added(bytes.size() + DECODED_CACHE_HEADER_SIZE);
-    }
-    return true;
-}
-
-bool CascSource::OpenStorage(std::string& error) {
-    if (this->m_storage) {
-        return true;
-    }
-
-    bool online = this->m_config.mode == StorageMode::Online;
-    std::string path = this->m_config.path.string();
-
-    CASC_OPEN_STORAGE_ARGS args = {};
-    args.Size = sizeof(args);
-    args.szLocalPath = path.c_str();
-    args.szCodeName = this->m_config.product.c_str();
-    args.szRegion = this->m_config.region.c_str();
-    args.szBuildKey = this->m_config.build.empty() ? nullptr : this->m_config.build.c_str();
-    args.dwLocaleMask = this->m_config.locale;
-
-    if (online) {
-        std::error_code ec;
-        std::filesystem::create_directories(this->m_config.path, ec);
-    }
-
-    HANDLE storage = nullptr;
-    if (!CascOpenStorageEx(nullptr, &args, online, &storage)) {
-        return CascFail(error, "cannot open " + std::string(online ? "online" : "local") + " CASC storage at " + path);
-    }
-
-    this->m_storage = storage;
-    return true;
-}
-
-bool CascSource::ReadStorage(uint32_t fileDataId, uint32_t openFlags, std::vector<uint8_t>& bytes, std::string& error) {
-    if (!this->OpenStorage(error)) {
-        return false;
-    }
-
-    HANDLE file = nullptr;
-    if (!CascOpenFile(this->m_storage, CASC_FILE_DATA_ID(fileDataId), this->m_config.locale, CASC_OPEN_BY_FILEID | openFlags, &file)) {
-        return CascFail(error, "FileDataID " + std::to_string(fileDataId) + " is not in this build");
-    }
-
-    ULONGLONG size = 0;
-    DWORD read = 0;
-    bool ok = CascGetFileSize64(file, &size) && size <= DECODED_CACHE_LIMIT;
-
-    if (ok) {
-        bytes.resize(static_cast<size_t>(size));
-        ok = size == 0 || (CascReadFile(file, bytes.data(), static_cast<DWORD>(size), &read) && read == size);
-    }
-
-    CascCloseFile(file);
-
-    if (!ok) {
-        bytes.clear();
-        return CascFail(error, "cannot read FileDataID " + std::to_string(fileDataId) + " (missing data, encryption key or over the size limit)");
-    }
-
-    return true;
 }
 
 }
