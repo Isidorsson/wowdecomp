@@ -31,6 +31,8 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailNpcLook.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BodyMatch.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BakeWarp.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BodyMatchCache.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/PrefetchSchedule.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BakeBlp.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailRaces.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailBodyLook.cpp
@@ -101,6 +103,7 @@ add_library(RetailAssets STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceNpc.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceBrowser.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceStorage.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourcePrefetch.cpp
 )
 target_link_libraries(RetailAssets PUBLIC RetailCore PRIVATE casc_static)
 target_compile_definitions(RetailAssets PUBLIC WOWDECOMP_RETAIL_ASSETS=1)

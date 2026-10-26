@@ -66,6 +66,7 @@ CascSource::CascSource() = default;
 
 CascSource::~CascSource() {
     this->StopPrefetch();
+    this->StopIconPrefetch();
     if (this->m_browserWorker.joinable()) {
         this->m_browserWorker.join();
     }
@@ -132,6 +133,7 @@ void CascSource::Preload() {
             this->ReadDisplayTables();
             this->Fallbacks();
         });
+        // Also before the browser's first prefetch, which finds a humanoid display's race only once they are read.
         this->m_preloads.emplace_back([this] { this->NpcTables(); });
         this->m_preloads.emplace_back([this] {
             std::string error;
@@ -523,6 +525,7 @@ void CascSource::ReadDisplayTables() {
         if (!this->LoadItemTables(error)) {
             this->Warn("item tables: " + error);
         }
+        this->m_displayTablesLoaded = true;
     });
 }
 

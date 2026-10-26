@@ -252,6 +252,20 @@ static void RetailIconsRegister() {
     FrameScript_RegisterFunction("RetailIconPending", Script_RetailIconPending);
 }
 
+// RetailPrefetch(kind, id): prepares what a preview of it would load, on a worker once the selection has rested
+// (CascSource::Prefetch). Kind "display" is a creature display id; other kinds are ignored. Returns nothing.
+static int32_t Script_RetailPrefetch(lua_State* L) {
+    uint32_t id = lua_isnumber(L, 2) ? static_cast<uint32_t>(lua_tonumber(L, 2)) : 0;
+    if (StringArg(L, 1) == "display" && id && !HasStockRow(g_creatureDisplayInfoDB, id)) {
+        Retail::CascSource::Instance().Prefetch(id);
+    }
+    return 0;
+}
+
+static void RegisterPrefetch() {
+    FrameScript_RegisterFunction("RetailPrefetch", Script_RetailPrefetch);
+}
+
 void RetailBrowserRegister() {
     if (!Retail::CascSource::Instance().Configured()) {
         return;
@@ -266,6 +280,7 @@ void RetailBrowserRegister() {
     FrameScript_RegisterFunction("GetClipboardText", Script_GetClipboardText);
     RetailIconsRegister();
     RetailModelFramesRegister();
+    RegisterPrefetch();
 }
 
 #else

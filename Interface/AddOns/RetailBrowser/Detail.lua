@@ -151,6 +151,9 @@ function RB.ShowDetails(kind, id, preview)
     RB.UpdateActions()
     if preview then
         RB.Preview(details)
+    elseif RetailPrefetch then
+        -- A row the arrows rest on is prepared on a worker, so Enter shows it at once.
+        RetailPrefetch("display", RB.ActionDisplay(details))
     end
 end
 RB.UpdateActions()

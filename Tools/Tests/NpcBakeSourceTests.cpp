@@ -2,6 +2,7 @@
 #include <process.h>
 #include <string>
 #include "Engine/Source/Retail/BakeBlp.h"
+#include "Engine/Source/Retail/BodyMatchCache.h"
 #include "Engine/Source/Retail/CascSource.h"
 #include "Engine/Source/Retail/ConvertedCache.h"
 #include "Engine/Source/Retail/DecodedCache.h"
@@ -22,6 +23,8 @@ struct BakeSource {
     Retail::Config config;
     Retail::CascSource source;
     int stockReads = 0;
+    std::vector<BodyVertex> installed;   // The installed body's vertices; the retail body's left half by default.
+    std::vector<std::string> warnings;
 };
 
 }
@@ -60,10 +63,11 @@ static bool Open(BakeSource& local, const char* name, bool fresh) {
     if (!local.source.Configure(local.dir / "RetailCasc.ini", error)) {
         return false;
     }
+    local.source.SetWarningSink([&local](const std::string& warning) { local.warnings.push_back(warning); });
     local.source.SetStockReader([&local](const std::string& path, std::vector<uint8_t>& bytes) {
         local.stockReads++;
         if (path == "Character\\Human\\Male\\HumanMale.m2") {
-            bytes = BodyModel(Square(1.0f), { 1 });
+            bytes = BodyModel(local.installed.empty() ? Square(1.0f) : local.installed, { 1 });
             return true;
         }
         if (path == "Character\\Human\\Male\\HumanMale00.skin") {
@@ -148,4 +152,59 @@ TEST(WarpedBakesOfAnUnreadableBodyFail) {
     std::string error;
     CHECK(!local.source.Read("Textures\\BakedNpcTextures\\retail-8046191_bake1f.blp", bytes, error));
     CHECK(!error.empty());
+}
+
+static bool Matched(const BakeSource& local) {
+    for (const std::string& warning : local.warnings) {
+        if (warning.find("of its skin vertices lie on retail") != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+TEST(BodyMatchesAreKeptForTheNextSession) {
+    BakeSource local;
+    CHECK(Open(local, "bodymatch-kept", true) && Seed(local));
+    CHECK(local.source.InstalledBodyFits(1, 0) && Matched(local));
+    CHECK(std::filesystem::exists(Retail::ConvertedBodyMatchPath(local.config, 1, 0)));
+
+    // Without the retail body a match would fail: the next session reads the kept one.
+    BakeSource again;
+    CHECK(Open(again, "bodymatch-kept", false));
+    std::filesystem::remove(Retail::DecodedCachePath(again.config, HUMAN_MALE_HD));
+    CHECK(again.source.InstalledBodyFits(1, 0));
+    CHECK(!Matched(again));
+
+    // And warps bakes with it.
+    std::vector<uint8_t> bytes;
+    std::string error;
+    CHECK(again.source.Read(BAKE_PATH, bytes, error));
+    CHECK(IsLeftHalf(bytes));
+}
+
+TEST(AnotherInstalledBodyIsMatchedAgain) {
+    BakeSource local;
+    CHECK(Open(local, "bodymatch-changed", true) && Seed(local));
+    CHECK(local.source.InstalledBodyFits(1, 0));
+
+    // A patch replaced the body with one that is no port: the kept match is not used.
+    BakeSource again;
+    again.installed = { { 0, 0, 0.5f, 0, 0 }, { 1, 0, 0.5f, 1, 0 }, { 0, 1, 0.5f, 0, 1 }, { 1, 1, 0.5f, 1, 1 } };
+    CHECK(Open(again, "bodymatch-changed", false));
+    CHECK(!again.source.InstalledBodyFits(1, 0));
+    CHECK(Matched(again));
+}
+
+TEST(ACorruptKeptBodyMatchIsMatchedAgain) {
+    BakeSource local;
+    CHECK(Open(local, "bodymatch-corrupt", true) && Seed(local));
+    CHECK(local.source.InstalledBodyFits(1, 0));
+    std::filesystem::path kept = Retail::ConvertedBodyMatchPath(local.config, 1, 0);
+    std::filesystem::resize_file(kept, std::filesystem::file_size(kept) - 3);
+
+    BakeSource again;
+    CHECK(Open(again, "bodymatch-corrupt", false));
+    CHECK(again.source.InstalledBodyFits(1, 0));
+    CHECK(Matched(again));
 }

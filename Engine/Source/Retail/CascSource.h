@@ -22,6 +22,7 @@
 #include "Engine/Source/Retail/HelmFit.h"
 #include "Engine/Source/Retail/MemoryCache.h"
 #include "Engine/Source/Retail/ModelSkins.h"
+#include "Engine/Source/Retail/PrefetchSchedule.h"
 #include "Engine/Source/Retail/RetailConfig.h"
 #include "Engine/Source/Retail/RetailDisplays.h"
 #include "Engine/Source/Retail/RetailItemDisplays.h"
@@ -32,6 +33,7 @@
 namespace Retail {
 
 struct ConvertedModel;
+struct BodyMatchResult;
 
 // Small decoded originals kept in memory (icons, mostly): their cap and the largest file kept.
 constexpr uint64_t MEMORY_CACHE_CAP = 10 << 20;
@@ -57,7 +59,7 @@ class CascSource {
     bool Configured() const { return this->m_configured; }
     const std::string& ConfigError() const { return this->m_configError; }
 
-    // Starts the one-time loads a first use would otherwise wait for, on workers: the display tables, the animation
+    // Starts the one-time loads a first use would otherwise wait for, on workers: the display and NPC tables, the animation
     // fallbacks and the storage a first decoded-cache miss opens. Callers that arrive before one finishes wait for
     // it. Also deletes the caches of the product's other builds. Once, after the warning sink is set: the workers
     // warn through it.
@@ -81,8 +83,15 @@ class CascSource {
     const RetailNpcTables* NpcTables();
 
     // Whether the installed body of race and sex is the HD port of the retail HD body (BodyMatchRatio at least
-    // BODY_MATCH_THRESHOLD), so HD bakes can be warped onto it. Matched once per body.
+    // BODY_MATCH_THRESHOLD), so HD bakes can be warped onto it. Matched once per body and kept in the converted cache
+    // (BodyMatchCache.h), so a later session reads the match. Main thread: the body is read from the client's archives.
     bool InstalledBodyFits(uint32_t race, uint32_t sex);
+
+    // Prepares a retail creature display for a preview that may follow (the retail browser's selection) on a worker,
+    // once it has been the latest request for PREFETCH_REST_MS: the body match its plan needs, its warped bake, and its
+    // models converted and textures read into the caches. The worker only fills caches; an older request stops at
+    // its next step. Main thread: the installed bodies the plan names are read here, from the client's archives.
+    void Prefetch(uint32_t displayId);
 
     // The retail races (ChrRaces with their body displays), read on first use; null as NpcTables is.
     const RetailRaces* Races();
@@ -153,10 +162,38 @@ class CascSource {
         bool hasBase = false;
         Image base;   // The installed base skin, for the triangles the bake has no texels for.
     };
+    // The installed body's files, read on the main thread (SFile) for a match that may run on a worker.
+    struct StockBody {
+        bool read = false;
+        std::vector<uint8_t> model;
+        std::vector<uint8_t> skin;
+        std::vector<uint8_t> base;   // Empty when unreadable.
+    };
+    // Matched by whichever thread comes first; the other waits for it.
+    struct BodySlot {
+        std::once_flag matched;
+        std::atomic<bool> done { false };
+        NpcBody body;
+    };
+    BodySlot& BodySlotFor(uint32_t race, uint32_t sex);
     const NpcBody& BodyFor(uint32_t race, uint32_t sex);
-    NpcBody MatchBody(uint32_t race, uint32_t sex);
+    const NpcBody& BodyFrom(uint32_t race, uint32_t sex, const StockBody& stock);
+    StockBody ReadStockBody(uint32_t race, uint32_t sex);
+    NpcBody MatchBody(uint32_t race, uint32_t sex, const StockBody& stock);
+    bool MatchStockBody(uint32_t race, uint32_t sex, const StockBody& stock, BodyMatchResult& match);
     bool ReadRetailBody(uint32_t fileDataId, BodyMesh& mesh, std::string& error);
-    void ReadBaseSkin(uint32_t race, uint32_t sex, NpcBody& body);
+    void DecodeBaseSkin(uint32_t race, uint32_t sex, const StockBody& stock, NpcBody& body);
+    // The prefetch worker (CascSourcePrefetch.cpp).
+    std::vector<std::pair<uint32_t, uint32_t>> PlannedBodies(uint32_t displayId);
+    void PrefetchLoop();
+    bool PrefetchCurrent(uint64_t generation);
+    void PrefetchDisplay(uint32_t displayId, uint64_t generation);
+    void PrefetchNpc(const RetailDisplay& display, uint64_t generation);
+    void PrefetchItems(const NpcExtra& extra, uint32_t race, uint64_t generation);
+    bool PrefetchBodyFits(uint32_t race, uint32_t sex, bool& unknown);
+    void PrefetchModel(const Conversion& conversion);
+    void PrefetchFile(uint32_t fileDataId);
+    void StopPrefetch();
     bool ReadWarpedBake(const WarpedBakeRequest& request, std::vector<uint8_t>& bytes, std::string& error);
     bool LoadNpcTables(std::string& error);
     // The helm fit of a stock race and gender, chosen once.
@@ -177,8 +214,9 @@ class CascSource {
     bool OpenStorage(std::string& error);
     void KeepForOpen(const std::string& normalized, std::vector<uint8_t> bytes);
     bool TakeKept(const std::string& normalized, std::vector<uint8_t>& bytes);
-    void PrefetchLoop();
-    void StopPrefetch();
+    // The icon prefetch worker (CascSourceStorage.cpp), apart from the display prefetch.
+    void IconPrefetchLoop();
+    void StopIconPrefetch();
     bool LoadBrowserIndex(std::string& error);
     bool LoadBrowserStats(std::string& error);
     bool LoadArmourTables(ArmourTables& tables, std::string& error);
@@ -201,13 +239,13 @@ class CascSource {
     std::mutex m_keptMutex;       // Guards Exists's read, kept for the open that follows.
     std::string m_keptName;
     std::vector<uint8_t> m_keptBytes;
-    mutable std::mutex m_prefetchMutex;   // Guards the prefetch queue, the file in flight and m_stopping.
-    std::condition_variable m_prefetchWake;
-    std::deque<uint32_t> m_prefetchQueue;
-    uint32_t m_prefetching = 0;
-    bool m_stopping = false;
-    std::once_flag m_prefetchStarted;
-    std::thread m_prefetchWorker;
+    mutable std::mutex m_iconMutex;   // Guards the icon queue, the icon in flight and m_iconStopping.
+    std::condition_variable m_iconWake;
+    std::deque<uint32_t> m_iconQueue;
+    uint32_t m_iconInFlight = 0;
+    bool m_iconStopping = false;
+    std::once_flag m_iconWorkerStarted;
+    std::thread m_iconWorker;
     mutable std::shared_mutex m_dependencyMutex;
     std::map<std::string, Dependency> m_dependencies;
     std::once_flag m_fallbacksRead;
@@ -228,7 +266,15 @@ class CascSource {
     RetailNpcTables m_npcTables;
     bool m_hasNpcTables = false;
     std::mutex m_bodyMutex;
-    std::map<uint32_t, NpcBody> m_bodies;
+    std::map<uint32_t, std::unique_ptr<BodySlot>> m_bodies;   // Slots never move: matches hold them unlocked.
+    std::atomic<bool> m_displayTablesLoaded { false };
+    std::atomic<bool> m_npcTablesLoaded { false };
+    std::mutex m_prefetchMutex;
+    std::condition_variable m_prefetchWake;
+    PrefetchSchedule m_prefetchSchedule;
+    std::map<uint32_t, StockBody> m_prefetchStock;   // By race * 2 + sex, until the worker matches it.
+    bool m_prefetchStop = false;
+    std::thread m_prefetchWorker;
     std::once_flag m_raceTablesRead;
     RetailRaces m_races;
     bool m_hasRaces = false;

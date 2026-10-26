@@ -159,53 +159,53 @@ void CascSource::PrefetchIcons(const std::vector<uint32_t>& fileDataIds) {
         return;
     }
 
-    std::call_once(this->m_prefetchStarted, [this] { this->m_prefetchWorker = std::thread([this] { this->PrefetchLoop(); }); });
-    std::lock_guard<std::mutex> lock(this->m_prefetchMutex);
-    this->m_prefetchQueue.clear();
+    std::call_once(this->m_iconWorkerStarted, [this] { this->m_iconWorker = std::thread([this] { this->IconPrefetchLoop(); }); });
+    std::lock_guard<std::mutex> lock(this->m_iconMutex);
+    this->m_iconQueue.clear();
     for (uint32_t id : fileDataIds) {
         if (id && !this->m_memory.Has(id)) {
-            this->m_prefetchQueue.push_back(id);
+            this->m_iconQueue.push_back(id);
         }
     }
-    this->m_prefetchWake.notify_one();
+    this->m_iconWake.notify_one();
 }
 
 bool CascSource::IconPending(uint32_t fileDataId) const {
-    std::lock_guard<std::mutex> lock(this->m_prefetchMutex);
-    return this->m_prefetching == fileDataId
-        || std::find(this->m_prefetchQueue.begin(), this->m_prefetchQueue.end(), fileDataId) != this->m_prefetchQueue.end();
+    std::lock_guard<std::mutex> lock(this->m_iconMutex);
+    return this->m_iconInFlight == fileDataId
+        || std::find(this->m_iconQueue.begin(), this->m_iconQueue.end(), fileDataId) != this->m_iconQueue.end();
 }
 
 // A failed read is dropped here: the client's own read of the icon fails the same way and logs why.
-void CascSource::PrefetchLoop() {
-    std::unique_lock<std::mutex> lock(this->m_prefetchMutex);
+void CascSource::IconPrefetchLoop() {
+    std::unique_lock<std::mutex> lock(this->m_iconMutex);
     while (true) {
-        this->m_prefetchWake.wait(lock, [this] { return this->m_stopping || !this->m_prefetchQueue.empty(); });
-        if (this->m_stopping) {
+        this->m_iconWake.wait(lock, [this] { return this->m_iconStopping || !this->m_iconQueue.empty(); });
+        if (this->m_iconStopping) {
             return;
         }
 
-        this->m_prefetching = this->m_prefetchQueue.front();
-        this->m_prefetchQueue.pop_front();
-        uint32_t id = this->m_prefetching;
+        this->m_iconInFlight = this->m_iconQueue.front();
+        this->m_iconQueue.pop_front();
+        uint32_t id = this->m_iconInFlight;
         lock.unlock();
         std::vector<uint8_t> bytes;
         std::string error;
         this->ReadOriginal(id, bytes, error);
         lock.lock();
-        this->m_prefetching = 0;
+        this->m_iconInFlight = 0;
     }
 }
 
-void CascSource::StopPrefetch() {
+void CascSource::StopIconPrefetch() {
     {
-        std::lock_guard<std::mutex> lock(this->m_prefetchMutex);
-        this->m_stopping = true;
-        this->m_prefetchQueue.clear();
+        std::lock_guard<std::mutex> lock(this->m_iconMutex);
+        this->m_iconStopping = true;
+        this->m_iconQueue.clear();
     }
-    this->m_prefetchWake.notify_one();
-    if (this->m_prefetchWorker.joinable()) {
-        this->m_prefetchWorker.join();
+    this->m_iconWake.notify_one();
+    if (this->m_iconWorker.joinable()) {
+        this->m_iconWorker.join();
     }
 }
 

@@ -1,6 +1,7 @@
 #include "Engine/Source/Retail/CascSource.h"
 #include "Engine/Source/Retail/BakeBlp.h"
 #include "Engine/Source/Retail/BodyMatch.h"
+#include "Engine/Source/Retail/BodyMatchCache.h"
 #include "Engine/Source/Retail/ConvertedCache.h"
 #include "Engine/Source/Retail/HelmFit.h"
 #include "Engine/Source/Retail/ItemTables.h"
@@ -40,6 +41,7 @@ const RetailNpcTables* CascSource::NpcTables() {
         if (!this->LoadNpcTables(error)) {
             this->Warn("NPC tables: " + error);
         }
+        this->m_npcTablesLoaded = true;
     });
     return this->m_hasNpcTables ? &this->m_npcTables : nullptr;
 }
@@ -116,14 +118,42 @@ bool CascSource::InstalledBodyFits(uint32_t race, uint32_t sex) {
     return this->BodyFor(race, sex).fits;
 }
 
-const CascSource::NpcBody& CascSource::BodyFor(uint32_t race, uint32_t sex) {
+CascSource::BodySlot& CascSource::BodySlotFor(uint32_t race, uint32_t sex) {
     std::lock_guard<std::mutex> lock(this->m_bodyMutex);
-    uint32_t key = race * 2 + sex;
-    auto found = this->m_bodies.find(key);
-    if (found == this->m_bodies.end()) {
-        found = this->m_bodies.emplace(key, this->MatchBody(race, sex)).first;
+    std::unique_ptr<BodySlot>& slot = this->m_bodies[race * 2 + sex];
+    if (!slot) {
+        slot = std::make_unique<BodySlot>();
     }
-    return found->second;
+    return *slot;
+}
+
+const CascSource::NpcBody& CascSource::BodyFor(uint32_t race, uint32_t sex) {
+    BodySlot& slot = this->BodySlotFor(race, sex);
+    std::call_once(slot.matched, [&] {
+        slot.body = this->MatchBody(race, sex, this->ReadStockBody(race, sex));
+        slot.done = true;
+    });
+    return slot.body;
+}
+
+const CascSource::NpcBody& CascSource::BodyFrom(uint32_t race, uint32_t sex, const StockBody& stock) {
+    BodySlot& slot = this->BodySlotFor(race, sex);
+    std::call_once(slot.matched, [&] {
+        slot.body = this->MatchBody(race, sex, stock);
+        slot.done = true;
+    });
+    return slot.body;
+}
+
+// The installed body and its view-0 skin from the client's archives, and its base skin for the eyes of warped bakes.
+CascSource::StockBody CascSource::ReadStockBody(uint32_t race, uint32_t sex) {
+    StockBody stock;
+    std::string path = InstalledBodyPath(race, sex);
+    stock.read = !path.empty() && this->m_readStock && this->m_readStock(path, stock.model) && this->m_readStock(InstalledBodySkinPath(race, sex), stock.skin);
+    if (stock.read && !this->m_readStock(InstalledBaseSkinPath(race, sex), stock.base)) {
+        stock.base.clear();
+    }
+    return stock;
 }
 
 // The retail body with every skin's geosets (view 0 first, then the LOD skins the ports were made from). A skin that
@@ -144,46 +174,66 @@ bool CascSource::ReadRetailBody(uint32_t fileDataId, BodyMesh& mesh, std::string
 }
 
 // Without it the triangles retail draws with other textures (the eyes) keep the background.
-void CascSource::ReadBaseSkin(uint32_t race, uint32_t sex, NpcBody& body) {
-    std::string path = InstalledBaseSkinPath(race, sex);
-    std::vector<uint8_t> bytes;
+void CascSource::DecodeBaseSkin(uint32_t race, uint32_t sex, const StockBody& stock, NpcBody& body) {
     std::string error = "unreadable";
-    body.hasBase = this->m_readStock(path, bytes) && DecodeBakeBlp(bytes, body.base, error);
+    body.hasBase = !stock.base.empty() && DecodeBakeBlp(stock.base, body.base, error);
     if (!body.hasBase) {
-        this->Warn(path + ": no installed skin for the eyes of warped bakes, " + error);
+        this->Warn(InstalledBaseSkinPath(race, sex) + ": no installed skin for the eyes of warped bakes, " + error);
     }
 }
 
-// The installed body and its view-0 skin from the client's archives, the retail HD body from the storage.
-CascSource::NpcBody CascSource::MatchBody(uint32_t race, uint32_t sex) {
+// The match kept from an earlier session when it is of this installed body and converter; else matched and kept.
+CascSource::NpcBody CascSource::MatchBody(uint32_t race, uint32_t sex, const StockBody& stock) {
     NpcBody body;
-    std::string path = InstalledBodyPath(race, sex);
-    uint32_t retailId = RetailHdBodyFileDataId(race, sex);
-    std::vector<uint8_t> stock;
-    std::vector<uint8_t> skin;
-    BodyMesh installedMesh;
-    BodyMesh retailMesh;
-    std::string error;
-    if (path.empty() || !this->m_readStock || !this->m_readStock(path, stock) || !this->m_readStock(InstalledBodySkinPath(race, sex), skin)) {
+    if (!stock.read) {
         this->Warn("race " + std::to_string(race) + " sex " + std::to_string(sex) + ": no installed body to warp HD bakes onto");
         return body;
     }
-    if (!ReadBodyMesh(stock, &skin, installedMesh, error) || !this->ReadRetailBody(retailId, retailMesh, error)) {
+    std::filesystem::path kept = ConvertedBodyMatchPath(this->m_config, race, sex);
+    uint64_t key = BodyMatchKey(ConverterKey(), stock.model, stock.skin, RetailHdBodyFileDataId(race, sex));
+    BodyMatchResult match;
+    if (!ReadBodyMatchCache(kept, key, match)) {
+        if (!this->MatchStockBody(race, sex, stock, match)) {
+            return body;
+        }
+        // A failed write only costs a match next session.
+        std::string cacheError;
+        std::error_code ec;
+        uintmax_t size = WriteBodyMatchCache(kept, key, match, cacheError) ? std::filesystem::file_size(kept, ec) : 0;
+        if (size && !ec) {
+            this->m_convertedBudget.Added(size);
+        }
+    }
+    body.fits = match.fits;
+    body.warp = std::move(match.warp);
+    if (body.fits) {
+        this->DecodeBaseSkin(race, sex, stock, body);
+    }
+    return body;
+}
+
+// The installed body's vertices matched to the retail HD body's, from the storage.
+bool CascSource::MatchStockBody(uint32_t race, uint32_t sex, const StockBody& stock, BodyMatchResult& match) {
+    std::string path = InstalledBodyPath(race, sex);
+    uint32_t retailId = RetailHdBodyFileDataId(race, sex);
+    BodyMesh installedMesh;
+    BodyMesh retailMesh;
+    std::string error;
+    if (!ReadBodyMesh(stock.model, &stock.skin, installedMesh, error) || !this->ReadRetailBody(retailId, retailMesh, error)) {
         this->Warn(path + ": cannot match to the retail HD body, " + error);
-        return body;
+        return false;
     }
 
     ShrinkBody(retailMesh, HelmFitFor(race, sex)->scale);
     VertexMatches matches = MatchVertices(installedMesh, retailMesh);
-    double ratio = BodyMatchRatio(installedMesh, matches);
-    body.fits = ratio >= BODY_MATCH_THRESHOLD;
-    if (body.fits) {
-        body.warp = BuildBakeWarp(installedMesh, retailMesh, matches, PlayerBodyRegions);
-        this->ReadBaseSkin(race, sex, body);
+    match.ratio = BodyMatchRatio(installedMesh, matches);
+    match.fits = match.ratio >= BODY_MATCH_THRESHOLD;
+    if (match.fits) {
+        match.warp = BuildBakeWarp(installedMesh, retailMesh, matches, PlayerBodyRegions);
     }
-    this->Warn(path + ": " + std::to_string(int(ratio * 1000) / 10.0).substr(0, 4) + "% of its skin vertices lie on retail " + std::to_string(retailId)
-        + (body.fits ? ", so HD bakes are warped onto it (" + std::to_string(body.warp.triangles.size()) + " triangles)" : ", not the HD port: HD bakes are refused"));
-    return body;
+    this->Warn(path + ": " + std::to_string(int(match.ratio * 1000) / 10.0).substr(0, 4) + "% of its skin vertices lie on retail " + std::to_string(retailId)
+        + (match.fits ? ", so HD bakes are warped onto it (" + std::to_string(match.warp.triangles.size()) + " triangles)" : ", not the HD port: HD bakes are refused"));
+    return true;
 }
 
 // From the converted cache when it holds it; else read, warped and kept there.

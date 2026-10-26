@@ -39,6 +39,8 @@ if (TARGET RetailCore)
         NpcDisplayTests.cpp
         BodyMatchTests.cpp
         BakeWarpTests.cpp
+        BodyMatchCacheTests.cpp
+        PrefetchScheduleTests.cpp
         RetailRacesTests.cpp
         RetailBodyLookTests.cpp
         RetailIndexTests.cpp
