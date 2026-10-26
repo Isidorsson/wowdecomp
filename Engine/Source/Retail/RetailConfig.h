@@ -12,6 +12,16 @@ enum class StorageMode {
     Local,
 };
 
+// Which source draws a stock creature display id (RetailDisplayChoice.h). Stock: the client's own row, as before.
+// Models: the retail row, for displays without an Extra row. All: humanoids too, through the NPC bake path.
+enum class CreatureDisplays {
+    Stock,
+    Models,
+    All,
+};
+
+bool ParseCreatureDisplays(const std::string& text, CreatureDisplays& mode);
+
 // RetailCasc.ini. Paths are absolute after parsing: relative ones resolve against the ini's folder.
 struct Config {
     StorageMode mode = StorageMode::Online;
@@ -24,6 +34,7 @@ struct Config {
     std::filesystem::path aliases;  // Optional FDID;client\path rows that replace stock paths.
     uint32_t convertedCacheMb = 2048; // The converted cache's cap; 0 leaves it uncapped.
     uint32_t decodedCacheMb = 4096;   // The decoded cache's cap; 0 leaves it uncapped.
+    CreatureDisplays creatureDisplays = CreatureDisplays::Stock;
 };
 
 // Where this build's caches live: "<cache>/<product>-<build key>", or "<product>-local" without a build key.

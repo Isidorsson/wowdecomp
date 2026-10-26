@@ -47,6 +47,19 @@ static bool ParseMegabytes(const std::string& text, uint32_t& megabytes) {
     return true;
 }
 
+bool ParseCreatureDisplays(const std::string& text, CreatureDisplays& mode) {
+    if (text == "stock") {
+        mode = CreatureDisplays::Stock;
+    } else if (text == "models") {
+        mode = CreatureDisplays::Models;
+    } else if (text == "all") {
+        mode = CreatureDisplays::All;
+    } else {
+        return false;
+    }
+    return true;
+}
+
 static bool Fail(std::string& error, const std::string& message) {
     error = "RetailCasc.ini: " + message;
     return false;
@@ -83,6 +96,10 @@ static bool SetValue(const std::string& key, const std::string& value, const std
         }
     } else if (key == "aliases") {
         config.aliases = baseDir / value;
+    } else if (key == "creature_displays") {
+        if (!ParseCreatureDisplays(value, config.creatureDisplays)) {
+            return Fail(error, "creature_displays must be stock, models or all, not '" + value + "'");
+        }
     } else {
         return Fail(error, "unknown key '" + key + "'");
     }

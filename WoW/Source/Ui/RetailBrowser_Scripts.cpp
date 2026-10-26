@@ -20,6 +20,7 @@
 #include "Engine/Source/lua-5.1/src/lauxlib.h"
 #include "Engine/Source/lua-5.1/src/lua.h"
 #include "WoW/Source/DB/DBClient/DBClient.h"
+#include "WoW/Source/DB/RetailCreatureRecords.h"
 #include "WoW/Source/DB/WowClientDB.h"
 #include "WoW/Source/Ui/RetailModelFrame_Scripts.h"
 
@@ -31,9 +32,10 @@ static bool HasStockRow(const Db& db, uint32_t id) {
     return key >= db.m_minID && key <= db.m_maxID && db.m_recordsById[key - db.m_minID];
 }
 
-// The installed DBC rows, which the client draws in place of a retail row of the same id.
+// The installed DBC rows, which the client draws in place of a retail row of the same id (for creatures, unless
+// creature_displays hands the id to retail).
 static Retail::InstalledDisplays InstalledDisplays() {
-    return { [](uint32_t id) { return HasStockRow(g_creatureDisplayInfoDB, id); }, [](uint32_t id) { return HasStockRow(g_itemDisplayInfoDB, id); } };
+    return { [](uint32_t id) { return DrawsInstalledCreatureDisplay(id); }, [](uint32_t id) { return HasStockRow(g_itemDisplayInfoDB, id); } };
 }
 
 static void PushValue(lua_State* L, const Retail::BrowserValue& value) {
@@ -256,7 +258,7 @@ static void RetailIconsRegister() {
 // (CascSource::Prefetch). Kind "display" is a creature display id; other kinds are ignored. Returns nothing.
 static int32_t Script_RetailPrefetch(lua_State* L) {
     uint32_t id = lua_isnumber(L, 2) ? static_cast<uint32_t>(lua_tonumber(L, 2)) : 0;
-    if (StringArg(L, 1) == "display" && id && !HasStockRow(g_creatureDisplayInfoDB, id)) {
+    if (StringArg(L, 1) == "display" && id && !DrawsInstalledCreatureDisplay(id)) {
         Retail::CascSource::Instance().Prefetch(id);
     }
     return 0;

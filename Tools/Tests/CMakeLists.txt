@@ -37,6 +37,7 @@ if (TARGET RetailCore)
         ModelSkinsTests.cpp
         ItemSkinsTests.cpp
         RetailDisplaysTests.cpp
+        RetailDisplayChoiceTests.cpp
         RetailItemDisplaysTests.cpp
         HelmFitTests.cpp
         NpcDisplayTests.cpp

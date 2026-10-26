@@ -58,6 +58,8 @@ class CascSource {
     bool Configure(const std::filesystem::path& configPath, std::string& error);
     bool Configured() const { return this->m_configured; }
     const std::string& ConfigError() const { return this->m_configError; }
+    // Stock unless configured: which source draws a stock creature display id (RetailDisplayChoice.h).
+    CreatureDisplays CreatureDisplayMode() const { return this->m_configured ? this->m_config.creatureDisplays : CreatureDisplays::Stock; }
 
     // Starts the one-time loads a first use would otherwise wait for, on workers: the display and NPC tables, the animation
     // fallbacks and the storage a first decoded-cache miss opens. Callers that arrive before one finishes wait for

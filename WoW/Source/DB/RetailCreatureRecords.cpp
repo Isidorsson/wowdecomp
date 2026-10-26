@@ -1,12 +1,14 @@
 #include "WoW/Source/DB/RetailCreatureRecords.h"
+#include "WoW/Source/DB/DBClient/DBClient.h"
 #include "WoW/Source/DB/WowClientDB.h"
 #include "WoW/Source/DB/Rec/CreatureDisplayInfoRec.h"
 #include "WoW/Source/DB/Rec/CreatureModelDataRec.h"
 
 // Not in the original. A display id the stock CreatureDisplayInfo lacks is served from the retail tables of the
 // pinned CASC build, so units, mounts, forms and model frames show retail displays without a downported DBC.
-// Stock rows always win. A served display names its model by a synthetic id above every stock one, which the
-// CreatureModelData lookup turns back into the retail model.
+// Stock rows win unless RetailCasc.ini's creature_displays hands a stock id to retail (RetailDisplayChoice.h): that
+// row keeps its stock sounds and takes retail's look. A served display names its model by a synthetic id above every
+// stock one, which the CreatureModelData lookup turns back into the retail model.
 
 template <class T>
 static T* StockRecord(const WowClientDB<T>& db, int32_t id) {
@@ -22,6 +24,7 @@ static T* StockRecord(const WowClientDB<T>& db, int32_t id) {
 #include <mutex>
 #include <string>
 #include "Engine/Source/Retail/CascSource.h"
+#include "Engine/Source/Retail/RetailDisplayChoice.h"
 #include "WoW/Source/DB/RetailNpcRecords.h"
 
 // Built once per id and kept for the session: callers hold the record and its strings. Map nodes never move.
@@ -29,6 +32,7 @@ struct ServedDisplay {
     CreatureDisplayInfoRec record;
     std::string variations[3];
     std::string fourthVariation;
+    std::string portrait;
 };
 
 struct ServedModel {
@@ -104,6 +108,93 @@ static void FillModel(ServedModel& served, int32_t id, const Retail::RetailCreat
     rec.m_attachedEffectScale = 1.0f;
 }
 
+static Retail::DisplayRow RowOf(const CreatureDisplayInfoRec& rec) {
+    Retail::DisplayRow row;
+    row.id = rec.m_id;
+    row.modelId = rec.m_modelID;
+    row.soundId = rec.m_soundID;
+    row.extendedDisplayId = rec.m_extendedDisplayInfoID;
+    row.scale = rec.m_creatureModelScale;
+    row.alpha = rec.m_creatureModelAlpha;
+    for (int32_t i = 0; i < 3; i++) {
+        row.variations[i] = rec.m_textureVariation[i] ? rec.m_textureVariation[i] : "";
+    }
+    row.portrait = rec.m_portraitTextureName ? rec.m_portraitTextureName : "";
+    row.sizeClass = rec.m_sizeClass;
+    row.bloodId = rec.m_bloodID;
+    row.npcSoundId = rec.m_npcsoundID;
+    row.particleColorId = rec.m_particleColorID;
+    row.geosetData = rec.m_creatureGeosetData;
+    row.objectEffectPackageId = rec.m_objectEffectPackageID;
+    return row;
+}
+
+static void FillRow(ServedDisplay& served, const Retail::DisplayRow& row) {
+    CreatureDisplayInfoRec& rec = served.record;
+    std::memset(&rec, 0, sizeof(rec));
+    rec.m_id = row.id;
+    rec.m_modelID = row.modelId;
+    rec.m_soundID = row.soundId;
+    rec.m_extendedDisplayInfoID = row.extendedDisplayId;
+    rec.m_creatureModelScale = row.scale;
+    rec.m_creatureModelAlpha = row.alpha;
+    for (int32_t i = 0; i < 3; i++) {
+        served.variations[i] = row.variations[i];
+        rec.m_textureVariation[i] = served.variations[i].c_str();
+    }
+    served.fourthVariation = row.fourthVariation;
+    served.portrait = row.portrait;
+    rec.m_portraitTextureName = served.portrait.c_str();
+    rec.m_sizeClass = row.sizeClass;
+    rec.m_bloodID = row.bloodId;
+    rec.m_npcsoundID = row.npcSoundId;
+    rec.m_particleColorID = row.particleColorId;
+    rec.m_creatureGeosetData = row.geosetData;
+    rec.m_objectEffectPackageID = row.objectEffectPackageId;
+}
+
+static Retail::StockDisplayKind KindOf(const CreatureDisplayInfoRec& stock) {
+    if (stock.m_extendedDisplayInfoID) {
+        return Retail::StockDisplayKind::NpcHumanoid;
+    }
+    const CreatureModelDataRec* model = StockRecord(g_creatureModelDataDB, stock.m_modelID);
+    const char* name = model ? model->m_modelName : nullptr;
+    return name && _strnicmp(name, "Character\\", 10) == 0 ? Retail::StockDisplayKind::PlayerBody : Retail::StockDisplayKind::Creature;
+}
+
+// The retail row creature_displays hands a stock row to, null when the stock row stays.
+static const Retail::RetailDisplay* ChosenRetailDisplay(const CreatureDisplayInfoRec& stock) {
+    Retail::CascSource& source = Retail::CascSource::Instance();
+    Retail::CreatureDisplays mode = source.CreatureDisplayMode();
+    if (mode == Retail::CreatureDisplays::Stock) {
+        return nullptr;
+    }
+    const Retail::RetailDisplays* retail = source.Displays();
+    const Retail::RetailDisplay* display = retail ? retail->Display(static_cast<uint32_t>(stock.m_id)) : nullptr;
+    bool wins = Retail::RetailDisplayWins(mode, static_cast<uint32_t>(stock.m_id), KindOf(stock), display);
+    return wins ? display : nullptr;
+}
+
+// A stock row that creature_displays hands to retail, or the stock row itself.
+static CreatureDisplayInfoRec* ChosenStockRecord(CreatureDisplayInfoRec* stock) {
+    const Retail::RetailDisplay* display = ChosenRetailDisplay(*stock);
+    if (!display) {
+        return stock;
+    }
+
+    std::lock_guard<std::mutex> lock(s_servedMutex);
+    auto [served, added] = s_displays.try_emplace(stock->m_id);
+    if (added) {
+        FillRow(served->second, Retail::OverlayRetailDisplay(RowOf(*stock), *display));
+        int32_t modelId = 0;
+        int32_t extraId = 0;
+        if (display->extendedDisplayId && ServeRetailNpcDisplay(display->id, display->extendedDisplayId, display->modelId, modelId, extraId)) {
+            FillNpcDisplay(served->second, modelId, extraId);
+        }
+    }
+    return &served->second.record;
+}
+
 static CreatureDisplayInfoRec* ServedDisplayRecord(int32_t id) {
     if (id <= 0) {
         return nullptr;
@@ -151,10 +242,23 @@ const char* RetailFourthVariation(const CreatureDisplayInfoRec* displayRec) {
     return served != s_displays.end() && &served->second.record == displayRec ? served->second.fourthVariation.c_str() : "";
 }
 
+bool DrawsInstalledCreatureDisplay(uint32_t id) {
+    const CreatureDisplayInfoRec* stock = StockRecord(g_creatureDisplayInfoDB, static_cast<int32_t>(id));
+    return stock && !ChosenRetailDisplay(*stock);
+}
+
 #else
 
 const char* RetailFourthVariation(const CreatureDisplayInfoRec*) {
     return "";
+}
+
+bool DrawsInstalledCreatureDisplay(uint32_t id) {
+    return StockRecord(g_creatureDisplayInfoDB, static_cast<int32_t>(id)) != nullptr;
+}
+
+static CreatureDisplayInfoRec* ChosenStockRecord(CreatureDisplayInfoRec* stock) {
+    return stock;
 }
 
 static CreatureDisplayInfoRec* ServedDisplayRecord(int32_t) {
@@ -170,7 +274,7 @@ static CreatureModelDataRec* ServedModelRecord(int32_t) {
 template <>
 CreatureDisplayInfoRec* WowClientDB<CreatureDisplayInfoRec>::GetRecord(int32_t id) const {
     CreatureDisplayInfoRec* stock = StockRecord(*this, id);
-    return stock ? stock : ServedDisplayRecord(id);
+    return stock ? ChosenStockRecord(stock) : ServedDisplayRecord(id);
 }
 
 template <>

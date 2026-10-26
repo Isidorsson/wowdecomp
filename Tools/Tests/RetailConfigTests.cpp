@@ -92,6 +92,18 @@ TEST(DecodedCacheCapDefaultsAndParses) {
     CHECK(!ParseConfig("mode=local\npath=E:/Retail\ndecoded_cache_mb=4GB\n", s_base, config, error));
 }
 
+TEST(CreatureDisplaysDefaultsToStockAndParses) {
+    Config config;
+    std::string error;
+
+    CHECK(ParseConfig("mode=local\npath=E:/Retail\n", s_base, config, error));
+    CHECK(config.creatureDisplays == Retail::CreatureDisplays::Stock);
+    CHECK(ParseConfig("mode=local\npath=E:/Retail\ncreature_displays=models\n", s_base, config, error));
+    CHECK(config.creatureDisplays == Retail::CreatureDisplays::Models);
+    CHECK(!ParseConfig("mode=local\npath=E:/Retail\ncreature_displays=retail\n", s_base, config, error));
+    CHECK(error.find("creature_displays") != std::string::npos);
+}
+
 TEST(BuildCacheFoldersAreNamedByProductAndBuild) {
     Config config;
     config.cache = "C:/Cache";
