@@ -39,6 +39,7 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailIndex.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailIndexSets.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailIndexSearch.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailIndexColumns.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BrowserMarshal.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BrowserDetails.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ItemSparse.cpp

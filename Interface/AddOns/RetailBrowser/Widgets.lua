@@ -1,87 +1,209 @@
--- Small widget helpers on the 3.3.5 templates (UIPanelButtonTemplate, InputBoxTemplate, UIDropDownMenuTemplate).
+-- Widget helpers on the stock 3.3.5 pieces, coloured from Theme.lua: panels with the tooltip edge tinted bronze, the
+-- red-and-gold UIPanelButtonTemplate, gold-text tabs (TabButtonTemplate), dark input wells, and the grouped choice menu.
 
 local RB = RetailBrowser
+local T = RB.THEME
 
--- Choices per dropdown level before they are grouped into submenus.
-local DROPDOWN_GROUP = 20
+-- Choices per menu level before they are grouped into submenus (3.3.5 lists 24 buttons a level, Any is one).
+local DROPDOWN_GROUP = 23
+RB.EDGE_INSET = 4
 
-RB.PANEL_BACKDROP = {
-    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+RB.WINDOW_BACKDROP = {
+    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
     edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-    tile = true, tileSize = 32, edgeSize = 32,
-    insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    tile = true, tileSize = 16, edgeSize = 24,
+    insets = { left = 6, right = 6, top = 6, bottom = 6 },
 }
-RB.INSET_BACKDROP = {
+RB.PANEL_BACKDROP = {
     bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true, tileSize = 16, edgeSize = 14,
+    tile = true, tileSize = 16, edgeSize = 12,
     insets = { left = 3, right = 3, top = 3, bottom = 3 },
 }
+RB.INPUT_BACKDROP = {
+    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 16, edgeSize = 8,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+}
 
-function RB.CreateInset(parent, width, height)
-    local inset = CreateFrame("Frame", nil, parent)
-    inset:SetSize(width, height)
-    inset:SetBackdrop(RB.INSET_BACKDROP)
-    inset:SetBackdropColor(0, 0, 0, 0.55)
-    inset:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.9)
-    return inset
+local function MakeFont(name, file, size, color)
+    local font = CreateFont(name)
+    font:SetFont(file, size, "")
+    font:SetTextColor(color[1], color[2], color[3])
+    return font
 end
+MakeFont("RetailBrowserGridFont", "Fonts\\ARIALN.TTF", 11, T.text)
+MakeFont("RetailBrowserHeadFont", "Fonts\\FRIZQT__.TTF", 10, T.title)
+MakeFont("RetailBrowserSmallFont", "Fonts\\ARIALN.TTF", 10, T.text)
+MakeFont("RetailBrowserLabelFont", "Fonts\\ARIALN.TTF", 10, T.label)
+MakeFont("RetailBrowserValueFont", "Fonts\\ARIALN.TTF", 11, T.value)
 
-function RB.CreateButton(parent, text, width, onClick)
-    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    button:SetSize(width, 22)
-    button:SetText(text)
-    button:SetScript("OnClick", onClick)
-    return button
+-- A panel (style panel, well or band) with the tooltip edge in bronze (dim for wells).
+function RB.CreatePanel(parent, style)
+    local panel = CreateFrame("Frame", nil, parent)
+    panel:SetBackdrop(RB.PANEL_BACKDROP)
+    RB.SetBack(panel, T[style or "panel"])
+    RB.SetBorder(panel, style == "well" and T.borderDim or T.border)
+    return panel
 end
 
 function RB.CreateText(parent, font, justify)
-    local text = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
+    local text = parent:CreateFontString(nil, "OVERLAY", font or "RetailBrowserSmallFont")
     text:SetJustifyH(justify or "LEFT")
     return text
 end
 
-function RB.CreateEditBox(parent, name, width, numeric)
-    local box = CreateFrame("EditBox", name, parent, "InputBoxTemplate")
-    box:SetSize(width, 20)
+-- A solid fill in a theme colour (show and hide it; SetAlpha would overwrite the vertex alpha).
+function RB.CreateFill(parent, layer, color)
+    local fill = parent:CreateTexture(nil, layer or "BACKGROUND")
+    fill:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
+    RB.SetVertex(fill, color)
+    fill:SetAllPoints()
+    return fill
+end
+
+-- The additive soft gold highlight of rows and list entries.
+function RB.SetHoverHighlight(button)
+    local glow = button:CreateTexture(nil, "HIGHLIGHT")
+    glow:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
+    RB.SetVertex(glow, T.hover)
+    glow:SetBlendMode("ADD")
+    glow:SetAllPoints()
+    button:SetHighlightTexture(glow)
+end
+
+local function SetLabel(self, text)
+    self:SetText(text)
+end
+
+-- A stock red-and-gold button with small text; SetOn locks its highlight (toggles, scopes).
+function RB.CreateButton(parent, text, width, height, onClick)
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetSize(width, height or 20)
+    button:SetNormalFontObject(GameFontNormalSmall)
+    button:SetHighlightFontObject(GameFontHighlightSmall)
+    button:SetDisabledFontObject(GameFontDisableSmall)
+    button:SetText(text)
+    button.label = button:GetFontString()
+    button:SetScript("OnClick", onClick)
+    button.SetLabel = SetLabel
+    button.SetOn = function(self, on) if on then self:LockHighlight() else self:UnlockHighlight() end end
+    button.SetEnabled = function(self, on) if on then self:Enable() else self:Disable() end end
+    return button
+end
+
+-- A gold-text tab; SetOn selects it.
+function RB.CreateTab(parent, name, text, onClick)
+    local tab = CreateFrame("Button", name, parent, "TabButtonTemplate")
+    tab:SetText(text)
+    tab.label = tab:GetFontString()
+    tab:SetScript("OnClick", onClick)
+    tab.SetLabel = function(self, label)
+        self:SetText(label)
+        PanelTemplates_TabResize(self, 0)
+    end
+    tab.SetOn = function(self, on)
+        if on then PanelTemplates_SelectTab(self) else PanelTemplates_DeselectTab(self) end
+    end
+    PanelTemplates_TabResize(tab, 0)
+    PanelTemplates_DeselectTab(tab)
+    return tab
+end
+
+-- A box's placeholder: grey text over an empty box, hidden while it has focus or text (3.3.5 has no placeholder).
+function RB.RefreshHint(box)
+    RB.Shown(box.hint, box:GetText() == "" and not box:HasFocus())
+end
+
+function RB.SetHint(box, text)
+    box.hint:SetText(text or "")
+    RB.RefreshHint(box)
+end
+
+local function WellFocus(self)
+    RB.SetBorder(self, T.inputFocus)
+    if self.hint then self.hint:Hide() end
+end
+
+local function WellBlur(self)
+    RB.SetBorder(self, self.edgeColor or T.inputBorder)
+    if self.hint then RB.RefreshHint(self) end
+end
+
+-- The state colour of a well's border (dim, active, invalid); focus draws it gold meanwhile.
+function RB.SetWellEdge(well, color)
+    well.edgeColor = color
+    if not (well.HasFocus and well:HasFocus()) then
+        RB.SetBorder(well, color)
+    end
+end
+
+local function MakeWell(frame)
+    frame:SetBackdrop(RB.INPUT_BACKDROP)
+    RB.SetBack(frame, T.input)
+    RB.SetBorder(frame, T.inputBorder)
+end
+
+-- A dark input well for the grid's filter row and the Build options; HookScript its focus events.
+function RB.CreateCellBox(parent, name)
+    local box = CreateFrame("EditBox", name, parent)
+    box:SetHeight(16)
     box:SetAutoFocus(false)
-    box:SetNumeric(numeric and true or false)
-    box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    box:SetFontObject(RetailBrowserSmallFont)
+    box:SetTextInsets(4, 4, 0, 0)
+    MakeWell(box)
+    box:SetScript("OnEditFocusGained", WellFocus)
+    box:SetScript("OnEditFocusLost", WellBlur)
+    box.hint = RB.CreateText(box, "RetailBrowserSmallFont")
+    box.hint:SetPoint("LEFT", 5, 0)
+    box.hint:SetPoint("RIGHT", -4, 0)
+    box.hint:SetHeight(14)
+    RB.SetColor(box.hint, T.disabled)
     return box
 end
 
-local function SelectChoice(dropdown, value, text)
-    dropdown.value = value
-    UIDropDownMenu_SetText(dropdown, text)
-    CloseDropDownMenus()
-    if dropdown.onChange then
-        dropdown.onChange(dropdown, value)
-    end
+-- An input-well button for choices (it opens the choice menu).
+function RB.CreateChoiceButton(parent, width, onClick)
+    local button = CreateFrame("Button", nil, parent)
+    button:SetSize(width, 16)
+    MakeWell(button)
+    button.label = RB.CreateText(button, "RetailBrowserSmallFont")
+    button.label:SetPoint("LEFT", 5, 0)
+    button.label:SetPoint("RIGHT", -4, 0)
+    RB.SetHoverHighlight(button)
+    button:SetScript("OnClick", onClick)
+    button.SetLabel = function(self, text) self.label:SetText(text) end
+    return button
 end
 
-local function AddChoice(dropdown, choice, level)
+local function AddChoice(menu, choice, level)
     local info = UIDropDownMenu_CreateInfo()
     info.text = choice[2]
-    info.checked = dropdown.value == choice[1]
-    info.func = function() SelectChoice(dropdown, choice[1], choice[2]) end
+    info.checked = menu.value == choice[1] and (choice[3] == nil or choice[3] == menu.valueKey)
+    info.func = function()
+        CloseDropDownMenus()
+        menu.onPick(choice[1], choice[2], choice[3])
+    end
     UIDropDownMenu_AddButton(info, level)
 end
 
--- Up to DROPDOWN_GROUP choices are listed; more are grouped in submenus named by their first and last choice.
-local function InitializeDropdown(dropdown, level)
+-- Up to DROPDOWN_GROUP choices are listed; more are grouped in submenus named by their first and last choice. Any
+-- (nil) comes first. A choice may name its own filter key as its third value.
+local function InitializeMenu(menu, level)
     level = level or 1
-    local choices = dropdown.choices
+    local choices = menu.choices or {}
     if level > 1 then
         local group = UIDROPDOWNMENU_MENU_VALUE
         for i = (group - 1) * DROPDOWN_GROUP + 1, math.min(group * DROPDOWN_GROUP, #choices) do
-            AddChoice(dropdown, choices[i], level)
+            AddChoice(menu, choices[i], level)
         end
         return
     end
-    AddChoice(dropdown, { nil, "Any" }, level)
+    AddChoice(menu, { nil, "Any" }, level)
     if #choices <= DROPDOWN_GROUP then
         for _, choice in ipairs(choices) do
-            AddChoice(dropdown, choice, level)
+            AddChoice(menu, choice, level)
         end
         return
     end
@@ -97,31 +219,37 @@ local function InitializeDropdown(dropdown, level)
     end
 end
 
--- A labelled dropdown of { value, text } choices with "Any" (nil) first.
-function RB.CreateDropdown(parent, name, width, onChange)
-    local dropdown = CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")
-    UIDropDownMenu_SetWidth(dropdown, width)
-    dropdown.label = RB.CreateText(dropdown, "GameFontNormalSmall")
-    dropdown.label:SetPoint("BOTTOMLEFT", dropdown, "TOPLEFT", 20, 0)
-    dropdown.choices = {}
-    dropdown.onChange = onChange
-    UIDropDownMenu_Initialize(dropdown, InitializeDropdown)
-    return dropdown
-end
+-- One shared menu for every choice cell: onPick(value, text, key) gets the choice.
+local choiceMenu = CreateFrame("Frame", "RetailBrowserChoiceMenu", UIParent, "UIDropDownMenuTemplate")
+choiceMenu.displayMode = "MENU"
+UIDropDownMenu_Initialize(choiceMenu, InitializeMenu, "MENU")
 
-function RB.SetDropdown(dropdown, label, choices)
-    dropdown.label:SetText(label)
-    dropdown.choices = choices or {}
-    dropdown.value = nil
-    UIDropDownMenu_SetText(dropdown, "Any")
+function RB.ShowChoiceMenu(anchor, choices, value, valueKey, onPick)
+    choiceMenu.choices, choiceMenu.value, choiceMenu.valueKey, choiceMenu.onPick = choices, value, valueKey, onPick
+    ToggleDropDownMenu(1, nil, choiceMenu, anchor, 0, 0)
 end
 
 function RB.QualityColor(quality)
-    local color = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality or 1]
-    if color then
-        return color.r, color.g, color.b
+    local color = T.quality[quality or 1] or T.quality[1]
+    return color[1], color[2], color[3]
+end
+
+-- Creature rank groups as the filter has them: 0 normal, 1 elite, 2 rare, 3 rare elite (retail 1 and 3 are elite,
+-- 2 rare elite, 4 rare).
+function RB.RankGroup(classification)
+    if classification == 1 or classification == 3 then
+        return 1
+    elseif classification == 2 then
+        return 3
+    elseif classification == 4 then
+        return 2
     end
-    return 1, 1, 1
+    return 0
+end
+
+function RB.RankColor(group)
+    local color = T.rank[group or 0] or T.rank[0]
+    return color[1], color[2], color[3]
 end
 
 -- A retail icon by FileDataID, which the client serves from CASC.
@@ -130,4 +258,8 @@ function RB.IconPath(fdid)
         return "retail\\" .. fdid .. ".blp"
     end
     return "Interface\\Icons\\INV_Misc_QuestionMark"
+end
+
+function RB.Shown(region, shown)
+    if shown then region:Show() else region:Hide() end
 end

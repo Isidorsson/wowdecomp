@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -141,10 +142,21 @@ struct BrowseMount {
     std::vector<BrowseDisplay> displays;
 };
 
+// The column a search sorts by (BrowseFilters::sort); each kind reads the ones it has, the others are 0. Kind is
+// humanoid (creatures), the source (sets: 1 ItemSet), creature model (models) or the mount type.
+enum class SortColumn : int32_t {
+    Name = 0, Id, ItemLevel, Quality, Slot, Subclass, Expansion, Display, Count, Type, Rank, Race, Family, Kind, Installed
+};
+
 // -1 for a filter not set. Items: inventoryType (chest also matches robes), armour (1 cloth to 4 plate),
 // weaponSubclass, quality, item level range, expansion. Creatures: creatureType, family, classification (a
 // ClassificationGroup), race (of the Extra row), humanoid (1 any display has an Extra row, 0 none). Sets: classId,
 // armour, expansion.
+// Every kind (the grid's column filters): the entry id range (a set's own TransmogSet or ItemSet id, a model's fdid),
+// displayId (any of its displays, appearances, pieces or users), the count range of those, installed (1 any of them has
+// an installed DBC row, by installedCreature / installedItem; 0 none). setSource (0 transmog, 1 ItemSet), modelKind
+// (1 creature model, 0 item model), mountType. sort (a SortColumn) and descending order the matches instead of the
+// text ranking; they are not filters.
 struct BrowseFilters {
     int32_t inventoryType = -1;
     int32_t armour = -1;
@@ -159,6 +171,20 @@ struct BrowseFilters {
     int32_t race = -1;
     int32_t humanoid = -1;
     int32_t classId = -1;
+    int32_t minId = -1;
+    int32_t maxId = -1;
+    int32_t displayId = -1;
+    int32_t minCount = -1;
+    int32_t maxCount = -1;
+    int32_t installed = -1;
+    int32_t setSource = -1;
+    int32_t modelKind = -1;
+    int32_t mountType = -1;
+    int32_t sort = -1;
+    int32_t descending = -1;
+    // Constant for a session, so equality leaves them out.
+    std::function<bool(uint32_t)> installedCreature;
+    std::function<bool(uint32_t)> installedItem;
 
     bool Any() const;
     bool operator==(const BrowseFilters& other) const;
@@ -268,6 +294,9 @@ class RetailIndex {
     std::string_view FirstName(const Keys& keys) const;
     bool RankOf(const Keys& keys, const std::string& query, bool numeric, uint32_t number, uint32_t& rank) const;
     bool Passes(BrowseKind kind, size_t entry, const BrowseFilters& filters) const;
+    // The column filters every kind has, and an entry's value in the sort column (RetailIndexColumns.cpp).
+    bool PassesColumns(BrowseKind kind, size_t entry, const BrowseFilters& filters) const;
+    uint32_t SortValue(BrowseKind kind, size_t entry, const BrowseFilters& filters) const;
     SearchRow RowOf(BrowseKind kind, size_t entry) const;
     const std::vector<Keys>& KeysOf(BrowseKind kind) const;
     std::vector<Keys>& KeysOf(BrowseKind kind);

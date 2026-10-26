@@ -98,7 +98,7 @@ static int32_t Script_RetailSearch(lua_State* L) {
     uint32_t page = lua_isnumber(L, 4) ? static_cast<uint32_t>(lua_tonumber(L, 4)) : 1;
     Retail::BrowserValue result;
     std::string error;
-    if (!Retail::MarshalSearch(Retail::CascSource::Instance().BrowserIndex(), StringArg(L, 1), StringArg(L, 2), FilterArg(L, 3), page, result, error)) {
+    if (!Retail::MarshalSearch(Retail::CascSource::Instance().BrowserIndex(), StringArg(L, 1), StringArg(L, 2), FilterArg(L, 3), page, result, error, InstalledDisplays())) {
         return PushError(L, error);
     }
     PushValue(L, result);
@@ -156,7 +156,7 @@ static int32_t Script_RetailExportCsv(lua_State* L) {
     std::string kind = StringArg(L, 1);
     std::string csv;
     std::string error;
-    if (!Retail::SearchCsv(Retail::CascSource::Instance().BrowserIndex(), kind, StringArg(L, 2), FilterArg(L, 3), csv, error)) {
+    if (!Retail::SearchCsv(Retail::CascSource::Instance().BrowserIndex(), kind, StringArg(L, 2), FilterArg(L, 3), csv, error, InstalledDisplays())) {
         return PushError(L, error);
     }
     return WriteExport(L, ExportPath(kind, "csv"), csv);

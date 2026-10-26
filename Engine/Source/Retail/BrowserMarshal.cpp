@@ -64,13 +64,24 @@ BrowseFilters ParseBrowseFilters(const std::map<std::string, double>& filters) {
         { "weaponSubclass", &parsed.weaponSubclass }, { "quality", &parsed.quality }, { "minItemLevel", &parsed.minItemLevel },
         { "maxItemLevel", &parsed.maxItemLevel }, { "expansion", &parsed.expansion }, { "creatureType", &parsed.creatureType },
         { "family", &parsed.family }, { "classification", &parsed.classification }, { "race", &parsed.race },
-        { "humanoid", &parsed.humanoid }, { "classId", &parsed.classId } };
+        { "humanoid", &parsed.humanoid }, { "classId", &parsed.classId }, { "minId", &parsed.minId }, { "maxId", &parsed.maxId },
+        { "displayId", &parsed.displayId }, { "minCount", &parsed.minCount }, { "maxCount", &parsed.maxCount }, { "installed", &parsed.installed },
+        { "setSource", &parsed.setSource }, { "modelKind", &parsed.modelKind }, { "mountType", &parsed.mountType }, { "sort", &parsed.sort },
+        { "descending", &parsed.descending } };
     for (const auto& [name, field] : names) {
         auto found = filters.find(name);
         if (found != filters.end()) {
             *field = static_cast<int32_t>(found->second);
         }
     }
+    return parsed;
+}
+
+// The filters of a search, with the installed displays its installed filter asks.
+static BrowseFilters SearchFilters(const std::map<std::string, double>& filters, const InstalledDisplays& installed) {
+    BrowseFilters parsed = ParseBrowseFilters(filters);
+    parsed.installedCreature = installed.creature;
+    parsed.installedItem = installed.item;
     return parsed;
 }
 
@@ -107,7 +118,7 @@ static BrowserValue RowValue(const SearchRow& row) {
 }
 
 bool MarshalSearch(const BrowserIndexView& view, const std::string& kind, const std::string& text,
-    const std::map<std::string, double>& filters, uint32_t page, BrowserValue& out, std::string& error) {
+    const std::map<std::string, double>& filters, uint32_t page, BrowserValue& out, std::string& error, const InstalledDisplays& installed) {
     BrowseKind parsed;
     if (!BrowserKindOf(kind, parsed, error)) {
         return false;
@@ -115,7 +126,7 @@ bool MarshalSearch(const BrowserIndexView& view, const std::string& kind, const 
     if (BrowserNotReady(view, out)) {
         return true;
     }
-    SearchPage result = view.index->Search(parsed, text, ParseBrowseFilters(filters), page ? page - 1 : 0);
+    SearchPage result = view.index->Search(parsed, text, SearchFilters(filters, installed), page ? page - 1 : 0);
     out = BrowserValue::Table();
     out.Set("status", BrowserValue::String("ok"));
     out.Set("total", BrowserValue::Number(static_cast<double>(result.total)));
@@ -184,7 +195,7 @@ static std::string CsvCell(const std::string& text) {
 }
 
 bool SearchCsv(const BrowserIndexView& view, const std::string& kind, const std::string& text,
-    const std::map<std::string, double>& filters, std::string& csv, std::string& error) {
+    const std::map<std::string, double>& filters, std::string& csv, std::string& error, const InstalledDisplays& installed) {
     BrowseKind parsed;
     if (!BrowserKindOf(kind, parsed, error)) {
         return false;
@@ -194,7 +205,7 @@ bool SearchCsv(const BrowserIndexView& view, const std::string& kind, const std:
         return false;
     }
     csv = "id,name,detail,displayId,icon,quality\n";
-    for (const SearchRow& row : view.index->SearchAll(parsed, text, ParseBrowseFilters(filters))) {
+    for (const SearchRow& row : view.index->SearchAll(parsed, text, SearchFilters(filters, installed))) {
         csv += std::to_string(row.id) + "," + CsvCell(row.name) + "," + CsvCell(row.detail) + "," + std::to_string(row.displayId) + "," +
             std::to_string(row.icon) + "," + std::to_string(row.quality) + "\n";
     }

@@ -2,13 +2,24 @@
 ## Title: Retail Browser
 ## Notes: Search the retail creatures, items, sets, models and mounts this client serves from CASC, and build world DB SQL from them. /rb
 ## Author: wowdecomp
-## Version: 1
+## Version: 2
 ## SavedVariables: RetailBrowserDB
+## SavedVariablesPerCharacter: RetailBrowserCharDB
 Core.lua
+Theme.lua
+Tips.lua
 Commands.lua
 Widgets.lua
-Frame.lua
-List.lua
-Detail.lua
-Build.lua
+Columns.lua
+Window.lua
+Search.lua
+Grid.lua
+Filters.lua
+Bulk.lua
+Drawer.lua
+DrawerDetails.lua
+DrawerTabs.lua
 Preview.lua
+Actions.lua
+Build.lua
+Keys.lua

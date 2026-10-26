@@ -47,6 +47,7 @@ if (TARGET RetailCore)
         RetailIndexTests.cpp
         RetailIndexPagingTests.cpp
         RetailIndexGoldenTests.cpp
+        RetailIndexColumnTests.cpp
         BrowserMarshalTests.cpp
         StatBudgetTests.cpp
         ItemArmourTests.cpp

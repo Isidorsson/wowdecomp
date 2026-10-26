@@ -51,14 +51,18 @@ struct InstalledDisplays {
 };
 
 // Filter names as the addon sends them: inventoryType, armour, weaponSubclass, quality, minItemLevel,
-// maxItemLevel, expansion, creatureType, family, classification, race, humanoid, classId. Unknown names are ignored.
+// maxItemLevel, expansion, creatureType, family, classification, race, humanoid, classId, and the column filters minId,
+// maxId, displayId, minCount, maxCount, installed, setSource, modelKind, mountType, sort, descending. Unknown names are
+// ignored.
 BrowseFilters ParseBrowseFilters(const std::map<std::string, double>& filters);
 
 // RetailSearch(kind, text, filters, page): {status = "building"} until the index is ready, then
-// {status = "ok", total, page (from 1), pages, rows = {{id, name, detail, displayId, icon, quality}, ...}}.
+// {status = "ok", total, page (from 1), pages, rows = {{id, name, detail, displayId, icon, quality}, ...}}. The
+// installed displays answer the installed filter.
 // False with error for an unknown kind, which Lua sees as nil, error.
 bool MarshalSearch(const BrowserIndexView& view, const std::string& kind, const std::string& text,
-    const std::map<std::string, double>& filters, uint32_t page, BrowserValue& out, std::string& error);
+    const std::map<std::string, double>& filters, uint32_t page, BrowserValue& out, std::string& error,
+    const InstalledDisplays& installed = InstalledDisplays());
 
 // RetailDetails(kind, id): the entry's ids as named fields, its displays (or appearances, pieces, users) with a
 // "custom" flag where the installed DBC has the id, and fields = {{label, value}, ...} in display order for the
@@ -90,7 +94,8 @@ bool BrowserKindOf(const std::string& name, BrowseKind& kind, std::string& error
 
 // Every match of a search as CSV: a header row, then one row per match, quoted where needed.
 bool SearchCsv(const BrowserIndexView& view, const std::string& kind, const std::string& text,
-    const std::map<std::string, double>& filters, std::string& csv, std::string& error);
+    const std::map<std::string, double>& filters, std::string& csv, std::string& error,
+    const InstalledDisplays& installed = InstalledDisplays());
 
 }
 

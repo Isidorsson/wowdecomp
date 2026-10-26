@@ -80,14 +80,16 @@ ClassificationGroup GroupOfClassification(uint32_t classification) {
     }
 }
 
-static std::array<int32_t, 13> FilterValues(const BrowseFilters& f) {
+// Every value; the last two (sort, descending) order the matches and are not filters.
+static std::array<int32_t, 24> FilterValues(const BrowseFilters& f) {
     return { f.inventoryType, f.armour, f.weaponSubclass, f.quality, f.minItemLevel, f.maxItemLevel, f.expansion, f.creatureType,
-        f.family, f.classification, f.race, f.humanoid, f.classId };
+        f.family, f.classification, f.race, f.humanoid, f.classId, f.minId, f.maxId, f.displayId, f.minCount, f.maxCount, f.installed,
+        f.setSource, f.modelKind, f.mountType, f.sort, f.descending };
 }
 
 bool BrowseFilters::Any() const {
-    std::array<int32_t, 13> values = FilterValues(*this);
-    return std::any_of(values.begin(), values.end(), [](int32_t value) { return value >= 0; });
+    std::array<int32_t, 24> values = FilterValues(*this);
+    return std::any_of(values.begin(), values.end() - 2, [](int32_t value) { return value >= 0; });
 }
 
 bool BrowseFilters::operator==(const BrowseFilters& other) const {
@@ -175,6 +177,9 @@ static bool PassesSet(const BrowseSet& set, const BrowseFilters& f) {
 }
 
 bool RetailIndex::Passes(BrowseKind kind, size_t entry, const BrowseFilters& filters) const {
+    if (!this->PassesColumns(kind, entry, filters)) {
+        return false;
+    }
     switch (kind) {
         case BrowseKind::Creature:
             return PassesCreature(this->m_creatures[entry], filters);
@@ -228,37 +233,41 @@ std::vector<SearchRow> RetailIndex::SearchAll(BrowseKind kind, std::string_view 
     if (query.empty() && !filters.Any()) {
         return {};
     }
-    uint32_t number = 0;
-    bool numeric = ParseNumber(query, number);
-    const std::vector<Keys>& keys = this->KeysOf(kind);
-    std::vector<std::pair<uint32_t, size_t>> ranked;
-    for (size_t entry = 0; entry < keys.size(); entry++) {
-        uint32_t rank;
-        if (this->Passes(kind, entry, filters) && this->RankOf(keys[entry], query, numeric, number, rank)) {
-            ranked.push_back({ rank, entry });
-        }
-    }
-    std::stable_sort(ranked.begin(), ranked.end(), [&](const auto& a, const auto& b) {
-        return a.first != b.first ? a.first < b.first : this->FirstName(keys[a.second]) < this->FirstName(keys[b.second]);
-    });
+    std::vector<std::pair<uint64_t, uint32_t>> ranked = this->Rank(kind, query, filters);
+    std::sort(ranked.begin(), ranked.end());
     std::vector<SearchRow> rows;
     rows.reserve(ranked.size());
-    for (const auto& [rank, entry] : ranked) {
+    for (const auto& [order, entry] : ranked) {
         rows.push_back(this->RowOf(kind, entry));
     }
     return rows;
 }
 
-// Every match as (rank << 32 | nameOrder, entry): one integer orders them as SearchAll does.
+// One integer that orders a match: (rank << 32 | nameOrder), or by the sort column, (value << 32 | nameOrder), each
+// half flipped for descending (name sorts flip the name half).
+static uint64_t OrderOf(uint32_t rank, uint32_t nameOrder, const BrowseFilters& filters, uint32_t sortValue) {
+    if (filters.sort < 0) {
+        return static_cast<uint64_t>(rank) << 32 | nameOrder;
+    }
+    bool descending = filters.descending > 0;
+    if (filters.sort == static_cast<int32_t>(SortColumn::Name)) {
+        return descending ? ~nameOrder : nameOrder;
+    }
+    return static_cast<uint64_t>(descending ? ~sortValue : sortValue) << 32 | nameOrder;
+}
+
+// Every match as (order, entry): sorting them orders the matches as Search and SearchAll show them.
 std::vector<std::pair<uint64_t, uint32_t>> RetailIndex::Rank(BrowseKind kind, const std::string& query, const BrowseFilters& filters) const {
     uint32_t number = 0;
     bool numeric = ParseNumber(query, number);
     const std::vector<Keys>& keys = this->KeysOf(kind);
+    bool sorted = filters.sort > static_cast<int32_t>(SortColumn::Name);
     std::vector<std::pair<uint64_t, uint32_t>> ranked;
     for (size_t entry = 0; entry < keys.size(); entry++) {
         uint32_t rank;
         if (this->Passes(kind, entry, filters) && this->RankOf(keys[entry], query, numeric, number, rank)) {
-            ranked.push_back({ static_cast<uint64_t>(rank) << 32 | keys[entry].nameOrder, static_cast<uint32_t>(entry) });
+            uint32_t value = sorted ? this->SortValue(kind, entry, filters) : 0;
+            ranked.push_back({ OrderOf(rank, keys[entry].nameOrder, filters, value), static_cast<uint32_t>(entry) });
         }
     }
     return ranked;
