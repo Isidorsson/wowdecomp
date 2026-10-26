@@ -61,6 +61,8 @@ end
 local close = CreateFrame("Button", nil, titleBar, "UIPanelCloseButton")
 close:SetSize(26, 26)
 close:SetPoint("RIGHT", 2, 0)
+-- The template hides its parent, which here is the title bar, not the window.
+close:SetScript("OnClick", function() frame:Hide() end)
 RB.AttachTip(close, "close")
 
 local scaleButtons = {}
