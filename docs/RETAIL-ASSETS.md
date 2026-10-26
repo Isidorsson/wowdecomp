@@ -241,7 +241,8 @@ Both caches live in `<cache>/<product>-<build key>/` (`<product>-local` without 
   read. Caches of the product's other builds are deleted at startup.
 - Compression halved the converted cache: 1,376 models went from 6.6 GB to 3.3 GB with identical output.
 - The display tables, animation fallbacks and storage open on worker threads at startup, instead of costing about
-  1.5 s and 3 s on the main thread at first use.
+  1.5 s and 3 s on the main thread at first use. Only a local install's storage opens ahead: online, opening
+  downloads the build's metadata, so it waits for the first file the seed and caches miss.
 - Load-progress cache checks read only an entry's header: 0.02 ms instead of 61 ms for a 36 MB model.
 - A model and its first skin from a warm converted cache: 61 to 2 ms, 356 to 16 ms and 937 to 5 ms for three sample
   models (before, each read converted again).

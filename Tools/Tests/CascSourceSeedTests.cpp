@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <atomic>
+#include <memory>
 #include <set>
 #include <string>
 #include "Engine/Source/Retail/CascSource.h"
@@ -357,4 +358,29 @@ TEST(ASeedServesAnNpcHumanoidDisplay) {
     std::vector<std::vector<uint8_t>> served = ReadAll(trip.player.source, paths);
     CHECK(served == expected && served[0] == trip.world.files.at(NPC_BAKE) && !served[1].empty() && !served[3].empty());
     CHECK(trip.storage.opens == 0);
+}
+
+// The opens Preload makes with every table at hand; destroying the source waits for its preloads.
+static int PreloadOpens(bool (*configure)(LocalSource&, const char*), const char* name) {
+    RetailWorld world = BuildWorld();
+    NoStorage storage;
+    auto local = std::make_unique<LocalSource>();
+    if (!configure(*local, name) || !Install(*local, world)) {
+        return -1;
+    }
+    local->source.SetStorageOpener(storage.Make());
+    local->source.Preload();
+    local.reset();
+    return storage.opens;
+}
+
+// Online, opening the storage downloads the build's metadata, which a player whose seed and caches hold everything
+// never needs.
+TEST(AnOnlinePlayerWithEverythingAtHandNeverOpensTheStorage) {
+    CHECK(PreloadOpens(ConfigureOnline, "preload-online") == 0);
+}
+
+// A local install opens cheaply, so Preload opens it ahead of the first miss.
+TEST(ALocalInstallIsOpenedAheadOfTheFirstMiss) {
+    CHECK(PreloadOpens(Configure, "preload-local") == 1);
 }

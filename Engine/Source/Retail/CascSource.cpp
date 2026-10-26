@@ -135,12 +135,16 @@ void CascSource::Preload() {
         });
         // Also before the browser's first prefetch, which finds a humanoid display's race only once they are read.
         this->m_preloads.emplace_back([this] { this->NpcTables(); });
-        this->m_preloads.emplace_back([this] {
-            std::string error;
-            if (!this->OpenStorage(error)) {
-                this->Warn(error);
-            }
-        });
+        // Online, opening downloads the build's metadata, which a player whose seed and caches hold everything never
+        // needs: the first miss opens it instead.
+        if (this->m_config.mode == StorageMode::Local) {
+            this->m_preloads.emplace_back([this] {
+                std::string error;
+                if (!this->OpenStorage(error)) {
+                    this->Warn(error);
+                }
+            });
+        }
         this->m_preloads.emplace_back([this] {
             std::filesystem::path current = BuildCacheFolder(this->m_config);
             for (const std::string& removed : RemoveOtherBuilds(current.parent_path(), this->m_config.product, current.filename().string())) {

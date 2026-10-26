@@ -34,11 +34,23 @@ inline bool Reopen(LocalSource& local, const std::filesystem::path& dir) {
     return local.source.Configure(local.dir / "RetailCasc.ini", error);
 }
 
-inline bool Configure(LocalSource& local, const char* name) {
+inline std::filesystem::path FreshDir(const char* name) {
     std::filesystem::path dir = std::filesystem::temp_directory_path() / ("wowdecomp-tests-" + std::to_string(_getpid())) / name;
     std::filesystem::remove_all(dir);
+    return dir;
+}
+
+inline bool Configure(LocalSource& local, const char* name) {
+    std::filesystem::path dir = FreshDir(name);
     WriteText(dir / "storage" / ".build.info", std::string("Active!DEC:1|Build Key!HEX:16|Product!STRING:0\n1|") + BUILD_KEY + "|wow\n");
     WriteText(dir / "RetailCasc.ini", "mode=local\npath=storage\ncache=cache\n");
+    return Reopen(local, dir);
+}
+
+// A player's source: online, pinned to the same build, so its caches and seed name the same folder.
+inline bool ConfigureOnline(LocalSource& local, const char* name) {
+    std::filesystem::path dir = FreshDir(name);
+    WriteText(dir / "RetailCasc.ini", std::string("mode=online\npath=cdn\ncache=cache\nbuild=") + BUILD_KEY + "\n");
     return Reopen(local, dir);
 }
 
