@@ -1,3 +1,4 @@
+#include "WoW/Source/DB/RetailCreatureRecords.h"
 #include "WoW/Source/DB/WowClientDB.h"
 #include "WoW/Source/DB/Rec/CreatureDisplayInfoRec.h"
 #include "WoW/Source/DB/Rec/CreatureModelDataRec.h"
@@ -27,6 +28,7 @@ static T* StockRecord(const WowClientDB<T>& db, int32_t id) {
 struct ServedDisplay {
     CreatureDisplayInfoRec record;
     std::string variations[3];
+    std::string fourthVariation;
 };
 
 struct ServedModel {
@@ -48,6 +50,7 @@ static void FillNpcDisplay(ServedDisplay& served, int32_t modelId, int32_t extra
         served.variations[i].clear();
         rec.m_textureVariation[i] = served.variations[i].c_str();
     }
+    served.fourthVariation.clear();
     rec.m_creatureGeosetData = 0;
 }
 
@@ -65,6 +68,7 @@ static void FillDisplay(ServedDisplay& served, const Retail::RetailDisplay& disp
         served.variations[i] = Retail::VariationName(display.variations[i]);
         rec.m_textureVariation[i] = served.variations[i].c_str();
     }
+    served.fourthVariation = Retail::VariationName(display.fourthVariation);
     rec.m_portraitTextureName = "";
     rec.m_sizeClass = display.sizeClass;
     rec.m_creatureGeosetData = static_cast<int32_t>(display.geosetData);
@@ -138,7 +142,20 @@ static CreatureModelDataRec* ServedModelRecord(int32_t id) {
     return &served->second.record;
 }
 
+const char* RetailFourthVariation(const CreatureDisplayInfoRec* displayRec) {
+    if (!displayRec) {
+        return "";
+    }
+    std::lock_guard<std::mutex> lock(s_servedMutex);
+    auto served = s_displays.find(displayRec->m_id);
+    return served != s_displays.end() && &served->second.record == displayRec ? served->second.fourthVariation.c_str() : "";
+}
+
 #else
+
+const char* RetailFourthVariation(const CreatureDisplayInfoRec*) {
+    return "";
+}
 
 static CreatureDisplayInfoRec* ServedDisplayRecord(int32_t) {
     return nullptr;

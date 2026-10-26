@@ -3,13 +3,19 @@
 
 local RB = RetailBrowser
 
+-- The display picked in the details of this entry, nil before one is picked.
+function RB.PickedDisplay(details)
+    local picked = RB.pickedDisplay
+    return details and picked and picked.owner == details and picked.id or nil
+end
+
 -- The creature display an action uses: the one picked in the details, else the entry's first.
 function RB.ActionDisplay(details)
     if not details then
         return nil
     end
-    if RB.pickedDisplay and RB.pickedDisplay.owner == details then
-        return RB.pickedDisplay.id
+    if RB.PickedDisplay(details) then
+        return RB.PickedDisplay(details)
     end
     if details.kind == "model" and not details.creature then
         return nil
@@ -17,6 +23,35 @@ function RB.ActionDisplay(details)
     if details.displayId and details.displayId > 0 then
         return details.displayId
     end
+end
+
+-- The displays an entry can preview and morph: a creature's (up to four), a mount's, or every display of a model.
+function RB.DisplaysOf(details)
+    return details and details.displays or {}
+end
+
+-- Picks a display of the shown entry for the preview, the GM commands, Copy id and the Build panel.
+function RB.PickDisplay(details, id)
+    RB.pickedDisplay = { owner = details, id = id }
+    RB.Preview(details)
+    RB.RefreshFields()
+    RB.UpdateActions()
+    RB.ScheduleBuild()
+end
+
+-- Moves the picked display delta places through the entry's displays, wrapping around.
+function RB.StepDisplay(details, delta)
+    local displays = RB.DisplaysOf(details)
+    if #displays == 0 then
+        return
+    end
+    local current, at = RB.ActionDisplay(details), 1
+    for i, display in ipairs(displays) do
+        if display.displayId == current then
+            at = i
+        end
+    end
+    RB.PickDisplay(details, displays[(at - 1 + delta) % #displays + 1].displayId)
 end
 
 local function ItemIds(details)
@@ -80,7 +115,12 @@ function RB.KindLabel(kind)
     return kind or ""
 end
 
--- The id "Copy id" copies: the original set id for an item set, not its search key.
+-- The id "Copy id" copies: a picked display, else the entry's own id.
+function RB.CopyId(details)
+    return RB.PickedDisplay(details) or RB.PrimaryId(details)
+end
+
+-- The entry's own id: the original set id for an item set, not its search key.
 function RB.PrimaryId(details)
     return details.setId or details.itemId or details.creatureId or details.mountId or details.fdid or details.id
 end

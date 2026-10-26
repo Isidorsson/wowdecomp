@@ -36,6 +36,15 @@ TEST(ADisplayNamesItsModelAndFirstThreeVariations) {
     CHECK(model && model->fileDataId == BOAR);
 }
 
+// The client's display row has three variations (types 11 to 13); retail's fourth fills type 5, which
+// ReplaceMonsterSkin takes from fourthVariation. Without it a display drew its model's default fourth texture.
+TEST(TheFourthVariationIsKeptForTextureType5) {
+    RetailDisplays retail = Loaded({ { 40, BOAR } }, { { 144739, 40, { 7939219, 7939221, 7939222, 7939220 } }, { 7, 40, { 1, 2, 3 } } });
+
+    CHECK(retail.Display(144739) && retail.Display(144739)->fourthVariation == 7939220);
+    CHECK(retail.Display(7) && retail.Display(7)->fourthVariation == 0);
+}
+
 TEST(DisplayScaleAlphaAndSizeClassComeFromRetail) {
     RetailDisplays retail = Loaded({ { 40, BOAR } }, { { 7, 40, { 1 }, 1.5f, 128, 3 } });
     const RetailDisplay* display = retail.Display(7);

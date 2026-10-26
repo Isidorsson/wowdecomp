@@ -25,6 +25,7 @@ if (TARGET RetailCore)
         RetailAnimationTests.cpp
         RetailSkeletonTests.cpp
         RetailParticlesTests.cpp
+        RetailRibbonsTests.cpp
         RetailShadingTests.cpp
         RetailSecondUvTests.cpp
         RetailOverlayTests.cpp

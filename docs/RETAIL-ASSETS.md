@@ -83,6 +83,11 @@ model frames. Served models take synthetic model ids from `0x01000000` upward, d
 geoset variants are packed the way the 3.3.5 row expects. Retail fields the client has no tables for (sounds, blood,
 footprints, particle colours, extended display) are left 0.
 
+- Model frames (the Retail Browser preview, `SetCreature`) apply the display's geosets as the unit does. They drew
+  every geoset before, so a mount showed all its armour variants at once and a banner its display hides, untextured.
+- Retail's fourth texture variation fills model texture type 5, which the 3.3.5 row has no field for; it is served
+  beside the row and replaced with the other three (`ReplaceMonsterSkin`). 953 retail displays have one.
+
 ### Items
 
 `ItemDisplayInfo` falls back the same way, so retail item display ids show without a downported DBC:
@@ -175,7 +180,10 @@ DBC has, and `--all-missing` covers every retail display of the build. Copy the 
 folder and run the SQL on the world database.
 
 `Tools/RetailAssetProbe` reads paths through the same source, to check a file, prefetch it before playing, print the
-animation fallback table (`--animation-fallbacks`) or save what the client would read (`--save <dir>`).
+animation fallback table (`--animation-fallbacks`) or save what the client would read (`--save <dir>`). For
+investigating displays it prints the served rows (`--displays <id>...`: model, variations, packed geosets and the
+model's geosets), the displays of a CreatureModelData id (`--model-displays <id>`) and every column of DB2 rows
+(`--rows <table FileDataID> <id>... | all`).
 
 ### Conversion
 
@@ -184,6 +192,9 @@ Retail models (MD21, versions 272 to 274) become MD20 version 264. Among other t
 - inlines `.anim` files and remaps animation ids past 505 through retail `AnimationData` fallbacks
 - merges shared skeletons (`.skel` files and their parent chain) into the model
 - converts particle emitters and cameras, and masks flags to what 3.3.5 knows
+- cuts each ribbon emitter's textures to the ones it has a material for: retail ribbons list more textures than
+  materials (one shader combines them), and the client draws a pass per texture with the material of the same slot,
+  so the Voidwing Dragonhawk's ribbons drew their flat grey 8x8 helper texture as large grey quads
 - shades batches through a fixed combiner table, maps the 36 retail shader effects to 3.3.5 ones, draws extra effect
   textures as overlay passes, and copies UV1 into UV2 where a batch samples UV1 twice
 - splits submeshes wider than their view's bone palette into pieces

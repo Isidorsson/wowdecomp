@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <vector>
 #include "Engine/Source/Retail/Db2Table.h"
 
 namespace Retail {
@@ -71,10 +72,12 @@ struct ItemDisplayFacts {
     uint32_t icon = 0;
 };
 
-// False for a display the loaders do not know.
+// False for a display the loaders do not know. creatureDisplayIds: every creature display they know, for the displays
+// of each model.
 struct BrowserLookups {
     std::function<bool(uint32_t displayId, CreatureDisplayFacts& facts)> creatureDisplay;
     std::function<bool(uint32_t displayId, ItemDisplayFacts& facts)> itemDisplay;
+    std::function<std::vector<uint32_t>()> creatureDisplayIds;
 };
 
 }

@@ -141,7 +141,7 @@ bool RetailIndex::Build(const BrowserTables& tables, const BrowserLookups& looku
         this->BuildSets(tables, joins);
     }
     this->BuildMounts(tables, lookups);
-    this->BuildModels();
+    this->BuildModels(lookups);
     this->BuildNameOrders();
     this->Compact();
     return true;

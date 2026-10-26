@@ -308,6 +308,11 @@ void CGCharacterModelBase::SetUpModel(CreatureStats_C* stats) {
         return;
     }
 
+#if defined(WOWDECOMP_RETAIL_ASSETS)
+    // Not in the original: a model frame drew every geoset of the model where the unit shows the display's
+    // (CGUnit_C applies them), so a retail mount previewed with all its armour variants and its hidden banner.
+    CCharacterComponent::ApplyMonsterGeosets(model, displayRec);
+#endif
     CCharacterComponent::ReplaceMonsterSkin(model, displayRec, modelRec);
     this->SetModel(model);
     model->SetBoneSequence(0xFFFFFFFF, 0, 0xFFFFFFFF, 0, 1.0f, 1, 1);

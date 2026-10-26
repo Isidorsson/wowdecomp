@@ -127,6 +127,20 @@ TEST(BrowserListsWhatUsesEachModel) {
     CHECK(horse && index.UserName(horse->users[0]) == "Brown Horse");
 }
 
+// A model is drawn by many displays, also ones no creature or mount names: each can be previewed and morphed.
+TEST(BrowserListsEveryDisplayOfAModel) {
+    BrowserFixture fixture = MakeBrowserFixture();
+    Retail::RetailIndex index = BuildFixtureIndex(fixture);
+    const Retail::BrowseModel* human = index.Model(1011653);
+    CHECK(human && human->displays.size() == 3);
+    if (human && human->displays.size() == 3) {
+        CHECK(human->displays[0].id == 3167 && human->displays[1].id == 3258 && human->displays[2].id == 3259);
+        CHECK(human->displays[2].known && human->displays[2].facts.scale == 1.5f);
+    }
+    const Retail::BrowseModel* blade = index.Model(145000);
+    CHECK(blade && blade->displays.empty());
+}
+
 TEST(BrowserJoinsMountsToTheirDisplays) {
     BrowserFixture fixture = MakeBrowserFixture();
     Retail::RetailIndex index = BuildFixtureIndex(fixture);

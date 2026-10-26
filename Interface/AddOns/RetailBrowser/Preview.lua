@@ -35,11 +35,43 @@ model:SetScript("OnUpdate", function(self)
     end
 end)
 
-local function ShowDisplay(display)
+-- Arrows that step the preview, the GM commands and the Build panel through an entry's displays.
+local function StepButton(text, delta, point)
+    local button = RB.CreateButton(model, text, 22, function()
+        if RB.details then RB.StepDisplay(RB.details, delta) end
+    end)
+    button:SetPoint(point, delta < 0 and 4 or -4, 4)
+    return button
+end
+local previous = StepButton("<", -1, "BOTTOMLEFT")
+local following = StepButton(">", 1, "BOTTOMRIGHT")
+
+local function ShowSteps(count)
+    if count > 1 then
+        previous:Show()
+        following:Show()
+    else
+        previous:Hide()
+        following:Hide()
+    end
+end
+
+-- "Display 129156", with its place among the entry's displays when there are several.
+local function DisplayCaption(details, display)
+    local displays = RB.DisplaysOf(details)
+    for i, entry in ipairs(displays) do
+        if entry.displayId == display and #displays > 1 then
+            return "Display " .. display .. " (" .. i .. "/" .. #displays .. ")"
+        end
+    end
+    return "Display " .. display
+end
+
+local function ShowDisplay(details, display)
     model:SetDisplayInfo(display)
     model:SetPosition(0, 0, 0)
     model:SetFacing(0)
-    caption:SetText("Display " .. display)
+    caption:SetText(DisplayCaption(details, display))
 end
 
 local function Wear(displayId, inventoryType, sheathe, classId, subclassId)
@@ -71,6 +103,7 @@ local function WearSet(set)
 end
 
 function RB.Preview(details)
+    ShowSteps(#RB.DisplaysOf(details))
     if details.kind == "item" then
         WearItem(details)
     elseif details.kind == "set" then
@@ -81,6 +114,13 @@ function RB.Preview(details)
         if item and item.status == "ok" then WearItem(item) end
     else
         local display = RB.ActionDisplay(details)
-        if display then ShowDisplay(display) end
+        if display then ShowDisplay(details, display) end
     end
+end
+
+-- The arrows follow the shown entry, previewed or not.
+local updateActions = RB.UpdateActions
+function RB.UpdateActions()
+    updateActions()
+    ShowSteps(#RB.DisplaysOf(RB.details))
 end

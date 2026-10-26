@@ -106,6 +106,7 @@ static RetailDisplay DisplayAt(const Db2Table& table, size_t row, const std::map
     for (size_t i = 0; i < files.size() && i < display.variations.size(); i++) {
         display.variations[i] = files[i];
     }
+    display.fourthVariation = files.size() > display.variations.size() ? files[display.variations.size()] : 0;
     auto shown = geosetsOf.find(display.id);
     display.geosetData = shown == geosetsOf.end() ? 0 : PackGeosetData(shown->second);
     return display;

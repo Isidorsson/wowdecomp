@@ -32,6 +32,7 @@ namespace M2At {
     constexpr size_t ATTACHMENT_LOOKUP = 0xF8;
     constexpr size_t EVENTS = 0x100;
     constexpr size_t CAMERAS = 0x110;
+    constexpr size_t RIBBONS = 0x120;
     constexpr size_t PARTICLES = 0x128;
     constexpr size_t TEXTURE_COMBINER_COMBOS = 0x130;   // Read when global flag 8 is set.
     constexpr size_t HEADER = 0x138;

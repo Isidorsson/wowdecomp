@@ -37,14 +37,19 @@ addon only prints that retail assets are not configured.
 - The right pane lists every id of the entry: creature id, each display with its probability, model FileDataID,
   scale and NPC Extra row (race, sex, bakes); item id, quality, item level, slot, class/subclass, icon, and per
   appearance the ItemDisplayInfo id, appearance and ItemModifiedAppearance ids; set pieces with item and display ids;
-  what uses a model.
+  what uses a model, and every creature display drawn with the model (the first 200), also displays no creature or
+  mount names.
 - Items also list their ItemSparse stats: each stat type with its budget share (StatPercentEditor / 100) and its value
   at the item's own level, sockets (retail SocketType numbers and the socket bonus enchantment), required level,
   weapon delay, damage variance and damage type as stored, retail armour or weapon damage at the item's own level, and
   whether the item scales with the player's level (its ContentTuning or level curve).
 - Each display says "served" (the client draws the retail row) or "custom row wins" (the installed DBC has that id,
   so the client draws your row instead).
-- Click any field to copy it. Clicking a display line also picks that display for the preview and the commands.
+- Click any field to copy it. Clicking a display's line (its model and NPC lines too, or a model's creature user) also
+  picks that display for the preview, Morph me, Set target model, Copy id, Copy GM command and Build SQL. The lines of
+  the display they use are labelled green; before a pick that is the entry's first display.
+- With more than one display (a creature's up to four, a mount's MountXDisplay rows, a model's displays) the arrows
+  under the preview step through them; the caption shows the display and its place, "Display 126134 (2/8)".
 - The preview shows creatures and mounts by display (humanoid NPCs dressed and baked), and items and sets on your
   character. Drag to turn it, use the mouse wheel to move it nearer or further.
 
@@ -56,7 +61,7 @@ addon only prints that retail assets are not configured.
 | Set target model | `.npc set model <display>` on your target |
 | Add item | `.additem <id>` (a set adds every piece). Works only for items that exist on the server |
 | Try whole set | Wears one piece per slot of the set in the preview |
-| Copy id / Copy all / Copy GM command | Copies the id, every field as plain text, or the command above |
+| Copy id / Copy all / Copy GM command | Copies the id (the picked display once one is picked: "Copy display id"), every field as plain text, or the command above |
 | Favourite | Saves the entry (kept in `WTF\...\SavedVariables\RetailBrowser.lua`) |
 | Export CSV | Writes every match of the current search to `Logs\RetailBrowser\<kind>-<time>.csv` |
 | Build SQL | Opens the Build panel (items, sets and creatures) |

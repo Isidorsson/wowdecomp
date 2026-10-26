@@ -114,6 +114,13 @@ struct BrowserFixture {
                 auto found = this->itemDisplays.find(id);
                 return found != this->itemDisplays.end() && (facts = found->second, true);
             },
+            [this]() {
+                std::vector<uint32_t> ids;
+                for (const auto& display : this->creatureDisplays) {
+                    ids.push_back(display.first);
+                }
+                return ids;
+            },
         };
     }
 };
@@ -153,6 +160,7 @@ inline BrowserFixture MakeBrowserFixture() {
     f.creatureDisplays[802] = { 43, 126487, 1, 0, 0, 0, 0, 0 };
     f.creatureDisplays[3258] = { 7661, 1011653, 1, 130617, 1, 0, 157058, 157059 };
     f.creatureDisplays[3167] = { 7661, 1011653, 1, 0, 0, 0, 0, 0 };
+    f.creatureDisplays[3259] = { 7661, 1011653, 1.5f, 0, 0, 0, 0, 0 };   // No creature or mount uses it.
     f.creatureDisplays[2404] = { 216, 123456, 1, 0, 0, 0, 0, 0 };
 
     f.items = TextTable(Retail::ITEM_LAYOUT, std::vector<uint32_t>(15, 1), {

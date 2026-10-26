@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <map>
 #include <set>
 #include "Engine/Source/Retail/RetailIndex.h"
@@ -180,7 +181,30 @@ static void AddUser(std::map<uint32_t, ModelDraft>& models, uint32_t fdid, bool 
     draft.names.push_back(name);
 }
 
-void RetailIndex::BuildModels() {
+// Every creature display the loaders know, under its model: also the displays no creature or mount names.
+static void AddDisplays(std::map<uint32_t, ModelDraft>& models, const BrowserLookups& lookups) {
+    if (!lookups.creatureDisplayIds) {
+        return;
+    }
+    for (uint32_t id : lookups.creatureDisplayIds()) {
+        BrowseDisplay display = CreatureDisplayOf(id, 0, lookups);
+        if (!display.facts.modelFdid) {
+            continue;
+        }
+        BrowseModel& model = models[display.facts.modelFdid].model;
+        if (model.users.empty() && model.displays.empty()) {
+            model.fdid = display.facts.modelFdid;
+            model.creature = true;
+        }
+        model.displays.push_back(display);
+    }
+    for (auto& entry : models) {
+        std::vector<BrowseDisplay>& displays = entry.second.model.displays;
+        std::sort(displays.begin(), displays.end(), [](const BrowseDisplay& a, const BrowseDisplay& b) { return a.id < b.id; });
+    }
+}
+
+void RetailIndex::BuildModels(const BrowserLookups& lookups) {
     std::map<uint32_t, ModelDraft> models;
     for (size_t entry = 0; entry < this->m_creatures.size(); entry++) {
         const BrowseCreature& creature = this->m_creatures[entry];
@@ -202,6 +226,7 @@ void RetailIndex::BuildModels() {
             }
         }
     }
+    AddDisplays(models, lookups);
     this->m_models.reserve(models.size());
     this->m_modelKeys.reserve(models.size());
     for (auto& [fdid, draft] : models) {
@@ -215,6 +240,7 @@ void RetailIndex::BuildModels() {
         this->m_keyIds.push_back(fdid);
         this->AddKeys(this->m_modelKeys, keys);
         draft.model.users.shrink_to_fit();
+        draft.model.displays.shrink_to_fit();
         this->m_models.push_back(std::move(draft.model));
     }
 }

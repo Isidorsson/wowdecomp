@@ -23,8 +23,9 @@ local scroll = CreateFrame("ScrollFrame", "RetailBrowserFieldScroll", pane, "Fau
 scroll:SetPoint("TOPLEFT", 4, -40)
 scroll:SetPoint("BOTTOMRIGHT", -26, 4)
 
+-- The display a field names: any line of a display (its model and NPC lines too), or a model's creature user.
 local function DisplayOfField(details, field)
-    local slot = field.label:match("^Display (%d+)$")
+    local slot = field.label:match("^Display (%d+)")
     local display = slot and details.displays and details.displays[tonumber(slot)]
     if display then
         return display.displayId
@@ -42,8 +43,7 @@ local function FieldClicked(self)
     RB.Copy(field.copy or field.value, field.label .. " (" .. (field.copy or field.value) .. ")")
     local display = DisplayOfField(details, field)
     if display then
-        RB.pickedDisplay = { owner = details, id = display }
-        RB.Preview(details)
+        RB.PickDisplay(details, display)
     end
 end
 
@@ -63,13 +63,21 @@ for i = 1, VISIBLE_FIELDS do
     rows[i] = row
 end
 
+-- The lines of the display the actions use are labelled green.
+local PICKED_COLOR = { 0.25, 1, 0.25 }
+local LABEL_COLOR = { NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b }
+
 local function RefreshFields()
-    local fields = RB.details and RB.details.fields or {}
+    local details = RB.details
+    local fields = details and details.fields or {}
+    local action = RB.ActionDisplay(details)
     local offset = FauxScrollFrame_GetOffset(scroll)
     for i, row in ipairs(rows) do
         local field = fields[offset + i]
         row.field = field
         if field then
+            local picked = action and field.label:match("^Display ") and DisplayOfField(details, field) == action
+            row.label:SetTextColor(unpack(picked and PICKED_COLOR or LABEL_COLOR))
             row.label:SetText(field.label)
             row.value:SetText(field.value)
             row:Show()
@@ -79,6 +87,7 @@ local function RefreshFields()
     end
     FauxScrollFrame_Update(scroll, #fields, VISIBLE_FIELDS, FIELD_HEIGHT)
 end
+RB.RefreshFields = RefreshFields
 scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, FIELD_HEIGHT, RefreshFields)
 end)
@@ -104,7 +113,7 @@ AddAction("addItem", "Add item", function(d)
     for _, command in ipairs(RB.CommandsFor(d).addItem) do RB.SendCommand(command) end
 end)
 AddAction("trySet", "Try whole set", function(d) RB.Preview(d) end)
-AddAction("copyId", "Copy id", function(d) RB.Copy(RB.PrimaryId(d), "id " .. RB.PrimaryId(d)) end)
+AddAction("copyId", "Copy id", function(d) RB.Copy(RB.CopyId(d), "id " .. RB.CopyId(d)) end)
 AddAction("copyAll", "Copy all", function(d) RB.Copy(RB.PlainText(d), "all fields") end)
 AddAction("copyGm", "Copy GM command", function(d) RB.Copy(RB.GmCommandText(d), "GM command") end)
 AddAction("favourite", "Favourite", function(d)
@@ -131,6 +140,7 @@ function RB.UpdateActions()
         Enable(buttons[key], d)
     end
     buttons.favourite:SetText(d and RB.IsFavourite(d.kind, d.id) and "Unfavourite" or "Favourite")
+    buttons.copyId:SetText(RB.PickedDisplay(d) and "Copy display id" or "Copy id")
 end
 actions:RegisterEvent("PLAYER_TARGET_CHANGED")
 actions:SetScript("OnEvent", RB.UpdateActions)

@@ -51,7 +51,8 @@ struct RetailDisplay {
     float scale = 1;
     uint32_t alpha = 255;
     int32_t sizeClass = 0;
-    std::array<uint32_t, 3> variations = {};   // The first three texture variations; 3.3.5 has no fourth.
+    std::array<uint32_t, 3> variations = {};   // The texture variations of types 11 to 13, the client row's three.
+    uint32_t fourthVariation = 0;              // Retail's fourth, of type 5 (ModelSkins.cpp), served beside the row.
     uint32_t geosetData = 0;
     uint32_t extendedDisplayId = 0;   // The retail CreatureDisplayInfoExtra id, 0 for none.
 };

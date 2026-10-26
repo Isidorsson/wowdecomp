@@ -118,6 +118,46 @@ bool ConvertParticles(std::vector<uint8_t>& m2, std::vector<uint32_t>& compresse
     return true;
 }
 
+constexpr size_t RIBBON_SIZE = 0xB0;
+constexpr size_t RIBBON_TEXTURES = 0x14;
+constexpr size_t RIBBON_MATERIALS = 0x1C;
+
+static std::string TextureList(const std::vector<uint8_t>& m2, const Span& textures, uint32_t from, uint32_t to) {
+    std::string list;
+    for (uint32_t t = from; t < to; t++) {
+        list += (list.empty() ? "" : ", ") + std::to_string(Get<uint16_t>(m2, textures.At(t, 2)));
+    }
+    return list;
+}
+
+static std::string RibbonCut(uint32_t index, const std::vector<uint8_t>& m2, const Span& textures, uint32_t kept) {
+    std::string drawn = kept ? "draws texture " + TextureList(m2, textures, 0, kept) + " only" : "draws nothing";
+    return "ribbon emitter " + std::to_string(index) + ": " + drawn + "; textures " + TextureList(m2, textures, kept, textures.count) + " have no material";
+}
+
+bool ConvertRibbons(std::vector<uint8_t>& m2, std::vector<std::string>& warnings, std::string& error) {
+    Span ribbons;
+    if (!ReadSpan(m2, M2At::RIBBONS, RIBBON_SIZE, "ribbon emitters", ribbons, error)) {
+        return false;
+    }
+
+    for (uint32_t i = 0; i < ribbons.count; i++) {
+        size_t at = ribbons.At(i, RIBBON_SIZE);
+        Span textures;
+        Span materials;
+        if (!ReadSpan(m2, at + RIBBON_TEXTURES, 2, "ribbon textures", textures, error) || !ReadSpan(m2, at + RIBBON_MATERIALS, 2, "ribbon materials", materials, error)) {
+            return false;
+        }
+
+        if (textures.count > materials.count) {
+            warnings.push_back(RibbonCut(i, m2, textures, materials.count));
+            Put<uint32_t>(m2, at + RIBBON_TEXTURES, materials.count);
+        }
+    }
+
+    return true;
+}
+
 // A packed key (int8 x, int8 y, int16 magnitude; z completes the unit vector, flipped by a negative
 // magnitude) as the 3.3.5 gravity float, which pulls along -z.
 static float UnpackGravity(const std::vector<uint8_t>& m2, size_t at) {

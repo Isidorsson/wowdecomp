@@ -140,8 +140,22 @@ TEST(BrowserModelAndMountDetailsListUsers) {
     CHECK(NumberOf(out.Get("fdid")) == 1011653 && FlagOf(out.Get("creature")));
     const BrowserValue* user = Item(out.Get("users"), 0);
     CHECK(TextOf(Field(user, "kind")) == "creature" && NumberOf(Field(user, "id")) == 92123 && NumberOf(Field(user, "displayId")) == 3258);
+    const BrowserValue* third = Item(out.Get("displays"), 2);
+    CHECK(NumberOf(Field(third, "displayId")) == 3259 && NumberOf(Field(third, "modelFdid")) == 1011653);
+    CHECK(Labelled(out, "Display 3") == "3259, served");
     CHECK(Retail::MarshalDetails(Ready(index), "mount", 6, {}, out, error));
     CHECK(NumberOf(out.Get("mountId")) == 6 && NumberOf(out.Get("spellId")) == 458 && NumberOf(out.Get("displayId")) == 2404);
+}
+
+// A model only items use has no creature display: it previews with its first item user's display.
+TEST(BrowserItemOnlyModelReportsItsItemDisplay) {
+    BrowserFixture fixture = MakeBrowserFixture();
+    Retail::RetailIndex index = BuildFixtureIndex(fixture);
+    BrowserValue out;
+    std::string error;
+    CHECK(Retail::MarshalDetails(Ready(index), "model", 145000, {}, out, error));
+    CHECK(!FlagOf(out.Get("creature")) && NumberOf(out.Get("displayCount")) == 0);
+    CHECK(NumberOf(out.Get("displayId")) == 30606);
 }
 
 // R3: an id the installed DBC has keeps its custom row.

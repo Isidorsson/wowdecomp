@@ -388,7 +388,8 @@ bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources,
     std::vector<uint32_t> compressedGravity;
     ConvertedModel converted;
 
-    if (!ConvertGeometry(chunks, m2, &sources, &converted, error) || !ConvertCameras(m2, error) || !ConvertParticles(m2, compressedGravity, converted.warnings, error)) {
+    if (!ConvertGeometry(chunks, m2, &sources, &converted, error) || !ConvertCameras(m2, error) || !ConvertParticles(m2, compressedGravity, converted.warnings, error)
+        || !ConvertRibbons(m2, converted.warnings, error)) {
         return false;
     }
 

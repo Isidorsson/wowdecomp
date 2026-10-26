@@ -130,6 +130,7 @@ struct BrowseModel {
     uint32_t fdid = 0;
     bool creature = true;   // A creature model, else an item model.
     std::vector<ModelUser> users;
+    std::vector<BrowseDisplay> displays;   // Every creature display of the model, by id.
 };
 
 struct BrowseMount {
@@ -257,7 +258,7 @@ class RetailIndex {
     void BuildTransmogSets(const BrowserTables& tables, const ItemJoins& joins);
     void BuildItemSets(const BrowserTables& tables, const ItemJoins& joins);
     void BuildMounts(const BrowserTables& tables, const BrowserLookups& lookups);
-    void BuildModels();
+    void BuildModels(const BrowserLookups& lookups);
     void BuildNames(const BrowserTables& tables);
     void BuildNameOrders();
     void Compact();

@@ -7,8 +7,9 @@
 
 namespace Retail {
 
-// Users of a model listed in its details; the count says how many there are in all.
+// Users and displays of a model listed in its details; the counts say how many there are in all.
 constexpr size_t MAX_MODEL_USERS = 200;
+constexpr size_t MAX_MODEL_DISPLAYS = 200;
 
 namespace {
 
@@ -72,8 +73,10 @@ void SetNumber(BrowserValue& table, const char* key, double value) {
     table.Set(key, BrowserValue::Number(value));
 }
 
-// A creature or mount display: its table under displays and its labelled lines.
-void AddDisplay(BrowserValue& displays, FieldList& fields, size_t slot, const BrowseDisplay& display, const InstalledDisplays& installed) {
+// A creature, mount or model display: its table under displays and its labelled lines. share is the display's chance as
+// the line shows it (", 50%"), empty for the displays of a model.
+void AddDisplay(BrowserValue& displays, FieldList& fields, size_t slot, const BrowseDisplay& display, const InstalledDisplays& installed,
+    const std::string& share) {
     bool custom = Installed(installed.creature, display.id);
     const CreatureDisplayFacts& facts = display.facts;
     BrowserValue& value = displays.Add(BrowserValue::Table());
@@ -92,7 +95,7 @@ void AddDisplay(BrowserValue& displays, FieldList& fields, size_t slot, const Br
 
     std::string label = "Display " + std::to_string(slot + 1);
     std::string state = display.known ? Served(custom) : custom ? "custom row wins" : "not in the retail tables";
-    fields.Add(label, std::to_string(display.id) + ", " + Number(display.probability * 100) + "%, " + state, std::to_string(display.id));
+    fields.Add(label, std::to_string(display.id) + share + ", " + state, std::to_string(display.id));
     if (display.known) {
         fields.Add(label + " model", "fdid " + std::to_string(facts.modelFdid) + ", model " + std::to_string(facts.modelId) + ", scale " + Number(facts.scale),
             std::to_string(facts.modelFdid));
@@ -101,6 +104,10 @@ void AddDisplay(BrowserValue& displays, FieldList& fields, size_t slot, const Br
         fields.Add(label + " NPC", "Extra " + std::to_string(facts.extraId) + ", race " + std::to_string(facts.race) + ", sex " + std::to_string(facts.sex) +
             ", bakes " + std::to_string(facts.sdBake) + " / " + std::to_string(facts.hdBake), std::to_string(facts.extraId));
     }
+}
+
+std::string ShareOf(const BrowseDisplay& display) {
+    return ", " + Number(display.probability * 100) + "%";
 }
 
 void CreatureDetails(const RetailIndex& index, const BrowseCreature& c, const InstalledDisplays& installed, BrowserValue& out) {
@@ -126,7 +133,7 @@ void CreatureDetails(const RetailIndex& index, const BrowseCreature& c, const In
     fields.AddId("Classification", c.classification);
     BrowserValue& displays = details.Set("displays", BrowserValue::Table());
     for (size_t slot = 0; slot < c.displays.size(); slot++) {
-        AddDisplay(displays, fields, slot, c.displays[slot], installed);
+        AddDisplay(displays, fields, slot, c.displays[slot], installed, ShareOf(c.displays[slot]));
     }
 }
 
@@ -291,16 +298,33 @@ void SetDetails(const RetailIndex& index, const BrowseSet& s, const InstalledDis
     }
 }
 
-void ModelDetails(const RetailIndex& index, const BrowseModel& m, BrowserValue& out) {
+// The display a model previews with first: its first creature or mount user's, else its lowest creature display, else
+// its first item user's.
+uint32_t FirstDisplayOf(const BrowseModel& m) {
+    if (!m.users.empty() && m.users[0].kind != BrowseKind::Item) {
+        return m.users[0].displayId;
+    }
+    if (!m.displays.empty()) {
+        return m.displays[0].id;
+    }
+    return m.users.empty() ? 0 : m.users[0].displayId;
+}
+
+void ModelDetails(const RetailIndex& index, const BrowseModel& m, const InstalledDisplays& installed, BrowserValue& out) {
     BrowserValue& details = Begin(out, BrowseKind::Model, m.fdid, m.users.empty() ? std::to_string(m.fdid) : std::string(index.UserName(m.users[0])));
     SetNumber(details, "fdid", m.fdid);
     details.Set("creature", BrowserValue::Bool(m.creature));
     SetNumber(details, "userCount", static_cast<double>(m.users.size()));
-    SetNumber(details, "displayId", m.users.empty() ? 0 : m.users[0].displayId);
+    SetNumber(details, "displayCount", static_cast<double>(m.displays.size()));
+    SetNumber(details, "displayId", FirstDisplayOf(m));
     FieldList fields(details);
     fields.AddId("Model fdid", m.fdid);
     fields.Add("Kind", m.creature ? "Creature model" : "Item model");
     fields.Add("Users", std::to_string(m.users.size()));
+    if (m.creature) {
+        std::string listed = m.displays.size() > MAX_MODEL_DISPLAYS ? ", the first " + std::to_string(MAX_MODEL_DISPLAYS) + " listed" : "";
+        fields.Add("Displays", std::to_string(m.displays.size()) + listed);
+    }
     BrowserValue& users = details.Set("users", BrowserValue::Table());
     for (size_t slot = 0; slot < m.users.size() && slot < MAX_MODEL_USERS; slot++) {
         const ModelUser& user = m.users[slot];
@@ -312,6 +336,10 @@ void ModelDetails(const RetailIndex& index, const BrowseModel& m, BrowserValue& 
         value.Set("name", BrowserValue::String(name));
         fields.Add("User " + std::to_string(slot + 1), std::string(BrowseKindName(user.kind)) + " " + std::to_string(user.id) + " " + name +
             ", display " + std::to_string(user.displayId), std::to_string(user.id));
+    }
+    BrowserValue& displays = details.Set("displays", BrowserValue::Table());
+    for (size_t slot = 0; slot < m.displays.size() && slot < MAX_MODEL_DISPLAYS; slot++) {
+        AddDisplay(displays, fields, slot, m.displays[slot], installed, "");
     }
 }
 
@@ -328,7 +356,7 @@ void MountDetails(const BrowseMount& m, const InstalledDisplays& installed, Brow
     fields.AddId("Mount type", m.mountType);
     BrowserValue& displays = details.Set("displays", BrowserValue::Table());
     for (size_t slot = 0; slot < m.displays.size(); slot++) {
-        AddDisplay(displays, fields, slot, m.displays[slot], installed);
+        AddDisplay(displays, fields, slot, m.displays[slot], installed, ShareOf(m.displays[slot]));
     }
 }
 
@@ -356,7 +384,7 @@ bool MarshalDetails(const BrowserIndexView& view, const std::string& kind, uint3
         found = entry && (SetDetails(index, *entry, installed, out), true);
     } else if (parsed == BrowseKind::Model) {
         const BrowseModel* entry = index.Model(id);
-        found = entry && (ModelDetails(index, *entry, out), true);
+        found = entry && (ModelDetails(index, *entry, installed, out), true);
     } else {
         const BrowseMount* entry = index.Mount(id);
         found = entry && (MountDetails(*entry, installed, out), true);

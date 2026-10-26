@@ -67,7 +67,14 @@ BrowserLookups CascSource::BrowserDisplayLookups() {
         facts.icon = display->icon;
         return true;
     };
-    return { creature, item };
+    auto creatureIds = [displays]() {
+        std::vector<uint32_t> ids;
+        for (const RetailDisplay& display : displays ? displays->All() : std::vector<RetailDisplay>()) {
+            ids.push_back(display.id);
+        }
+        return ids;
+    };
+    return { creature, item, creatureIds };
 }
 
 bool CascSource::LoadBrowserIndex(std::string& error) {

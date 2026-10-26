@@ -50,6 +50,7 @@
 #include "WoW/Source/DB/Rec/ItemVisualEffectsRec.h"
 #include "WoW/Source/DB/Rec/ItemVisualsRec.h"
 #include "WoW/Source/DB/Rec/ParticleColorRec.h"
+#include "WoW/Source/DB/RetailCreatureRecords.h"
 #include "WoW/Source/DB/RetailHelmetRecords.h"
 #include "WoW/Source/DB/RetailItemRecords.h"
 #include "WoW/Source/DB/RetailNpcRecords.h"
@@ -5488,6 +5489,17 @@ void CCharacterComponent::ReplaceMonsterSkin(CM2Model* model, const CreatureDisp
                 model->ReplaceTexture(i + M2TEX_MONSTER_1, texture);
                 HandleClose(reinterpret_cast<HOBJECT>(texture));
             }
+        }
+    }
+
+    // Not in the original: a served retail display's fourth variation fills type 5, which the row has no field for.
+    if (const char* fourth = RetailFourthVariation(displayRec); *fourth) {
+        strcpy(fileName, fourth);
+        CTexture* texture = TextureCreate(path, flags, &status, 0);
+
+        if (texture) {
+            model->ReplaceTexture(OBSOLETE_M2TEX_ENVIRONMENT, texture);
+            HandleClose(reinterpret_cast<HOBJECT>(texture));
         }
     }
 
