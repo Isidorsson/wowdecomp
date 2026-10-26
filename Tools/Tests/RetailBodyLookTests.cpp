@@ -63,6 +63,24 @@ TEST(AGroupWithoutAChoiceShowsItsDefaultVariant) {
     CHECK(Shows(meshes, 3202));
 }
 
+// Group 32 is the head swap: on the retail race bodies 3201 is a small stub (worgen 238 vertices, pandaren female
+// and goblin 64) and 3202 the head (1859, 1083, 1396). Without a choice, x01 drew worgen and pandaren NPCs headless,
+// with their eyes and hair floating.
+static const std::vector<uint32_t> HEAD_SWAP_MODEL = { 0, 1, 2, 3201, 3202, 3301 };
+
+TEST(AHeadSwapWithoutAChoiceShowsTheHeadNotTheStub) {
+    std::vector<uint32_t> meshes = Retail::RetailBodyGeosets(Look({}), HEAD_SWAP_MODEL);
+
+    CHECK(Shows(meshes, 3202) && !Shows(meshes, 3201));
+    CHECK(Shows(meshes, 3301));
+}
+
+TEST(AChosenHeadSwapStillWins) {
+    std::vector<uint32_t> meshes = Retail::RetailBodyGeosets(Look({ { 32, 1 } }), HEAD_SWAP_MODEL);
+
+    CHECK(Shows(meshes, 3201) && !Shows(meshes, 3202));
+}
+
 TEST(AChoiceTheModelLacksShowsTheDefault) {
     std::vector<uint32_t> meshes = Retail::RetailBodyGeosets(Look({ { 7, 9 }, { 0, 25 } }), MODEL);
 

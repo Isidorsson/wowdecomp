@@ -10,6 +10,7 @@
 #include "Engine/Source/Retail/AnimationFallbacks.h"
 #include "Engine/Source/Retail/CascSource.h"
 #include "Engine/Source/Retail/DisplayAudit.h"
+#include "Engine/Source/Retail/RetailBodyLook.h"
 #include "Engine/Source/Retail/RetailDisplays.h"
 
 // Reads retail paths through the same source the client uses, so a cold CDN fetch can happen here
@@ -110,6 +111,47 @@ static int PrintDisplays(Retail::CascSource& source, int count, char** ids) {
             std::printf(" %u", geoset);
         }
         std::printf("\n");
+    }
+
+    return failures ? 1 : 0;
+}
+
+static void PrintMeshes(const char* label, const std::vector<uint32_t>& meshes) {
+    std::printf("  %s:", label);
+    for (uint32_t mesh : meshes) {
+        std::printf(" %u", mesh);
+    }
+    std::printf("\n");
+}
+
+// A retail-body NPC's customization choices (geoset type:id) and the meshes its served look draws (RetailBodyLook).
+static int PrintLooks(Retail::CascSource& source, int count, char** ids) {
+    const Retail::RetailDisplays* displays = source.Displays();
+    const Retail::RetailNpcTables* npcs = source.NpcTables();
+    if (!displays || !npcs) {
+        std::printf("the display or NPC tables did not load\n");
+        return 1;
+    }
+
+    int failures = 0;
+    for (int i = 0; i < count; i++) {
+        uint32_t id = static_cast<uint32_t>(std::strtoul(ids[i], nullptr, 10));
+        const Retail::RetailDisplay* display = displays->Display(id);
+        const Retail::RetailCreatureModel* model = display ? displays->Model(display->modelId) : nullptr;
+        const Retail::NpcExtra* extra = display ? npcs->Extra(display->extendedDisplayId) : nullptr;
+        if (!model || !extra) {
+            std::printf("display %u: no served model or Extra row\n", id);
+            failures++;
+            continue;
+        }
+        std::printf("display %u: extra %u race %u sex %u model fdid %u\n  choices:", id, extra->id, extra->race, extra->sex, model->fileDataId);
+        for (const Retail::CustomizationGeoset& geoset : extra->look.geosets) {
+            std::printf(" %u:%u", geoset.type, geoset.id);
+        }
+        std::printf("\n");
+        std::vector<uint32_t> modelGeosets = source.ModelGeosets(model->fileDataId);
+        PrintMeshes("look meshes", Retail::RetailBodyGeosets(extra->look, modelGeosets));
+        PrintMeshes("chosen", Retail::RetailBodyChosenGeosets(extra->look, modelGeosets));
     }
 
     return failures ? 1 : 0;
@@ -272,6 +314,10 @@ int main(int argc, char** argv) {
 
     if (!std::strcmp(argv[2], "--displays")) {
         return PrintDisplays(source, argc - 3, argv + 3);
+    }
+
+    if (!std::strcmp(argv[2], "--look")) {
+        return PrintLooks(source, argc - 3, argv + 3);
     }
 
     if (!std::strcmp(argv[2], "--audit") && argc >= 5) {

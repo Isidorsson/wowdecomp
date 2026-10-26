@@ -11,6 +11,9 @@ constexpr uint32_t DEFAULT_VARIANT = 1;
 constexpr uint32_t BODY_MESH = 0;
 // Retail bodies made 1701 an additive eye glow (3.3.5's is an empty mesh): drawn only when chosen.
 constexpr uint32_t EYE_GLOW_GROUP = 17;
+// The head swap: 3201 is a small stub (shown under a helm that hides the head), 3202 the head.
+constexpr uint32_t HEAD_SWAP_GROUP = 32;
+constexpr uint32_t HEAD_VARIANT = 2;
 constexpr size_t SECTION_ID = 0x00;
 
 // Id 0 is x00, which no model has: the group draws nothing.
@@ -29,8 +32,8 @@ static std::map<uint32_t, std::set<uint32_t>> VariantsByGroup(const std::vector<
     return groups;
 }
 
-// The first choice of the group that names none or a mesh the model has, else x01 (none for the eye glows), else
-// the group's lowest variant.
+// The first choice of the group that names none or a mesh the model has, else x01 (none for the eye glows, the head
+// 3202 for the head swap), else the group's lowest variant.
 static uint32_t ChosenVariant(uint32_t group, const std::set<uint32_t>& variants, const NpcLook& look) {
     for (const CustomizationGeoset& geoset : look.geosets) {
         if (geoset.type == group && (!geoset.id || variants.count(MeshOf(geoset)))) {
@@ -40,7 +43,7 @@ static uint32_t ChosenVariant(uint32_t group, const std::set<uint32_t>& variants
     if (group == EYE_GLOW_GROUP) {
         return group * GEOSET_GROUP;
     }
-    uint32_t standard = group * GEOSET_GROUP + DEFAULT_VARIANT;
+    uint32_t standard = group * GEOSET_GROUP + (group == HEAD_SWAP_GROUP ? HEAD_VARIANT : DEFAULT_VARIANT);
     return variants.count(standard) ? standard : *variants.begin();
 }
 
