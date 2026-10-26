@@ -113,9 +113,8 @@ std::vector<RetailIndex::Keys>& RetailIndex::KeysOf(BrowseKind kind) {
     return const_cast<std::vector<Keys>&>(static_cast<const RetailIndex*>(this)->KeysOf(kind));
 }
 
-static const std::string& FirstName(const RetailIndex::Keys& keys) {
-    static const std::string none;
-    return keys.names.empty() ? none : keys.names[0];
+std::string_view RetailIndex::FirstName(const Keys& keys) const {
+    return keys.names ? this->m_keyNames[keys.firstName] : std::string_view();
 }
 
 // Each kind's entries by first name, then entry (by id): the order SearchAll's stable sort leaves equal ranks in.
@@ -125,7 +124,7 @@ void RetailIndex::BuildNameOrders() {
         std::vector<uint32_t> entries(keys.size());
         std::iota(entries.begin(), entries.end(), 0);
         std::sort(entries.begin(), entries.end(), [&](uint32_t a, uint32_t b) {
-            int order = FirstName(keys[a]).compare(FirstName(keys[b]));
+            int order = this->FirstName(keys[a]).compare(this->FirstName(keys[b]));
             return order != 0 ? order < 0 : a < b;
         });
         for (uint32_t place = 0; place < entries.size(); place++) {
@@ -189,21 +188,24 @@ bool RetailIndex::Passes(BrowseKind kind, size_t entry, const BrowseFilters& fil
 }
 
 // 0 for an exact name or the entry's own id, 1 for a prefix or another of its ids, 2 for a substring; false for no match.
-static bool RankOf(const RetailIndex::Keys& keys, const std::string& query, bool numeric, uint32_t number, uint32_t& rank) {
+bool RetailIndex::RankOf(const Keys& keys, const std::string& query, bool numeric, uint32_t number, uint32_t& rank) const {
     if (query.empty()) {
         rank = 0;
         return true;
     }
     if (numeric) {
-        auto found = std::find(keys.ids.begin(), keys.ids.end(), number);
-        rank = found == keys.ids.begin() ? 0 : 1;
-        return found != keys.ids.end();
+        const uint32_t* ids = this->m_keyIds.data() + keys.firstId;
+        const uint32_t* found = std::find(ids, ids + keys.ids, number);
+        rank = found == ids ? 0 : 1;
+        return found != ids + keys.ids;
     }
     bool matched = false;
     rank = 3;
-    for (const std::string& name : keys.names) {
+    const std::string_view* names = this->m_keyNames.data() + keys.firstName;
+    for (uint32_t n = 0; n < keys.names; n++) {
+        std::string_view name = names[n];
         size_t at = name.find(query);
-        if (at != std::string::npos) {
+        if (at != std::string_view::npos) {
             uint32_t found = name.size() == query.size() ? 0 : at == 0 ? 1 : 2;
             rank = std::min(rank, found);
             matched = true;
@@ -232,16 +234,12 @@ std::vector<SearchRow> RetailIndex::SearchAll(BrowseKind kind, std::string_view 
     std::vector<std::pair<uint32_t, size_t>> ranked;
     for (size_t entry = 0; entry < keys.size(); entry++) {
         uint32_t rank;
-        if (this->Passes(kind, entry, filters) && RankOf(keys[entry], query, numeric, number, rank)) {
+        if (this->Passes(kind, entry, filters) && this->RankOf(keys[entry], query, numeric, number, rank)) {
             ranked.push_back({ rank, entry });
         }
     }
-    auto nameOf = [&](size_t entry) -> const std::string& {
-        static const std::string none;
-        return keys[entry].names.empty() ? none : keys[entry].names[0];
-    };
     std::stable_sort(ranked.begin(), ranked.end(), [&](const auto& a, const auto& b) {
-        return a.first != b.first ? a.first < b.first : nameOf(a.second) < nameOf(b.second);
+        return a.first != b.first ? a.first < b.first : this->FirstName(keys[a.second]) < this->FirstName(keys[b.second]);
     });
     std::vector<SearchRow> rows;
     rows.reserve(ranked.size());
@@ -259,7 +257,7 @@ std::vector<std::pair<uint64_t, uint32_t>> RetailIndex::Rank(BrowseKind kind, co
     std::vector<std::pair<uint64_t, uint32_t>> ranked;
     for (size_t entry = 0; entry < keys.size(); entry++) {
         uint32_t rank;
-        if (this->Passes(kind, entry, filters) && RankOf(keys[entry], query, numeric, number, rank)) {
+        if (this->Passes(kind, entry, filters) && this->RankOf(keys[entry], query, numeric, number, rank)) {
             ranked.push_back({ static_cast<uint64_t>(rank) << 32 | keys[entry].nameOrder, static_cast<uint32_t>(entry) });
         }
     }
@@ -320,23 +318,23 @@ SearchRow RetailIndex::RowOf(BrowseKind kind, size_t entry) const {
     if (kind == BrowseKind::Creature) {
         const BrowseCreature& c = this->m_creatures[entry];
         auto type = this->m_typeNames.find(c.type);
-        row = { c.id, c.name, Joined({ c.title, type != this->m_typeNames.end() ? type->second : "",
+        row = { c.id, std::string(c.name), Joined({ std::string(c.title), type != this->m_typeNames.end() ? type->second : "",
             GROUP_NAMES[static_cast<size_t>(GroupOfClassification(c.classification))] }), c.displays.empty() ? 0 : c.displays[0].id, 0, 0 };
     } else if (kind == BrowseKind::Item) {
         const BrowseItem& i = this->m_items[entry];
-        row = { i.id, i.name, Joined({ "ilvl " + std::to_string(i.itemLevel), InventoryTypeName(i.inventoryType), this->SubclassName(i.classId, i.subclassId) }),
+        row = { i.id, std::string(i.name), Joined({ "ilvl " + std::to_string(i.itemLevel), InventoryTypeName(i.inventoryType), this->SubclassName(i.classId, i.subclassId) }),
             i.appearances.empty() ? 0 : i.appearances[0].displayId, i.icon, i.quality };
     } else if (kind == BrowseKind::Set) {
         const BrowseSet& s = this->m_sets[entry];
-        row = { s.key, s.name, Joined({ s.source == SetSource::ItemSet ? "Item set" : "Transmog set", std::to_string(s.pieces.size()) + (s.pieces.size() == 1 ? " piece" : " pieces"),
+        row = { s.key, std::string(s.name), Joined({ s.source == SetSource::ItemSet ? "Item set" : "Transmog set", std::to_string(s.pieces.size()) + (s.pieces.size() == 1 ? " piece" : " pieces"),
             ARMOUR_NAMES[s.armour] }), s.pieces.empty() ? 0 : s.pieces[0].displayId, 0, 0 };
     } else if (kind == BrowseKind::Model) {
         const BrowseModel& m = this->m_models[entry];
-        row = { m.fdid, m.users.empty() ? std::to_string(m.fdid) : m.users[0].name,
+        row = { m.fdid, m.users.empty() ? std::to_string(m.fdid) : std::string(this->UserName(m.users[0])),
             Joined({ m.creature ? "Creature model" : "Item model", std::to_string(m.users.size()) + (m.users.size() == 1 ? " user" : " users") }), m.users.empty() ? 0 : m.users[0].displayId, 0, 0 };
     } else {
         const BrowseMount& m = this->m_mounts[entry];
-        row = { m.id, m.name, "Spell " + std::to_string(m.spellId), m.displays.empty() ? 0 : m.displays[0].id, 0, 0 };
+        row = { m.id, std::string(m.name), "Spell " + std::to_string(m.spellId), m.displays.empty() ? 0 : m.displays[0].id, 0, 0 };
     }
     return row;
 }

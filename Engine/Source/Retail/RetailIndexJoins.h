@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <unordered_map>
 #include <vector>
 #include "Engine/Source/Retail/RetailIndex.h"
 
@@ -13,6 +12,7 @@ namespace Retail {
 
 // The item facts the Item table adds to a name.
 struct ItemFacts {
+    uint32_t id = 0;
     uint32_t classId = 0;
     uint32_t subclassId = 0;
     uint32_t material = 0;
@@ -30,15 +30,17 @@ struct ModifiedAppearance {
 };
 
 struct AppearanceRow {
+    uint32_t id = 0;
     uint32_t display = 0;
     uint32_t icon = 0;
 };
 
+// Each by id (FindById), the last row of an id kept; byItem by item id, then OrderIndex, then id.
 struct ItemJoins {
-    std::unordered_map<uint32_t, ItemFacts> facts;               // By item id.
-    std::unordered_map<uint32_t, AppearanceRow> appearances;     // By ItemAppearance id.
-    std::unordered_map<uint32_t, ModifiedAppearance> modified;   // By ItemModifiedAppearance id.
-    std::vector<ModifiedAppearance> byItem;                      // By item id, then OrderIndex, then id.
+    std::vector<ItemFacts> facts;
+    std::vector<AppearanceRow> appearances;
+    std::vector<ModifiedAppearance> modified;
+    std::vector<ModifiedAppearance> byItem;
 };
 
 ItemJoins ReadItemJoins(const BrowserTables& tables);
@@ -68,6 +70,20 @@ const Row* FindById(const std::vector<Row>& rows, uint32_t id) {
 template <typename Row>
 void SortById(std::vector<Row>& rows) {
     std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.id < b.id; });
+}
+
+// Sorted by id with one row per id, the last of the rows that had it (as assigning each row to a map by id keeps).
+template <typename Row>
+void KeepLastById(std::vector<Row>& rows) {
+    std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.id < b.id; });
+    size_t kept = 0;
+    for (size_t r = 0; r < rows.size(); r++) {
+        if (r + 1 < rows.size() && rows[r + 1].id == rows[r].id) {
+            continue;
+        }
+        rows[kept++] = rows[r];
+    }
+    rows.resize(kept);
 }
 
 BrowseDisplay CreatureDisplayOf(uint32_t id, float probability, const BrowserLookups& lookups);

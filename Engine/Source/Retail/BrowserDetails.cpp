@@ -20,10 +20,10 @@ class FieldList {
     // Set last: a later Set on the details table would move the list.
     ~FieldList() { this->m_details.Set("fields", std::move(this->m_fields)); }
 
-    void Add(const std::string& label, const std::string& value, const std::string& copy = "") {
+    void Add(const std::string& label, std::string_view value, const std::string& copy = "") {
         BrowserValue& field = this->m_fields.Add(BrowserValue::Table());
         field.Set("label", BrowserValue::String(label));
-        field.Set("value", BrowserValue::String(value));
+        field.Set("value", BrowserValue::String(std::string(value)));
         if (!copy.empty()) {
             field.Set("copy", BrowserValue::String(copy));
         }
@@ -59,12 +59,12 @@ bool Installed(const std::function<bool(uint32_t)>& installed, uint32_t id) {
     return id && installed && installed(id);
 }
 
-BrowserValue& Begin(BrowserValue& out, BrowseKind kind, uint32_t id, const std::string& name) {
+BrowserValue& Begin(BrowserValue& out, BrowseKind kind, uint32_t id, std::string_view name) {
     out = BrowserValue::Table();
     out.Set("status", BrowserValue::String("ok"));
     out.Set("kind", BrowserValue::String(BrowseKindName(kind)));
     out.Set("id", BrowserValue::Number(id));
-    out.Set("name", BrowserValue::String(name));
+    out.Set("name", BrowserValue::String(std::string(name)));
     return out;
 }
 
@@ -106,7 +106,7 @@ void AddDisplay(BrowserValue& displays, FieldList& fields, size_t slot, const Br
 void CreatureDetails(const RetailIndex& index, const BrowseCreature& c, const InstalledDisplays& installed, BrowserValue& out) {
     BrowserValue& details = Begin(out, BrowseKind::Creature, c.id, c.name);
     SetNumber(details, "creatureId", c.id);
-    details.Set("title", BrowserValue::String(c.title));
+    details.Set("title", BrowserValue::String(std::string(c.title)));
     SetNumber(details, "type", c.type);
     details.Set("typeName", BrowserValue::String(NameIn(index.CreatureTypeNames(), c.type)));
     SetNumber(details, "family", c.family);
@@ -161,8 +161,7 @@ std::string SocketList(const SparseItem& sparse) {
 }
 
 // Retail armour and weapon damage at the item's own level (ItemArmour.h).
-void AddCombat(const RetailIndex& index, const BrowseItem& item, FieldList& fields) {
-    SparseItem sparse = item.sparse;
+void AddCombat(const RetailIndex& index, const BrowseItem& item, SparseItem sparse, FieldList& fields) {
     sparse.quality = item.quality;
     const ArmourTables& tables = index.Budget().armour;
     std::string level = " at item level " + std::to_string(sparse.itemLevel);
@@ -180,11 +179,11 @@ void AddCombat(const RetailIndex& index, const BrowseItem& item, FieldList& fiel
 
 // ItemSparse: each stat with its budget share and its value at the item's own level, sockets and weapon fields as stored.
 void AddSparse(const RetailIndex& index, const BrowseItem& item, BrowserValue& details, FieldList& fields) {
-    if (!item.hasSparse) {
+    SparseItem sparse;
+    if (!index.SparseOf(item, sparse)) {
         fields.Add("Stats", "no ItemSparse row (still locked, or the table did not load)");
         return;
     }
-    const SparseItem& sparse = item.sparse;
     StatRequest request;
     request.itemLevel = sparse.itemLevel;
     request.subclass = item.subclassId;
@@ -220,7 +219,7 @@ void AddSparse(const RetailIndex& index, const BrowseItem& item, BrowserValue& d
             std::to_string(sparse.damageType), std::to_string(sparse.delay));
     }
     fields.AddId("Required level", sparse.requiredLevel);
-    AddCombat(index, item, fields);
+    AddCombat(index, item, sparse, fields);
     std::string scaling = LevelScaling(sparse);
     if (!scaling.empty()) {
         fields.Add("Scales", "with the player's level (" + scaling + "): retail shows it at the player's level, the Build panel at its item level",
@@ -286,14 +285,14 @@ void SetDetails(const RetailIndex& index, const BrowseSet& s, const InstalledDis
         SetNumber(value, "inventoryType", piece.inventoryType);
         value.Set("custom", BrowserValue::Bool(custom));
         const BrowseItem* item = index.Item(piece.itemId);
-        value.Set("name", BrowserValue::String(item ? item->name : ""));
+        value.Set("name", BrowserValue::String(item ? std::string(item->name) : std::string()));
         fields.Add("Piece " + std::to_string(slot + 1), "item " + std::to_string(piece.itemId) + ", IDI " + std::to_string(piece.displayId) +
             ", slot " + std::to_string(piece.inventoryType) + ", " + Served(custom), std::to_string(piece.itemId));
     }
 }
 
-void ModelDetails(const BrowseModel& m, BrowserValue& out) {
-    BrowserValue& details = Begin(out, BrowseKind::Model, m.fdid, m.users.empty() ? std::to_string(m.fdid) : m.users[0].name);
+void ModelDetails(const RetailIndex& index, const BrowseModel& m, BrowserValue& out) {
+    BrowserValue& details = Begin(out, BrowseKind::Model, m.fdid, m.users.empty() ? std::to_string(m.fdid) : std::string(index.UserName(m.users[0])));
     SetNumber(details, "fdid", m.fdid);
     details.Set("creature", BrowserValue::Bool(m.creature));
     SetNumber(details, "userCount", static_cast<double>(m.users.size()));
@@ -305,12 +304,13 @@ void ModelDetails(const BrowseModel& m, BrowserValue& out) {
     BrowserValue& users = details.Set("users", BrowserValue::Table());
     for (size_t slot = 0; slot < m.users.size() && slot < MAX_MODEL_USERS; slot++) {
         const ModelUser& user = m.users[slot];
+        std::string name(index.UserName(user));
         BrowserValue& value = users.Add(BrowserValue::Table());
         value.Set("kind", BrowserValue::String(BrowseKindName(user.kind)));
         SetNumber(value, "id", user.id);
         SetNumber(value, "displayId", user.displayId);
-        value.Set("name", BrowserValue::String(user.name));
-        fields.Add("User " + std::to_string(slot + 1), std::string(BrowseKindName(user.kind)) + " " + std::to_string(user.id) + " " + user.name +
+        value.Set("name", BrowserValue::String(name));
+        fields.Add("User " + std::to_string(slot + 1), std::string(BrowseKindName(user.kind)) + " " + std::to_string(user.id) + " " + name +
             ", display " + std::to_string(user.displayId), std::to_string(user.id));
     }
 }
@@ -356,7 +356,7 @@ bool MarshalDetails(const BrowserIndexView& view, const std::string& kind, uint3
         found = entry && (SetDetails(index, *entry, installed, out), true);
     } else if (parsed == BrowseKind::Model) {
         const BrowseModel* entry = index.Model(id);
-        found = entry && (ModelDetails(*entry, out), true);
+        found = entry && (ModelDetails(index, *entry, out), true);
     } else {
         const BrowseMount* entry = index.Mount(id);
         found = entry && (MountDetails(*entry, installed, out), true);

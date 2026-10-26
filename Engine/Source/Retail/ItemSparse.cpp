@@ -6,22 +6,17 @@ namespace Retail {
 // Physical columns of layout 1C17D17F (ID is noninline).
 enum ItemSparseColumn : size_t {
     DISPLAY_LANG = 4,
-    EXPANSION = 5,
     DAMAGE_VARIANCE = 6,
-    QUALITY_MODIFIER = 9,
     SOCKET_COSTS = 14,
     STAT_PERCENTS = 15,
     STAT_TYPES = 16,
     FLAGS = 27,
     CONTENT_TUNING = 30,
     LEVEL_CURVE = 31,
-    SQUISH_ERA = 34,
     SOCKET_BONUS = 39,
-    ITEM_SET = 43,
     DELAY = 46,
     ITEM_LEVEL = 50,
     SOCKET_TYPES = 55,
-    BONDING = 59,
     DAMAGE_TYPE = 60,
     REQUIRED_LEVEL = 64,
     INVENTORY_TYPE = 65,
@@ -55,12 +50,10 @@ bool ReadSparseItem(const Db2Table& table, size_t row, SparseItem& item) {
     item = SparseItem();
     item.id = table.RowId(row);
     Db2Row fields = table.ReadRow(row);
-    item.name = fields.String(DISPLAY_LANG);
     item.itemLevel = fields.Value(ITEM_LEVEL);
     item.quality = fields.Value(QUALITY);
     item.inventoryType = fields.Value(INVENTORY_TYPE);
     item.requiredLevel = fields.Value(REQUIRED_LEVEL);
-    item.expansion = fields.Value(EXPANSION);
     Fill(item.statTypes, fields.Values(STAT_TYPES));
     Fill(item.statPercents, fields.Values(STAT_PERCENTS));
     std::vector<uint32_t> costs = fields.Values(SOCKET_COSTS);
@@ -71,11 +64,7 @@ bool ReadSparseItem(const Db2Table& table, size_t row, SparseItem& item) {
     item.socketBonus = fields.Value(SOCKET_BONUS);
     item.delay = fields.Value(DELAY);
     item.damageVariance = AsFloat(fields.Value(DAMAGE_VARIANCE));
-    item.qualityModifier = AsFloat(fields.Value(QUALITY_MODIFIER));
     item.damageType = fields.Value(DAMAGE_TYPE);
-    item.bonding = fields.Value(BONDING);
-    item.itemSet = fields.Value(ITEM_SET);
-    item.squishEra = fields.Value(SQUISH_ERA);
     item.levelCurve = fields.Value(LEVEL_CURVE);
     item.contentTuning = fields.Value(CONTENT_TUNING);
     std::vector<uint32_t> flags = fields.Values(FLAGS);

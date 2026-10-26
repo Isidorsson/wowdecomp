@@ -106,8 +106,9 @@ TEST(AttachSparseGivesIndexedItemsTheirRows) {
     RetailIndex index = BuildIndex();
     const BrowseItem* chest = index.Item(16958);
     const BrowseItem* copy = index.Item(16959);
-    CHECK(chest && chest->hasSparse && chest->sparse.statTypes[0] == 74 && chest->sparse.statPercents[1] == 7889);
-    CHECK(copy && copy->hasSparse && copy->sparse.itemLevel == 29);
+    SparseItem sparse;
+    CHECK(chest && index.SparseOf(*chest, sparse) && sparse.id == 16958 && sparse.statTypes[0] == 74 && sparse.statPercents[1] == 7889);
+    CHECK(copy && index.SparseOf(*copy, sparse) && sparse.id == 16959 && sparse.itemLevel == 29 && sparse.statTypes[0] == 74);
     CHECK(index.Budget().Ready());
 }
 

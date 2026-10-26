@@ -1,8 +1,10 @@
 #ifndef ENGINE_SOURCE_RETAIL_RETAILINDEX_H
 #define ENGINE_SOURCE_RETAIL_RETAILINDEX_H
 
+#include <array>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -35,6 +37,19 @@ std::string NormalizeSearchText(std::string_view text);
 enum class ClassificationGroup : int32_t { Normal = 0, Elite = 1, Rare = 2, RareElite = 3 };
 ClassificationGroup GroupOfClassification(uint32_t classification);
 
+// The text the entries' names are views of: appended while the index builds, in blocks that never move. Copies of an
+// index share it, so their views stay valid after the index they were copied from is gone. Equal texts are not merged:
+// the set that finds them costs the process more than the 1.8 MB they repeat (heap left fragmented, a slower Build).
+class TextPool {
+    public:
+    std::string_view Add(std::string_view text);
+
+    private:
+    std::vector<std::unique_ptr<char[]>> m_blocks;
+    size_t m_used = 0;   // Of the last block.
+    size_t m_size = 0;
+};
+
 struct BrowseDisplay {
     uint32_t id = 0;
     float probability = 0;
@@ -44,8 +59,8 @@ struct BrowseDisplay {
 
 struct BrowseCreature {
     uint32_t id = 0;
-    std::string name;
-    std::string title;
+    std::string_view name;    // In the index's TextPool, as every entry's name.
+    std::string_view title;
     uint32_t classification = 0;
     uint32_t type = 0;
     uint32_t family = 0;
@@ -62,13 +77,14 @@ struct BrowseAppearance {
     ItemDisplayFacts facts;
 };
 
+constexpr uint32_t NO_SPARSE = UINT32_MAX;
+
 struct BrowseItem {
     uint32_t id = 0;
-    std::string name;
+    std::string_view name;
     uint32_t quality = 0;
     uint32_t expansion = 0;
     uint32_t itemLevel = 0;
-    uint32_t requiredLevel = 0;
     uint32_t allowableClass = 0;
     uint32_t classId = 0;
     uint32_t subclassId = 0;
@@ -77,8 +93,10 @@ struct BrowseItem {
     uint32_t sheatheType = 0;
     uint32_t icon = 0;   // Item's own icon, else the first appearance's.
     std::vector<BrowseAppearance> appearances;   // By ItemModifiedAppearance order.
-    bool hasSparse = false;   // Its ItemSparse row was read (AttachSparse): stats, sockets, delay.
-    SparseItem sparse;
+    // Its ItemSparse row (AttachSparse) as the index keeps it, shared with every item of the same values; NO_SPARSE
+    // without one. RetailIndex::SparseOf gives the row.
+    uint32_t sparseStats = NO_SPARSE;
+    uint32_t sparseRest = NO_SPARSE;
 };
 
 enum class SetSource : uint8_t { Transmog, ItemSet };
@@ -94,18 +112,18 @@ struct BrowseSet {
     uint32_t key = 0;   // TransmogSet id, or ITEM_SET_KEY_BASE + ItemSet id.
     uint32_t setId = 0;
     SetSource source = SetSource::Transmog;
-    std::string name;
+    std::string_view name;
     uint32_t classMask = 0;   // 1 << (class - 1); 0 for every class.
     uint32_t expansion = 0;
     uint32_t armour = 0;      // Most pieces' armour subclass (1 cloth to 4 plate), 0 for none.
     std::vector<SetPiece> pieces;
 };
 
+// Named by its entry: RetailIndex::UserName.
 struct ModelUser {
     BrowseKind kind = BrowseKind::Creature;
     uint32_t id = 0;
     uint32_t displayId = 0;
-    std::string name;
 };
 
 struct BrowseModel {
@@ -116,7 +134,7 @@ struct BrowseModel {
 
 struct BrowseMount {
     uint32_t id = 0;
-    std::string name;
+    std::string_view name;
     uint32_t spellId = 0;
     uint32_t mountType = 0;
     std::vector<BrowseDisplay> displays;
@@ -170,6 +188,8 @@ class RetailIndex {
     // After Build: each indexed item's ItemSparse row (parsed with ItemSparseStrings()), and the budget tables that
     // turn its allocations into values. Without them items have no stats and the SQL builders no stat lines.
     bool AttachSparse(const Db2Table& itemSparse, std::string& error);
+    // False for an item without an ItemSparse row.
+    bool SparseOf(const BrowseItem& item, SparseItem& sparse) const;
     void SetBudget(StatBudget budget) { this->m_budget = std::move(budget); }
     const StatBudget& Budget() const { return this->m_budget; }
 
@@ -186,6 +206,8 @@ class RetailIndex {
     const BrowseSet* Set(uint32_t key) const;
     const BrowseModel* Model(uint32_t fdid) const;
     const BrowseMount* Mount(uint32_t id) const;
+    // The name of the entry that draws a model.
+    std::string_view UserName(const ModelUser& user) const;
 
     size_t Count(BrowseKind kind) const;
     // Rows of still-locked sections the tables skipped.
@@ -197,14 +219,38 @@ class RetailIndex {
     const std::map<uint32_t, std::string>& SubclassNames() const { return this->m_subclassNames; }
     std::string SubclassName(uint32_t classId, uint32_t subclassId) const;
 
-    // What a search compares: normalized names and the ids a number finds, the first id the entry's own.
+    private:
+    // What a search compares: normalized names (ranges of m_keyNames) and the ids a number finds (of m_keyIds), the
+    // first id the entry's own.
     struct Keys {
-        std::vector<std::string> names;
-        std::vector<uint32_t> ids;
+        uint32_t firstName = 0;
+        uint32_t names = 0;
+        uint32_t firstId = 0;
+        uint32_t ids = 0;
         uint32_t nameOrder = 0;   // The entry's place among its kind by first name, then id: what ties compare.
     };
+    // An ItemSparse row in two parts, each kept once for all the items that have the same values.
+    struct SparseStats {
+        std::array<int32_t, ITEM_STAT_SLOTS> statTypes;
+        std::array<int32_t, ITEM_STAT_SLOTS> statPercents;
+        std::array<float, ITEM_STAT_SLOTS> socketCosts;
+    };
+    struct SparseRest {
+        uint32_t itemLevel;
+        uint32_t quality;
+        uint32_t inventoryType;
+        uint32_t requiredLevel;
+        std::array<uint32_t, ITEM_SOCKETS> sockets;
+        uint32_t socketBonus;
+        uint32_t delay;
+        float damageVariance;
+        uint32_t damageType;
+        uint32_t levelCurve;
+        uint32_t contentTuning;
+        uint32_t casterWeapon;   // A word, not a bool: Shared compares and hashes the bytes, so no padding.
+    };
 
-    private:
+
     void BuildCreatures(const BrowserTables& tables, const BrowserLookups& lookups);
     void BuildItems(const BrowserTables& tables, const ItemJoins& joins, const BrowserLookups& lookups);
     void BuildSets(const BrowserTables& tables, const ItemJoins& joins);
@@ -214,6 +260,12 @@ class RetailIndex {
     void BuildModels();
     void BuildNames(const BrowserTables& tables);
     void BuildNameOrders();
+    void Compact();
+    Keys StartKeys() const;
+    void AddKeys(std::vector<Keys>& keys, Keys entry);
+    std::string_view AddNormalized(std::string_view name);
+    std::string_view FirstName(const Keys& keys) const;
+    bool RankOf(const Keys& keys, const std::string& query, bool numeric, uint32_t number, uint32_t& rank) const;
     bool Passes(BrowseKind kind, size_t entry, const BrowseFilters& filters) const;
     SearchRow RowOf(BrowseKind kind, size_t entry) const;
     const std::vector<Keys>& KeysOf(BrowseKind kind) const;
@@ -251,6 +303,11 @@ class RetailIndex {
     std::vector<Keys> m_setKeys;
     std::vector<Keys> m_modelKeys;
     std::vector<Keys> m_mountKeys;
+    std::vector<std::string_view> m_keyNames;
+    std::vector<uint32_t> m_keyIds;
+    std::vector<SparseStats> m_sparseStats;
+    std::vector<SparseRest> m_sparseRest;
+    std::shared_ptr<TextPool> m_text;
     std::map<uint32_t, std::string> m_typeNames;
     std::map<uint32_t, std::string> m_familyNames;
     std::map<uint32_t, std::string> m_subclassNames;

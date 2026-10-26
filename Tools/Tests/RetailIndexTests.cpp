@@ -117,11 +117,14 @@ TEST(BrowserListsWhatUsesEachModel) {
     if (human && human->users.size() == 2) {
         CHECK(human->users[0].kind == BrowseKind::Creature && human->users[0].id == 92123 && human->users[0].displayId == 3258);
         CHECK(human->users[1].id == 178184);
+        CHECK(index.UserName(human->users[0]) == "Stormwind Guard" && index.UserName(human->users[1]) == "Stormwind Guard Captain");
     }
     const Retail::BrowseModel* blade = index.Model(145000);
     CHECK(blade && !blade->creature && blade->users.size() == 1 && blade->users[0].kind == BrowseKind::Item && blade->users[0].id == 19019);
     const Retail::BrowseModel* horse = index.Model(123456);
     CHECK(horse && horse->users.size() == 1 && horse->users[0].kind == BrowseKind::Mount);
+    CHECK(blade && index.UserName(blade->users[0]) == "Thunderfury, Blessed Blade of the Windseeker");
+    CHECK(horse && index.UserName(horse->users[0]) == "Brown Horse");
 }
 
 TEST(BrowserJoinsMountsToTheirDisplays) {
