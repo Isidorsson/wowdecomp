@@ -55,11 +55,16 @@ struct RetailDisplay {
     uint32_t fourthVariation = 0;              // Retail's fourth, of type 5 (ModelSkins.cpp), served beside the row.
     uint32_t geosetData = 0;
     uint32_t extendedDisplayId = 0;   // The retail CreatureDisplayInfoExtra id, 0 for none.
+    std::vector<Geoset> droppedGeosets;   // What geosetData cannot carry, for DisplayAudit.
 };
 
 // One nibble per geoset group 1 to 8, group g at bits 4 * (g - 1): the variant shown, 0xF (hidden) for a group
 // retail does not list or lists past variant 15. 0, every variant drawn, for a display without geosets.
 uint32_t PackGeosetData(const std::vector<Geoset>& geosets);
+
+// The geosets PackGeosetData leaves out: groups past 7 and variants from 15, which packs as the hidden marker
+// (variant 0 means none, so is not lost).
+std::vector<Geoset> DroppedGeosets(const std::vector<Geoset>& geosets);
 
 class RetailDisplays {
     public:

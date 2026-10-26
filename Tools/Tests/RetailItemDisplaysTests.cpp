@@ -269,6 +269,14 @@ TEST(SectionsPastTheEighthAreDropped) {
     CHECK(body == expected);
 }
 
+// The display audit reports what was dropped: one bit per retail section, only for a section with a file.
+TEST(DroppedSectionsWithFilesAreRemembered) {
+    Fixture fixture = Armour({ { 60, 9, 909 }, { 60, 10, 911 }, { 60, 3, 910 } }, { { 9090, 0, 909 }, { 9091, 0, 910 } }, { { 9090, 2, 0 }, { 9091, 2, 0 } });
+    const RetailItemDisplay* display = Loaded(fixture).Display(60);
+
+    CHECK(display && display->droppedSections == (1u << 9));
+}
+
 // Helms: the client asks for Item\ObjectComponents\Head\<name>_<race prefix><M|F>, so a served helm's file is the one
 // its model resource has for the character's race and gender (ComponentModelFileData: gender 0 male, 1 female,
 // else either; race 0 every race).

@@ -202,6 +202,18 @@ static std::array<BodyTexture, BODY_SECTIONS> BodyOf(uint32_t display, const Bod
     return body;
 }
 
+static uint32_t DroppedSectionsOf(uint32_t display, const BodyLookups& lookups) {
+    constexpr uint32_t SECTION_BITS = 32;
+    uint32_t dropped = 0;
+    auto sections = lookups.sectionsOf.find(display);
+    for (const auto& [section, material] : sections == lookups.sectionsOf.end() ? SectionMaterials() : sections->second) {
+        if (section >= BODY_SECTIONS && section < SECTION_BITS && lookups.objectFilesOf.count(material)) {
+            dropped |= 1u << section;
+        }
+    }
+    return dropped;
+}
+
 struct ItemLookups {
     ModelFilesByResource files;
     std::map<uint32_t, uint32_t> skins;
@@ -236,6 +248,7 @@ static RetailItemDisplay DisplayAt(const Db2Table& displays, size_t row, const I
     }
     display.icon = Find(lookups.icons, display.id);
     display.body = BodyOf(display.id, lookups.body);
+    display.droppedSections = DroppedSectionsOf(display.id, lookups.body);
     return display;
 }
 

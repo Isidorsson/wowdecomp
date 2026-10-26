@@ -1,12 +1,15 @@
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 #include "Engine/Source/Retail/AnimationFallbacks.h"
 #include "Engine/Source/Retail/CascSource.h"
+#include "Engine/Source/Retail/DisplayAudit.h"
 #include "Engine/Source/Retail/RetailDisplays.h"
 
 // Reads retail paths through the same source the client uses, so a cold CDN fetch can happen here
@@ -17,6 +20,7 @@
 //   RetailAssetProbe <RetailCasc.ini> --displays <id>...      (the served CreatureDisplayInfo rows and model geosets)
 //   RetailAssetProbe <RetailCasc.ini> --model-displays <CreatureModelData id>  (the displays that use the model)
 //   RetailAssetProbe <RetailCasc.ini> --rows <table fdid> <id>... | all  (every column of the rows with, or related to, an id)
+//   RetailAssetProbe <RetailCasc.ini> --audit <out.csv> <id>... | all  (what each display uses that the client cannot draw)
 
 static void Save(const char* dir, const char* path, const std::vector<uint8_t>& bytes) {
     std::string name = path;
@@ -146,6 +150,89 @@ static int PrintRows(Retail::CascSource& source, uint32_t table, int count, char
     return 0;
 }
 
+static const char* const NPC_SLOT_NAMES[Retail::NPC_ITEM_SLOTS] = {
+    "helm", "shoulders", "shirt", "chest", "belt", "legs", "boots", "wrists", "gloves", "tabard", "cape",
+};
+
+static std::string FindingName(const Retail::AuditFinding& finding) {
+    std::string name = Retail::AuditFlagName(finding.flag);
+    bool slot = finding.flag == Retail::AuditFlag::ArmourModelDropped || finding.flag == Retail::AuditFlag::MissingItem;
+    if (slot && finding.detail < Retail::NPC_ITEM_SLOTS) {
+        return name + ":" + NPC_SLOT_NAMES[finding.detail];
+    }
+    return finding.flag == Retail::AuditFlag::NoBake ? name : name + ":" + std::to_string(finding.detail);
+}
+
+static std::vector<const Retail::RetailDisplay*> AuditedDisplays(const Retail::RetailDisplays& displays, int count, char** ids) {
+    std::vector<const Retail::RetailDisplay*> audited;
+    if (count == 1 && !std::strcmp(ids[0], "all")) {
+        for (const Retail::RetailDisplay& display : displays.All()) {
+            audited.push_back(&display);
+        }
+        return audited;
+    }
+    for (int i = 0; i < count; i++) {
+        uint32_t id = static_cast<uint32_t>(std::strtoul(ids[i], nullptr, 10));
+        const Retail::RetailDisplay* display = displays.Display(id);
+        if (!display) {
+            std::printf("display %u: not served\n", id);
+            continue;
+        }
+        audited.push_back(display);
+    }
+    return audited;
+}
+
+static void PrintAuditSummary(const std::map<std::string, size_t>& displaysPer, size_t audited, size_t clean) {
+    std::vector<std::pair<std::string, size_t>> causes(displaysPer.begin(), displaysPer.end());
+    std::sort(causes.begin(), causes.end(), [](const auto& a, const auto& b) { return a.second != b.second ? a.second > b.second : a.first < b.first; });
+    std::printf("# %zu displays audited, %zu clean\n", audited, clean);
+    for (const auto& [cause, displays] : causes) {
+        std::printf("%8zu  %s\n", displays, cause.c_str());
+    }
+}
+
+// One CSV line per display with findings (id, Extra id, findings), then each finding's display count, most first.
+static int Audit(Retail::CascSource& source, const char* csvPath, int count, char** ids) {
+    const Retail::RetailDisplays* displays = source.Displays();
+    const Retail::RetailItemDisplays* items = source.ItemDisplays();
+    const Retail::RetailNpcTables* npcs = source.NpcTables();
+    if (!displays || !items || !npcs) {
+        std::printf("the display, item or NPC tables did not load\n");
+        return 1;
+    }
+
+    std::ofstream csv(csvPath);
+    if (!csv) {
+        std::printf("%s: cannot write\n", csvPath);
+        return 1;
+    }
+    csv << "display,extra,findings\n";
+
+    Retail::ItemDisplayLookup lookup = [items](uint32_t id) { return items->Display(id); };
+    std::vector<const Retail::RetailDisplay*> audited = AuditedDisplays(*displays, count, ids);
+    std::map<std::string, size_t> displaysPer;
+    size_t clean = 0;
+    for (const Retail::RetailDisplay* display : audited) {
+        const Retail::NpcExtra* extra = display->extendedDisplayId ? npcs->Extra(display->extendedDisplayId) : nullptr;
+        std::vector<Retail::AuditFinding> findings = Retail::AuditDisplay(*display, extra, lookup);
+        if (findings.empty()) {
+            clean++;
+            continue;
+        }
+        csv << display->id << ',' << display->extendedDisplayId << ',';
+        for (size_t i = 0; i < findings.size(); i++) {
+            std::string name = FindingName(findings[i]);
+            csv << (i ? ";" : "") << name;
+            displaysPer[name]++;
+        }
+        csv << '\n';
+    }
+
+    PrintAuditSummary(displaysPer, audited.size(), clean);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::printf("usage: RetailAssetProbe <RetailCasc.ini> <path>... | --animation-fallbacks\n");
@@ -185,6 +272,10 @@ int main(int argc, char** argv) {
 
     if (!std::strcmp(argv[2], "--displays")) {
         return PrintDisplays(source, argc - 3, argv + 3);
+    }
+
+    if (!std::strcmp(argv[2], "--audit") && argc >= 5) {
+        return Audit(source, argv[3], argc - 4, argv + 4);
     }
 
     if (!std::strcmp(argv[2], "--save") && argc >= 5) {

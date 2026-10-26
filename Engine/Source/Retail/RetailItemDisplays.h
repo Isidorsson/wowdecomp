@@ -82,6 +82,7 @@ struct RetailItemDisplay {
     // the human's, else the lowest race's; a file for both genders wins over gendered ones, as the client asks for
     // "_U" first; the lowest file on a tie.
     std::array<BodyTexture, BODY_SECTIONS> body = {};
+    uint32_t droppedSections = 0;   // 1 << section for each retail section past the eighth with a file, for DisplayAudit.
     std::array<uint32_t, 2> helmetVis = {};   // Retail HelmetGeosetVis ids (male, female), 0 for none.
 };
 

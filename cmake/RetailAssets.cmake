@@ -48,6 +48,7 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ClassicStats.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BuildSql.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/BrowserBuild.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/DisplayAudit.cpp
 )
 target_include_directories(RetailCore PUBLIC ${CMAKE_SOURCE_DIR})
 # The Windows Compression API, for the converted cache.

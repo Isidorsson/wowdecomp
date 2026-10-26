@@ -95,6 +95,21 @@ TEST(EachDisplayPacksOnlyItsOwnGeosets) {
     CHECK(retail.Display(9) && retail.Display(9)->geosetData == 0);
 }
 
+// The display audit reports what PackGeosetData could not carry.
+TEST(EachDisplayRemembersTheGeosetsItDropped) {
+    RetailDisplays retail = Loaded({ { 40, BOAR } }, { { 7, 40, { 1 } }, { 8, 40, { 1 } } }, { { 7, 0, 2 }, { 7, 9, 1 }, { 8, 1, 3 } });
+
+    CHECK(retail.Display(7) && retail.Display(7)->droppedGeosets == std::vector<Geoset>({ { 9, 1 } }));
+    CHECK(retail.Display(8) && retail.Display(8)->droppedGeosets.empty());
+}
+
+// PackGeosetData keeps groups 0 to 7 and variants 1 to 14: it writes variant 15 as 0xF, its hidden marker.
+TEST(DroppedGeosetsArePastGroup7OrFromVariant15) {
+    std::vector<Geoset> geosets = { { 0, 1 }, { 6, 14 }, { 7, 15 }, { 8, 1 }, { 2, 16 }, { 3, 0 } };
+
+    CHECK(Retail::DroppedGeosets(geosets) == std::vector<Geoset>({ { 7, 15 }, { 8, 1 }, { 2, 16 } }));
+}
+
 TEST(GeosetDataHasOneNibblePerGroup) {
     CHECK(Retail::PackGeosetData({}) == 0);
     CHECK(Retail::PackGeosetData({ { 0, 1 } }) == 0xFFFFFFF1);

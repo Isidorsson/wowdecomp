@@ -78,6 +78,16 @@ uint32_t PackGeosetData(const std::vector<Geoset>& geosets) {
     return packed;
 }
 
+std::vector<Geoset> DroppedGeosets(const std::vector<Geoset>& geosets) {
+    std::vector<Geoset> dropped;
+    for (const Geoset& geoset : geosets) {
+        if (geoset.index >= NIBBLE_GROUPS || geoset.value >= HIDDEN) {
+            dropped.push_back(geoset);
+        }
+    }
+    return dropped;
+}
+
 static RetailCreatureModel ModelAt(const Db2Table& table, size_t row) {
     RetailCreatureModel model;
     model.id = table.RowId(row);
@@ -109,6 +119,7 @@ static RetailDisplay DisplayAt(const Db2Table& table, size_t row, const std::map
     display.fourthVariation = files.size() > display.variations.size() ? files[display.variations.size()] : 0;
     auto shown = geosetsOf.find(display.id);
     display.geosetData = shown == geosetsOf.end() ? 0 : PackGeosetData(shown->second);
+    display.droppedGeosets = shown == geosetsOf.end() ? std::vector<Geoset>() : DroppedGeosets(shown->second);
     return display;
 }
 

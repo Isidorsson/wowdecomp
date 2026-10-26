@@ -55,6 +55,7 @@ if (TARGET RetailCore)
         ClassicStatsTests.cpp
         BuildSqlTests.cpp
         BrowserBuildTests.cpp
+        DisplayAuditTests.cpp
     )
     target_link_libraries(WowdecompTests PRIVATE RetailCore)
     target_sources(WowdecompTests PRIVATE
