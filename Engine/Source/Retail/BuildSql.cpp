@@ -121,6 +121,16 @@ std::string BuildItemSql(const ItemSql& item, std::string& error) {
     for (size_t socket = 0; socket < item.socketColors.size(); socket++) {
         set["socketColor_" + std::to_string(socket + 1)] = Number(item.socketColors[socket]);
     }
+    if (item.armor >= 0) {
+        set["armor"] = std::to_string(item.armor);
+    }
+    if (item.weapon) {
+        set["dmg_min1"] = Number(item.damageMin);
+        set["dmg_max1"] = Number(item.damageMax);
+        set["dmg_type1"] = Number(item.damageType);
+        set["dmg_min2"] = set["dmg_max2"] = set["dmg_type2"] = "0";
+        set["delay"] = Number(item.delay);
+    }
     std::string insert = InsertFromBase("item_template", ItemTemplateColumns(), item.base, set, error);
     return insert.empty() ? insert : CommentLine(item.comment) + insert;
 }

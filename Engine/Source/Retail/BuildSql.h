@@ -45,6 +45,12 @@ struct ItemSql {
     int32_t requiredLevel = -1;   // -1 keeps the base's.
     ClassicStats stats;
     std::array<uint32_t, 3> socketColors = {};
+    int32_t armor = -1;           // -1 keeps the base's.
+    bool weapon = false;          // Sets dmg_min1, dmg_max1, dmg_type1 and delay, and clears the second damage.
+    uint32_t damageMin = 0;
+    uint32_t damageMax = 0;
+    uint32_t damageType = 0;      // School: 0 physical, 1 holy, 2 fire, 3 nature, 4 frost, 5 shadow, 6 arcane.
+    uint32_t delay = 0;           // ms.
     std::string comment;          // One line, written as an SQL comment above the statement.
 };
 

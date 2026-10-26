@@ -73,6 +73,74 @@ void AddLines(Build& build, const std::string& piece, const ClassicStats& stats)
     }
 }
 
+// A retail armour or damage column, applied to the row or not (the base's stays).
+struct CombatLine {
+    const char* retail;
+    double value;
+    const char* classic;
+    std::string note;
+};
+
+void AddCombatLines(Build& build, const std::string& piece, const std::vector<CombatLine>& lines, bool applied) {
+    for (const CombatLine& line : lines) {
+        BrowserValue& value = build.lines.Add(BrowserValue::Table());
+        value.Set("piece", BrowserValue::String(piece));
+        value.Set("retail", BrowserValue::String(line.retail));
+        value.Set("retailValue", BrowserValue::Number(line.value));
+        value.Set("classic", BrowserValue::String(line.classic));
+        value.Set("value", BrowserValue::Number(line.value));
+        value.Set("applied", BrowserValue::Number(applied ? 1 : 0));
+        value.Set("note", BrowserValue::String(applied ? line.note : "not applied: the base's stays (Retail armour/damage is off)"));
+    }
+}
+
+// Retail armour and weapon damage at the item level (ItemArmour.h), set on the row unless retailArmour is 0.
+std::vector<CombatLine> AddCombat(Build& build, const BrowseItem& item, ItemSql& row, bool apply) {
+    const ArmourTables& tables = build.index.Budget().armour;
+    if (!item.hasSparse || !tables.Ready()) {
+        build.Note("no retail armour and damage tables: armor, damage and delay stay the base's");
+        return {};
+    }
+    SparseItem sparse = item.sparse;
+    sparse.quality = item.quality;
+    ItemClass kind{ item.classId, item.subclassId };
+    std::string level = "retail at item level " + std::to_string(build.itemLevel);
+    std::vector<CombatLine> lines;
+    uint32_t armour = ComputeRetailArmour(tables, sparse, kind, build.itemLevel);
+    if (armour) {
+        row.armor = apply ? static_cast<int32_t>(armour) : -1;
+        lines.push_back({ "Armour", static_cast<double>(armour), "armor", level });
+    }
+    RetailDamage damage = ComputeRetailDamage(tables, sparse, kind, build.itemLevel);
+    if (damage.max) {
+        row.weapon = apply;
+        row.damageMin = damage.min;
+        row.damageMax = damage.max;
+        row.damageType = sparse.damageType;
+        row.delay = sparse.delay;
+        char dps[96];
+        std::snprintf(dps, sizeof(dps), "%s, %.1f dps (ItemDelay %.2f s)", level.c_str(), (damage.min + damage.max) * 500.0 / sparse.delay,
+            sparse.delay / 1000.0);
+        lines.push_back({ "Damage min", static_cast<double>(damage.min), "dmg_min1", dps });
+        lines.push_back({ "Damage max", static_cast<double>(damage.max), "dmg_max1", dps });
+        lines.push_back({ "Damage type", static_cast<double>(sparse.damageType), "dmg_type1", "the retail school; the second damage is cleared" });
+        lines.push_back({ "Delay", static_cast<double>(sparse.delay), "delay", "ItemSparse ItemDelay, ms" });
+    }
+    if (apply && !lines.empty()) {
+        build.Note("retail armour and damage are retail-sized, far below 3.3.5's at the same item level: compare them with the base's in "
+            "the mapping before using them, or turn Retail armour/damage off");
+    }
+    return lines;
+}
+
+void NoteScaling(Build& build, const BrowseItem& item) {
+    std::string how = item.hasSparse ? LevelScaling(item.sparse) : std::string();
+    if (!how.empty()) {
+        build.Note(item.name + " scales with the player's level in retail (" + how + "): its stats, armour and damage are computed at item level " +
+            std::to_string(build.itemLevel) + " instead");
+    }
+}
+
 bool HasAllocations(const BrowseItem& item) {
     if (!item.hasSparse) {
         return false;
@@ -174,6 +242,9 @@ bool AddItem(Build& build, const BrowseItem& item, uint32_t displayId, bool lone
     row.requiredLevel = static_cast<int32_t>(NumberOption(build.options, "requiredLevel", -1));
     row.stats = StatsOf(build, item);
     AddSockets(build, item, row);
+    bool retailCombat = NumberOption(build.options, "retailArmour", 1) != 0;
+    std::vector<CombatLine> combat = AddCombat(build, item, row, retailCombat);
+    NoteScaling(build, item);
     row.comment = "retail item " + std::to_string(item.id) + " " + item.name + " at item level " + std::to_string(build.itemLevel) +
         ", copied from item " + std::to_string(row.base);
     std::string sql = BuildItemSql(row, error);
@@ -184,6 +255,7 @@ bool AddItem(Build& build, const BrowseItem& item, uint32_t displayId, bool lone
     build.base = row.base;
     build.pieces++;
     AddLines(build, item.name, row.stats);
+    AddCombatLines(build, item.name, combat, retailCombat);
     return true;
 }
 
@@ -308,7 +380,9 @@ bool BuildEntry(Build& build, BrowseKind kind, uint32_t id, std::string& error) 
         if (!item || !AddItem(build, *item, DisplayOf(build, *item), true, error)) {
             return false;
         }
-        build.Note("damage, speed, armour, bonding, flags, spells and price come from the base item " + std::to_string(build.base));
+        bool retailCombat = NumberOption(build.options, "retailArmour", 1) != 0;
+        build.Note(std::string(retailCombat ? "" : "damage, speed, armour, ") + "bonding, flags, spells and price come from the base item " +
+            std::to_string(build.base));
         return true;
     }
     if (kind == BrowseKind::Set) {

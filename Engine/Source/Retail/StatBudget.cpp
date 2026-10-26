@@ -187,7 +187,9 @@ std::vector<RetailStat> ComputeRetailStats(const SparseItem& item, const StatBud
     if (points <= 0) {
         return {};
     }
-    double socketCost = TableValue(budget.socketCost, request.itemLevel, 0, 0);
+    // Sockets cost what they cost at the item's own level when it is built below it (wowhead's scaled-down items).
+    uint32_t socketLevel = request.itemLevel > item.itemLevel ? request.itemLevel : item.itemLevel;
+    double socketCost = TableValue(budget.socketCost, socketLevel, 0, 0);
     std::vector<RetailStat> stats;
     for (size_t i = 0; i < ITEM_STAT_SLOTS; i++) {
         if (item.statTypes[i] < 0 || item.statPercents[i] == 0) {
@@ -196,11 +198,14 @@ std::vector<RetailStat> ComputeRetailStats(const SparseItem& item, const StatBud
         RetailStat stat;
         stat.type = item.statTypes[i];
         stat.budget = item.statPercents[i] * points / ALLOCATION_SCALE;
-        double value = stat.budget - static_cast<int32_t>(item.socketCosts[i] * socketCost);
+        double value = stat.budget - std::floor(item.socketCosts[i] * socketCost + 0.5);
         stat.multiplier = MultiplierOf(budget, stat.type, request.itemLevel, item.inventoryType, request.retailStamina);
         bool truncates = ScalingOf(stat.type) == StatScaling::Resistance;
         stat.value = static_cast<int32_t>(truncates ? std::floor(value) : std::floor(value * stat.multiplier + 0.5));
-        stats.push_back(stat);
+        // A stat its sockets paid for entirely is not on the item (the tooltip leaves it out).
+        if (stat.value > 0 || item.socketCosts[i] == 0) {
+            stats.push_back(stat);
+        }
     }
     return stats;
 }

@@ -12,6 +12,8 @@ enum ItemSparseColumn : size_t {
     SOCKET_COSTS = 14,
     STAT_PERCENTS = 15,
     STAT_TYPES = 16,
+    FLAGS = 27,
+    CONTENT_TUNING = 30,
     LEVEL_CURVE = 31,
     SQUISH_ERA = 34,
     SOCKET_BONUS = 39,
@@ -25,6 +27,9 @@ enum ItemSparseColumn : size_t {
     INVENTORY_TYPE = 65,
     QUALITY = 66,
 };
+
+constexpr size_t FLAGS_2 = 1;
+constexpr uint32_t FLAG2_CASTER_WEAPON = 0x200;
 
 std::vector<size_t> ItemSparseStrings() {
     return { 0, 1, 2, 3, DISPLAY_LANG };
@@ -72,7 +77,18 @@ bool ReadSparseItem(const Db2Table& table, size_t row, SparseItem& item) {
     item.itemSet = fields.Value(ITEM_SET);
     item.squishEra = fields.Value(SQUISH_ERA);
     item.levelCurve = fields.Value(LEVEL_CURVE);
+    item.contentTuning = fields.Value(CONTENT_TUNING);
+    std::vector<uint32_t> flags = fields.Values(FLAGS);
+    item.casterWeapon = flags.size() > FLAGS_2 && (flags[FLAGS_2] & FLAG2_CASTER_WEAPON);
     return true;
+}
+
+std::string LevelScaling(const SparseItem& item) {
+    std::string how = item.contentTuning ? "ContentTuning " + std::to_string(item.contentTuning) : std::string();
+    if (item.levelCurve) {
+        how += (how.empty() ? "" : ", ") + std::string("curve ") + std::to_string(item.levelCurve);
+    }
+    return how;
 }
 
 }

@@ -129,8 +129,27 @@ bool CascSource::LoadBrowserStats(std::string& error) {
             return false;
         }
     }
+    std::string armourError;
+    if (!this->LoadArmourTables(budget.armour, armourError)) {
+        this->Warn("retail browser: armour and damage: " + armourError);
+    }
     this->m_browserIndex.SetBudget(std::move(budget));
     return true;
+}
+
+// ItemArmorQuality, ItemArmorTotal, ArmorLocation, ItemArmorShield and the ItemDamage tables: without them the Build
+// panel keeps the base item's armour and damage.
+bool CascSource::LoadArmourTables(ArmourTables& tables, std::string& error) {
+    Db2Table quality, total, location, shield;
+    std::array<Db2Table, DAMAGE_TABLES> damage;
+    std::vector<std::pair<uint32_t, Db2Table*>> files = { { ITEM_ARMOR_QUALITY_FDID, &quality }, { ITEM_ARMOR_TOTAL_FDID, &total },
+        { ARMOR_LOCATION_FDID, &location }, { ITEM_ARMOR_SHIELD_FDID, &shield } };
+    std::array<const Db2Table*, DAMAGE_TABLES> damageTables = {};
+    for (size_t t = 0; t < DAMAGE_TABLES; t++) {
+        files.push_back({ ITEM_DAMAGE_FDIDS[t], &damage[t] });
+        damageTables[t] = &damage[t];
+    }
+    return this->ReadTables(files, error) && ReadArmourTables({ quality, total, location, shield, damageTables }, tables, error);
 }
 
 }

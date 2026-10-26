@@ -89,6 +89,19 @@ TEST(Db2SparseCopiesAndLockedSections) {
     CHECK(table.SkippedRows() == 2);
 }
 
+TEST(Db2SparseUnencryptedZeroRecordsAreData) {
+    Wdc5Spec spec = SparseSpec();
+    Wdc5Section section;
+    section.sparseRecords = { std::vector<uint8_t>(9, 0) };
+    section.ids = { 5 };
+    spec.sections = { section };
+    Db2Table table;
+    std::string error;
+
+    CHECK(table.Parse(BuildWdc5(spec), error, SPARSE_STRINGS));
+    CHECK(table.RowCount() == 1 && table.RowId(0) == 5 && table.Value(0, 1) == 0 && table.SkippedRows() == 0);
+}
+
 TEST(Db2SparseRefusesBrokenOffsetMaps) {
     Wdc5Spec spec = SparseSpec();
     Wdc5Section section;

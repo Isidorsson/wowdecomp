@@ -2,6 +2,7 @@
 #include "Engine/Source/Retail/BrowserMarshal.h"
 #include "Tools/Tests/BrowserFixtures.h"
 #include "Tools/Tests/Check.h"
+#include "Tools/Tests/ItemArmourFixture.h"
 #include "Tools/Tests/ItemSparseFixture.h"
 #include "Tools/Tests/RealBudget.h"
 
@@ -66,11 +67,17 @@ static BrowserFixture BuildFixture() {
     return f;
 }
 
+static StatBudget ArmouredBudget() {
+    StatBudget budget = RealBudget();
+    budget.armour = RealArmourTables();
+    return budget;
+}
+
 static RetailIndex BuildIndex() {
     RetailIndex index = BuildFixtureIndex(BuildFixture());
     std::string error;
     CHECK(index.AttachSparse(SparseTable(), error));
-    index.SetBudget(RealBudget());
+    index.SetBudget(ArmouredBudget());
     return index;
 }
 
@@ -130,16 +137,105 @@ TEST(ItemBuildCopiesTheSuggestedBaseWithMappedStats) {
     std::string sql = Text(out, "sql");
     CHECK(Contains(sql, "\nSELECT 9000000, 4, 4, `SoundOverrideSubclass`, 'Judgment Breastplate', 31019, 4, "));
     CHECK(Contains(sql, "`ContainerSlots`, 3, 4, 8, 7, 13, 32, 7, 0, 0, "));
-    CHECK(Contains(sql, "`armor`, 0, 2, 2, 0, 0, 0, `delay`"));
+    CHECK(Contains(sql, "`dmg_type2`, 28, 0, 2, 2, 0, 0, 0, `delay`"));
     CHECK(Contains(sql, "\nFROM `item_template` WHERE `entry` = 39239;\n"));
     CHECK(NumberOf(out, "firstEntry") == 9000000 && NumberOf(out, "nextEntry") == 9000001 && NumberOf(out, "base") == 39239);
     const BrowserValue* lines = out.Get("lines");
-    CHECK(lines && lines->items.size() == 5);
-    if (lines && lines->items.size() == 5) {
+    CHECK(lines && lines->items.size() == 6);
+    if (lines && lines->items.size() == 6) {
         CHECK(Text(lines->items[0], "retail") == "Strength or Intellect" && Text(lines->items[0], "classic") == "Strength");
         CHECK(NumberOf(lines->items[0], "value") == 8 && NumberOf(lines->items[3], "value") == 2 && Text(lines->items[3], "classic") == "fire_res");
     }
     CHECK(out.Get("notes") && !out.Get("notes")->items.empty());
+}
+
+TEST(ItemBuildWritesRetailArmourUnlessAskedToKeepTheBases) {
+    RetailIndex index = BuildIndex();
+    BuildOptions options;
+    options.numbers["itemLevel"] = 40;
+    BrowserValue out = Build(index, "item", 16958, options);
+    const BrowserValue* lines = out.Get("lines");
+    CHECK(lines && lines->items.size() == 6);
+    if (lines && lines->items.size() == 6) {
+        const BrowserValue& armour = lines->items[5];
+        CHECK(Text(armour, "retail") == "Armour" && Text(armour, "classic") == "armor" && NumberOf(armour, "retailValue") == 28);
+        CHECK(NumberOf(armour, "value") == 28 && NumberOf(armour, "applied") == 1);
+    }
+    options.numbers["retailArmour"] = 0;
+    out = Build(index, "item", 16958, options);
+    CHECK(Contains(Text(out, "sql"), "`dmg_type2`, `armor`, 0, 2, 2, 0, 0, 0, `delay`"));
+    lines = out.Get("lines");
+    CHECK(lines && lines->items.size() == 6 && NumberOf(lines->items[5], "applied") == 0 && Contains(Text(lines->items[5], "note"), "base"));
+}
+
+// Void-Touched Sacrificial Knife (263901): a caster dagger of item level 246 with a plain ItemSparse row.
+static RetailIndex WeaponIndex(const PlainSparse& sparse) {
+    BrowserFixture f = BuildFixture();
+    f.items = TextTable(ITEM_LAYOUT, std::vector<uint32_t>(15, 1), { ItemRow(263901, 2, 15, 1, 13, 0) });
+    std::vector<uint32_t> searchWidths(11, 1);
+    searchWidths.push_back(5);
+    searchWidths.push_back(2);
+    f.searchNames = TextTable(ITEM_SEARCH_NAME_LAYOUT, searchWidths, { SearchNameRow(263901, "Void-Touched Sacrificial Knife", 4, 11, 0xFFFFFFFF, 246) });
+    f.modifiedAppearances = TextTable(ITEM_MODIFIED_APPEARANCE_LAYOUT, std::vector<uint32_t>(7, 1), { AppearanceOfItem(80001, 263901, 90001) });
+    RetailIndex index = BuildFixtureIndex(f);
+    std::string error;
+    CHECK(index.AttachSparse(PlainTable(ITEM_SPARSE_LAYOUT, PlainSparseWidths(), { { 263901, PlainSparseValues(sparse) } }), error));
+    index.SetBudget(ArmouredBudget());
+    return index;
+}
+
+static PlainSparse Knife() {
+    PlainSparse knife;
+    knife.quality = 4;
+    knife.inventoryType = 13;
+    knife.itemLevel = 246;
+    knife.delay = 1800;
+    knife.variance = 0.5f;
+    knife.damageType = 5;
+    knife.flags2 = 0x2200;
+    return knife;
+}
+
+TEST(WeaponBuildWritesRetailDamageAndDelay) {
+    RetailIndex index = WeaponIndex(Knife());
+    BuildOptions options;
+    options.numbers["itemLevel"] = 259;
+    BrowserValue out = Build(index, "item", 263901, options);
+    std::string sql = Text(out, "sql");
+    CHECK(Contains(sql, ", 0, 0, 35, 60, 5, 0, 0, 0, `armor`, 0, 0, 0, 0, 0, 0, 1800, `ammo_type`, "));
+    CHECK(Contains(sql, "WHERE `entry` = 42241;"));
+    std::string classic;
+    const BrowserValue* lines = out.Get("lines");
+    CHECK(lines);
+    for (const BrowserValue& line : lines ? lines->items : std::vector<BrowserValue>()) {
+        classic += Text(line, "classic") + "=" + std::to_string(static_cast<int>(NumberOf(line, "value"))) + " ";
+    }
+    CHECK(Contains(classic, "dmg_min1=35 dmg_max1=60 dmg_type1=5 delay=1800 "));
+    options.numbers["retailArmour"] = 0;
+    CHECK(Contains(Text(Build(index, "item", 263901, options), "sql"), "`dmg_min1`, `dmg_max1`, `dmg_type1`, `dmg_min2`, "));
+}
+
+TEST(ItemsThatScaleWithThePlayersLevelAreFlagged) {
+    PlainSparse knife = Knife();
+    knife.contentTuning = 2905;
+    RetailIndex index = WeaponIndex(knife);
+    BrowserValue out = Build(index, "item", 263901);
+    std::string notes;
+    const BrowserValue* noted = out.Get("notes");
+    CHECK(noted);
+    for (const BrowserValue& note : noted ? noted->items : std::vector<BrowserValue>()) {
+        notes += note.text + "\n";
+    }
+    CHECK(Contains(notes, "scales with the player's level in retail (ContentTuning 2905)"));
+    BrowserIndexView view{ IndexState::Ready, &index, "" };
+    std::string error;
+    CHECK(MarshalDetails(view, "item", 263901, {}, out, error));
+    std::string all;
+    for (const BrowserValue& field : out.Get("fields")->items) {
+        all += field.Get("label")->text + "=" + field.Get("value")->text + "\n";
+    }
+    CHECK(Contains(all, "Scales=with the player's level (ContentTuning 2905)"));
+    CHECK(Contains(all, "Damage=31 - 53 (23.3 dps) at item level 246\n"));
 }
 
 TEST(ItemBuildTakesTheChosenEntriesNameAndCombo) {

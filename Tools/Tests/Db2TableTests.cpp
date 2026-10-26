@@ -183,10 +183,30 @@ TEST(Db2RefusesBrokenFiles) {
     CHECK(!table.Parse(truncated, error));
 
     CHECK(!table.Parse(std::vector<uint8_t>(100, 0), error));
+}
 
-    Wdc5Spec zeroed = spec;
-    zeroed.sections = { { 0, std::vector<uint8_t>(6, 0), { 1 }, {} } };
-    CHECK(!table.Parse(BuildWdc5(zeroed), error));
+// ItemArmorQuality (FileDataID 1283021, layout 2935AA9D) as the 12.1.5 file has it: one 1-byte record whose only column
+// is a 1-bit pallet array index of 0 into the seven Qualitymod floats, and 1299 copies of it for the other item levels.
+// Its section is not encrypted (tact key 0), so its all-zero records are data, not a locked section.
+TEST(Db2UnencryptedSectionsOfZeroBytesAreData) {
+    Wdc5Spec spec;
+    spec.layoutHash = 0x2935AA9D;
+    spec.flags = 0x4;
+    spec.recordSize = 1;
+    spec.columns = { { 32, 0, 1, 28, 4, { 0, 1, 7 } } };
+    spec.extra = { 0x3F666666, 0x3F733333, 0x3F800000, 0x3F800000, 0x3F800000, 0x3F800000, 0x3F800000 };
+    spec.sections = { { 0, { 0 }, { 1 }, { { 2, 1 }, { 1300, 1 } } } };
+    Db2Table table;
+    std::string error;
+
+    CHECK(table.Parse(BuildWdc5(spec), error));
+    CHECK(table.RowCount() == 3 && table.RowId(0) == 1 && table.RowId(2) == 1300 && table.SkippedRows() == 0);
+    std::vector<uint32_t> mods = table.Values(2, 0);
+    CHECK(mods.size() == 7 && mods[0] == 0x3F666666 && mods[1] == 0x3F733333 && mods[6] == 0x3F800000);
+
+    Wdc5Spec plain = PlainSpec();
+    plain.sections = { { 0, std::vector<uint8_t>(6, 0), { 1 }, {} } };
+    CHECK(table.Parse(BuildWdc5(plain), error) && table.RowCount() == 1 && table.Value(0, 1) == 0);
 }
 
 // Strings: a string column holds the distance from the field to its string, as if every section's records came first

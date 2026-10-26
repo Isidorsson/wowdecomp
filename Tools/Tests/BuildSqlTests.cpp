@@ -86,6 +86,22 @@ TEST(ItemSqlSetsRequiredLevelAndSocketsWhenAsked) {
     CHECK(sql.rfind("-- two lines\nDELETE", 0) == 0);
 }
 
+TEST(ItemSqlSetsRetailArmourAndDamageWhenAsked) {
+    ItemSql chest = PlateChest();
+    chest.armor = 812;
+    std::string error;
+    CHECK(Contains(BuildItemSql(chest, error), "`dmg_min1`, `dmg_max1`, `dmg_type1`, `dmg_min2`, `dmg_max2`, `dmg_type2`, 812, 0, 9, 0, 0, 0, 0, `delay`, "));
+    ItemSql dagger = PlateChest();
+    dagger.classId = 2;
+    dagger.subclass = 15;
+    dagger.weapon = true;
+    dagger.damageMin = 35;
+    dagger.damageMax = 60;
+    dagger.damageType = 2;
+    dagger.delay = 1800;
+    CHECK(Contains(BuildItemSql(dagger, error), ", 0, 0, 35, 60, 2, 0, 0, 0, `armor`, 0, 9, 0, 0, 0, 0, 1800, `ammo_type`, "));
+}
+
 TEST(CreatureSqlSetsNameModelsAndScale) {
     CreatureSql creature;
     creature.entry = 9000010;

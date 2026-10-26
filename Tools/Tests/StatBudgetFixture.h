@@ -16,9 +16,12 @@ struct RandPropBits { uint32_t itemLevel; uint32_t epic[5]; uint32_t superior[5]
 inline std::vector<RandPropBits> RealRandPropRows() {
     return {
         { 13, { 1087637722, 1084163748, 1080986102, 1079249114, 1079249114 }, { 1087637722, 1084163748, 1080986102, 1079249114, 1079249114 }, { 1087637722, 1084163748, 1080986102, 1079249114, 1079249114 } },
+        { 15, { 1090566587, 1086396056, 1083232498, 1082177979, 1082177979 }, { 1090566587, 1086396056, 1083232498, 1082177979, 1082177979 }, { 1090566587, 1086396056, 1083232498, 1082177979, 1082177979 } },
         { 29, { 1096423350, 1092850121, 1089821357, 1088034742, 1088034742 }, { 1096423350, 1092850121, 1089821357, 1088034742, 1088034742 }, { 1096423350, 1092850121, 1089821357, 1088034742, 1088034742 } },
         { 40, { 1098937104, 1094757528, 1091600754, 1090548496, 1090548496 }, { 1098937104, 1094757528, 1091600754, 1090548496, 1090548496 }, { 1098937104, 1094757528, 1091600754, 1090548496, 1090548496 } },
         { 44, { 1099541996, 1095664866, 1092281258, 1091153388, 1091153388 }, { 1099541996, 1095664866, 1092281258, 1091153388, 1091153388 }, { 1099541996, 1095664866, 1092281258, 1091153388, 1091153388 } },
+        { 45, { 1099707412, 1095912990, 1092467351, 1091318804, 1091318804 }, { 1099707412, 1095912990, 1092467351, 1091318804, 1091318804 }, { 1099707412, 1095912990, 1092467351, 1091318804, 1091318804 } },
+        { 47, { 1100056756, 1096437006, 1092860363, 1091668148, 1091668148 }, { 1100056756, 1096437006, 1092860363, 1091668148, 1091668148 }, { 1100056756, 1096437006, 1092860363, 1091668148, 1091668148 } },
         { 49, { 1100432343, 1097000386, 1093282898, 1092043735, 1092043735 }, { 1100432343, 1097000386, 1093282898, 1092043735, 1092043735 }, { 1100432343, 1097000386, 1093282898, 1092043735, 1092043735 } },
         { 50, { 1100630604, 1097297777, 1093505941, 1092241996, 1092241996 }, { 1100630604, 1097297777, 1093505941, 1092241996, 1092241996 }, { 1100630604, 1097297777, 1093505941, 1092241996, 1092241996 } },
         { 53, { 1101270548, 1098257693, 1094225878, 1092881940, 1092881940 }, { 1101270548, 1098257693, 1094225878, 1092881940, 1092881940 }, { 1101270548, 1098257693, 1094225878, 1092881940, 1092881940 } },
@@ -37,9 +40,12 @@ inline std::string RealCombatRatingsText() {
     return
         "Item Level\tArmor Multiplier\tWeapon Multiplier\tTrinket Multiplier\tJewelry Multiplier\n"
         "13\t1.5\t1.5\t1.5\t1.5\n"
+        "15\t1.5\t1.5\t1.5\t1.5\n"
         "29\t1.5\t1.5\t1.5\t1.5\n"
         "40\t1.5\t1.5\t1.5\t1.5\n"
         "44\t1.5\t1.5\t1.5\t1.5\n"
+        "45\t1.5\t1.5\t1.5\t1.5\n"
+        "47\t1.5\t1.5\t1.5\t1.5\n"
         "49\t1.5\t1.5\t1.5\t1.5\n"
         "50\t1.5\t1.5\t1.5\t1.5\n"
         "53\t1.5\t1.5\t1.5\t1.5\n"
@@ -57,9 +63,12 @@ inline std::string RealStaminaText() {
     return
         "Item Level\tArmor Multiplier\tWeapon Multiplier\tTrinket Multiplier\tJewelry Multiplier\n"
         "13\t1\t1\t1\t1\n"
+        "15\t1\t1\t1\t1\n"
         "29\t1\t1\t1\t1\n"
         "40\t1\t1\t1\t1\n"
         "44\t1\t1\t1\t1\n"
+        "45\t1\t1\t1\t1\n"
+        "47\t1\t1\t1\t1\n"
         "49\t1\t1\t1\t1\n"
         "50\t1\t1\t1\t1\n"
         "53\t1\t1\t1\t1\n"
@@ -77,9 +86,14 @@ inline std::string RealSocketCostText() {
     return
         "5.0 Level\tSocket Cost\n"
         "13\t0\n"
+        "15\t0\n"
         "29\t1\n"
+        "37\t2\n"
+        "39\t2\n"
         "40\t2\n"
         "44\t3\n"
+        "45\t3\n"
+        "47\t3\n"
         "49\t3\n"
         "50\t3\n"
         "53\t3\n"
@@ -198,6 +212,51 @@ inline Retail::SparseItem RealSparseItem(uint32_t id) {
             item.statTypes = { 7, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
             item.statPercents = { 7889, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
             item.sockets = { 25, 25, 25 };
+            break;
+        case 99883:   // Tyrannical Gladiator's Ornamented Headcover, wowhead item level 50
+            item.inventoryType = 1;
+            item.quality = 4;
+            item.itemLevel = 39;
+            item.statTypes = { 74, 7, 49, 32, -1, -1, -1, -1, -1, -1 };
+            item.statPercents = { 5259, 7889, 3506, 3506, 0, 0, 0, 0, 0, 0 };
+            item.socketCosts = { 1.5f, 0.0f, 1.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+            item.sockets = { 1, 7, 0 };
+            break;
+        case 48341:   // Nobundo's Chestguard of Conquest, wowhead item level 45
+            item.inventoryType = 5;
+            item.quality = 4;
+            item.itemLevel = 35;
+            item.statTypes = { 73, 7, 32, 36, -1, -1, -1, -1, -1, -1 };
+            item.statPercents = { 5259, 6224, 5259, 2766, 0, 0, 0, 0, 0, 0 };
+            item.socketCosts = { 0.0f, 0.0f, 1.5f, 0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+            item.sockets = { 7, 7, 0 };
+            break;
+        case 48288:   // Nobundo's Legguards of Triumph, wowhead item level 45
+            item.inventoryType = 7;
+            item.quality = 4;
+            item.itemLevel = 35;
+            item.statTypes = { 73, 7, 32, 40, -1, -1, -1, -1, -1, -1 };
+            item.statPercents = { 5259, 7494, 3506, 3506, 0, 0, 0, 0, 0, 0 };
+            item.socketCosts = { 1.0f, 0.0f, 0.375f, 0.625f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+            item.sockets = { 7, 7, 0 };
+            break;
+        case 40810:   // Relentless Gladiator's Plate Gauntlets, wowhead item level 47
+            item.inventoryType = 10;
+            item.quality = 4;
+            item.itemLevel = 35;
+            item.statTypes = { 74, 7, 32, 40, -1, -1, -1, -1, -1, -1 };
+            item.statPercents = { 5259, 7889, 3506, 3506, 0, 0, 0, 0, 0, 0 };
+            item.socketCosts = { 0.5f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+            item.sockets = { 7, 0, 0 };
+            break;
+        case 88248:   // Gladiator's Scaled Helm, wowhead item level 15 (below its own 37)
+            item.inventoryType = 1;
+            item.quality = 3;
+            item.itemLevel = 37;
+            item.statTypes = { 74, 7, 49, 40, -1, -1, -1, -1, -1, -1 };
+            item.statPercents = { 5259, 7889, 3506, 3506, 0, 0, 0, 0, 0, 0 };
+            item.socketCosts = { 1.5f, 0.0f, 1.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+            item.sockets = { 1, 7, 0 };
             break;
         case 228842:   // Gobfather's Gifted Bling, wowhead item level 684
             item.inventoryType = 2;

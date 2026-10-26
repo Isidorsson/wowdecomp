@@ -159,18 +159,16 @@ bool Db2Table::ParseSection(size_t header, size_t recordSize, size_t idIndex, st
     }
     this->m_sections.push_back(section);
 
-    bool zeroed = records > 0;
+    // Only an encrypted section reads as zeros for want of its key (DBCD WDC5Reader): an unencrypted one may be all
+    // zeros as data, as ItemArmorQuality's one record of pallet index 0 is.
+    bool zeroed = tactKey && records > 0;
     for (size_t i = offset; zeroed && i < offset + records * recordSize; i++) {
         zeroed = data[i] == 0;
     }
 
-    if (zeroed && tactKey) {
+    if (zeroed) {
         this->m_skippedRows += records;
         return true;
-    }
-
-    if (zeroed) {
-        return Fail(error, "an unencrypted section reads as zeros: the file is damaged");
     }
 
     if (idListSize && idListSize != records * 4) {
@@ -257,18 +255,14 @@ bool Db2Table::ParseSparseSection(size_t header, std::string& error) {
         return Fail(error, "the offset map does not match the record count");
     }
 
-    bool zeroed = recordsEnd > offset;
+    bool zeroed = tactKey && recordsEnd > offset;
     for (size_t i = offset; zeroed && i < recordsEnd; i++) {
         zeroed = data[i] == 0;
     }
 
-    if (zeroed && tactKey) {
+    if (zeroed) {
         this->m_skippedRows += records;
         return true;
-    }
-
-    if (zeroed) {
-        return Fail(error, "an unencrypted section reads as zeros: the file is damaged");
     }
 
     std::map<uint32_t, uint32_t> relations;

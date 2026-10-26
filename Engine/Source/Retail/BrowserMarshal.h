@@ -68,10 +68,11 @@ bool MarshalDetails(const BrowserIndexView& view, const std::string& kind, uint3
 
 // RetailBuildSql(kind, id, options): world DB SQL for an item, a set (an item per piece) or a creature (BuildSql.h).
 // Numbers: itemLevel (200), startEntry (9000000), baseEntry (0: the suggested stock item, or DEFAULT_BASE_CREATURE),
-// requiredLevel (-1 keeps the base's), combo (ComboPrimary), retailStamina (0), allVariants (0: one piece per slot),
-// appearance (1), display (0: the first), otherDisplays (0), scale (0 keeps). Texts: name, subname (else retail's).
+// requiredLevel (-1 keeps the base's), combo (ComboPrimary), retailStamina (0), retailArmour (1: retail armour and
+// weapon damage, 0 keeps the base's), allVariants (0: one piece per slot), appearance (1), display (0: the first),
+// otherDisplays (0), scale (0 keeps). Texts: name, subname (else retail's).
 // {status = "ok", kind, sql, firstEntry, nextEntry, itemLevel, base, pieces, lines = {{piece, retail, retailValue,
-// classic, value, note}, ...}, notes = {text, ...}}; false with error for another kind or an unknown id.
+// classic, value, note [, applied]}, ...}, notes = {text, ...}}; false with error for another kind or an unknown id.
 struct BuildOptions {
     std::map<std::string, double> numbers;
     std::map<std::string, std::string> texts;

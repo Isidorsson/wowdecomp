@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include "Engine/Source/Retail/Db2Table.h"
+#include "Engine/Source/Retail/ItemArmour.h"
 #include "Engine/Source/Retail/ItemSparse.h"
 
 namespace Retail {
@@ -14,7 +15,7 @@ namespace Retail {
 // Retail item stat values from ItemSparse allocations, with the retail client's own budget tables (TrinityCore master
 // Item::GetItemStatValue and GetRandomPropertyPoints; checked against wowhead tooltips, docs/RETAIL-BROWSER.md):
 //   budget = StatPercentEditor * RandPropPoints[itemLevel].<quality>F[slot] / 10000
-//   budget -= int(StatPercentageOfSocket * ItemSocketCostPerLevel[itemLevel])
+//   budget -= round(StatPercentageOfSocket * ItemSocketCostPerLevel[max(itemLevel, the item's own level)])
 //   value  = floor(budget * multiplier + 0.5); resistances truncate: floor(budget)
 // where the multiplier is StaminaMultByILvl for stamina, CombatRatingsMultByILvl for ratings and 1 otherwise, in the
 // column of the item's slot (armour, weapon, trinket, jewellery).
@@ -43,6 +44,7 @@ struct StatBudget {
     GameTable combatRatings;
     GameTable stamina;
     GameTable socketCost;
+    ArmourTables armour;   // Armour and weapon damage (ItemArmour.h); empty when its tables did not load.
 
     bool Ready() const { return !this->randProp.empty(); }
     uint32_t MaxItemLevel() const { return this->randProp.empty() ? 0 : this->randProp.rbegin()->first; }
@@ -71,7 +73,8 @@ struct StatRequest {
     bool retailStamina = false;   // Apply StaminaMultByILvl as retail does (x9.49 at item level 200, far past 3.3.5 stamina).
 };
 
-// One value per filled allocation, in slot order; an allocation without a stat type is skipped.
+// One value per filled allocation, in slot order; an allocation without a stat type, or whose sockets take its value
+// to 0 or less, is skipped.
 std::vector<RetailStat> ComputeRetailStats(const SparseItem& item, const StatBudget& budget, const StatRequest& request);
 
 }

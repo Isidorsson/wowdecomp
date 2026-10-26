@@ -40,10 +40,16 @@ struct SparseItem {
     uint32_t itemSet = 0;
     uint32_t squishEra = 0;                                   // ItemSquishEraID.
     uint32_t levelCurve = 0;                                  // PlayerLevelToItemLevelCurveID: the item scales.
+    uint32_t contentTuning = 0;                               // ContentTuningID: the item scales within a level range.
+    bool casterWeapon = false;                                // Flags[1] ITEM_FLAG2_CASTER_WEAPON: the caster damage tables.
 };
 
 // False for a row past the table's end.
 bool ReadSparseItem(const Db2Table& table, size_t row, SparseItem& item);
+
+// How the item scales with the player's level in retail ("ContentTuning 2905", "curve 956" or both), empty when it does
+// not: its level, stats, armour and damage then follow the player, not its stored item level.
+std::string LevelScaling(const SparseItem& item);
 
 }
 

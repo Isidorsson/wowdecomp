@@ -160,6 +160,24 @@ std::string SocketList(const SparseItem& sparse) {
     return list.empty() ? "none" : "types " + list + (sparse.socketBonus ? ", bonus enchant " + std::to_string(sparse.socketBonus) : "");
 }
 
+// Retail armour and weapon damage at the item's own level (ItemArmour.h).
+void AddCombat(const RetailIndex& index, const BrowseItem& item, FieldList& fields) {
+    SparseItem sparse = item.sparse;
+    sparse.quality = item.quality;
+    const ArmourTables& tables = index.Budget().armour;
+    std::string level = " at item level " + std::to_string(sparse.itemLevel);
+    uint32_t armour = ComputeRetailArmour(tables, sparse, { item.classId, item.subclassId }, sparse.itemLevel);
+    if (armour) {
+        fields.Add("Armour", std::to_string(armour) + level, std::to_string(armour));
+    }
+    RetailDamage damage = ComputeRetailDamage(tables, sparse, { item.classId, item.subclassId }, sparse.itemLevel);
+    if (damage.max) {
+        char dps[32];
+        std::snprintf(dps, sizeof(dps), "%.1f", (damage.min + damage.max) * 500.0 / sparse.delay);
+        fields.Add("Damage", std::to_string(damage.min) + " - " + std::to_string(damage.max) + " (" + dps + " dps)" + level, std::to_string(damage.max));
+    }
+}
+
 // ItemSparse: each stat with its budget share and its value at the item's own level, sockets and weapon fields as stored.
 void AddSparse(const RetailIndex& index, const BrowseItem& item, BrowserValue& details, FieldList& fields) {
     if (!item.hasSparse) {
@@ -202,8 +220,11 @@ void AddSparse(const RetailIndex& index, const BrowseItem& item, BrowserValue& d
             std::to_string(sparse.damageType), std::to_string(sparse.delay));
     }
     fields.AddId("Required level", sparse.requiredLevel);
-    if (sparse.levelCurve) {
-        fields.Add("Scales", "with the player's level (curve " + std::to_string(sparse.levelCurve) + ")", std::to_string(sparse.levelCurve));
+    AddCombat(index, item, fields);
+    std::string scaling = LevelScaling(sparse);
+    if (!scaling.empty()) {
+        fields.Add("Scales", "with the player's level (" + scaling + "): retail shows it at the player's level, the Build panel at its item level",
+            scaling);
     }
 }
 

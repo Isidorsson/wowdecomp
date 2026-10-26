@@ -93,10 +93,22 @@ TEST(RetailStatsUseTheJewelleryMultiplierForRingsAndNecks) {
     CHECK(StatsAt(228842, 684) == Stats({ { 7, 68228 }, { 36, 1335 }, { 49, 5854 } }));
 }
 
-TEST(SocketCostsTakeTheTruncatedSocketShare) {
-    // Gladiator's Scaled Chestpiece at 44: costs 0.75, 0.75, 1.5 of 3 points a socket. Stamina and both ratings match
-    // wowhead; wowhead shows 4 for the primary where int(1.5 * 3) = 4 leaves round(9.05 - 4) = 5 (docs/RETAIL-BROWSER.md).
-    CHECK(StatsAt(27879, 44) == Stats({ { 7, 14 }, { 40, 6 }, { 32, 6 }, { 74, 5 } }));
+// Socket costs: each stat pays round(StatPercentageOfSocket * ItemSocketCostPerLevel) budget points, at the higher of
+// the chosen and the item's own level (scratchpad armour\eval2.py: 201 of 206 socketed stats of 93 items match wowhead;
+// the 5 left are a heroic variant and a stat the tooltip sums with its socket bonus).
+TEST(SocketCostsTakeTheRoundedSocketShare) {
+    // Gladiator's Scaled Chestpiece at 44: costs 0.75, 0.75, 1.5 of 3 points a socket; round(1.5 * 3) = 5 leaves 4.
+    CHECK(StatsAt(27879, 44) == Stats({ { 7, 14 }, { 40, 6 }, { 32, 6 }, { 74, 4 } }));
+    CHECK(StatsAt(99883, 50) == Stats({ { 74, 5 }, { 7, 15 }, { 49, 3 }, { 32, 10 } }));
+    CHECK(StatsAt(48341, 45) == Stats({ { 73, 9 }, { 7, 11 }, { 32, 6 }, { 36, 4 } }));
+    CHECK(StatsAt(48288, 45) == Stats({ { 73, 6 }, { 7, 13 }, { 32, 8 }, { 40, 6 } }));
+    CHECK(StatsAt(40810, 47) == Stats({ { 74, 5 }, { 7, 11 }, { 32, 4 }, { 40, 7 } }));
+}
+
+TEST(SocketCostsBelowAnItemsOwnLevelUseItsOwnLevel) {
+    // Gladiator's Scaled Helm (37) at 15, where the socket table says 0: it pays the 2 points of 37, as wowhead shows.
+    // Its mastery pays more than it has and is left out, as the tooltip leaves it out.
+    CHECK(StatsAt(88248, 15) == Stats({ { 74, 1 }, { 7, 6 }, { 40, 4 } }));
 }
 
 TEST(RetailStaminaMultiplierCanBeLeftOut) {

@@ -1,6 +1,7 @@
 -- The Build panel: world DB SQL for the shown item, set or creature (RetailBuildSql). Every statement copies a stock
 -- row (the base entry) and overrides only the columns it names; new entries count up from the start entry, which the
--- client cannot check is free. Retail stats are computed at the item level and mapped to 3.3.5 stats as listed.
+-- client cannot check is free. Retail stats are computed at the item level and mapped to 3.3.5 stats as listed; retail
+-- armour and weapon damage too, shown beside the base item's (read from its tooltip) since retail's are retail-sized.
 
 local RB = RetailBrowser
 local frame = RB.frame
@@ -78,6 +79,7 @@ end
 local retailStamina = Check("RetailStamina", "Retail stamina multiplier", 170, -150, false)
 local allVariants = Check("AllVariants", "Every set variant", 330, -150, false)
 local otherDisplays = Check("OtherDisplays", "Other displays as modelid2-4", 170, -174, false)
+local retailArmour = Check("RetailArmour", "Retail armour/damage", 330, -174, true)
 
 local status = RB.CreateText(panel, "GameFontDisableSmall")
 status:SetPoint("TOPLEFT", 26, -194)
@@ -155,6 +157,7 @@ local function Options()
         retailStamina = retailStamina:GetChecked() and 1 or 0,
         allVariants = allVariants:GetChecked() and 1 or 0,
         otherDisplays = otherDisplays:GetChecked() and 1 or 0,
+        retailArmour = retailArmour:GetChecked() and 1 or 0,
         display = RB.ActionDisplay(RB.details),
     }
     if nameBox:GetText() ~= "" then options.name = nameBox:GetText() end
@@ -162,12 +165,57 @@ local function Options()
     return options
 end
 
+-- The base item's armour, damage and delay from its tooltip; nil until the client has the item (it asks the server, so
+-- the next build shows it).
+local scan = CreateFrame("GameTooltip", "RetailBrowserBuildScan", nil, "GameTooltipTemplate")
+
+local function BaseCombat(entry)
+    if not entry or entry == 0 then
+        return nil
+    end
+    scan:SetOwner(UIParent, "ANCHOR_NONE")
+    scan:SetHyperlink("item:" .. entry)
+    if not GetItemInfo(entry) then
+        scan:Hide()
+        return nil
+    end
+    local base = {}
+    for i = 1, scan:NumLines() do
+        for _, side in ipairs({ "Left", "Right" }) do
+            local text = _G["RetailBrowserBuildScanText" .. side .. i]:GetText() or ""
+            base.armor = base.armor or tonumber(text:match("^(%d+) Armor$"))
+            local min, max = text:match("^(%d+) %- (%d+) ")
+            if min and not base.dmg_min1 then
+                base.dmg_min1, base.dmg_max1 = tonumber(min), tonumber(max)
+            end
+            local speed = tonumber(text:match("^Speed (%d+%.%d+)"))
+            base.delay = base.delay or (speed and math.floor(speed * 1000 + 0.5))
+        end
+    end
+    scan:Hide()
+    return base
+end
+
+local COMBAT_COLUMNS = { armor = true, dmg_min1 = true, dmg_max1 = true, delay = true }
+
+local function CombatText(line, base)
+    if not COMBAT_COLUMNS[line.classic] then
+        return ""
+    end
+    if not base then
+        return "  |cffaaaaaa(base: not known yet, Build again)|r"
+    end
+    return "  |cff80c0ff(base " .. tostring(base[line.classic] or (line.classic == "armor" and 0) or "?") .. ")|r"
+end
+
 -- The stat lines up to PREVIEW_BYTES (a set of every variant has hundreds), then the notes.
 local function MappingText(result)
     local lines, bytes = {}, 0
     local stats = result.lines or {}
+    local base = result.pieces == 1 and BaseCombat(result.base) or nil
     for i, line in ipairs(stats) do
         local text = string.format("%s: %s %d -> %s %d", line.piece, line.retail, line.retailValue, line.classic, line.value)
+        text = text .. (result.pieces == 1 and CombatText(line, base) or "")
         if line.note ~= "" then
             text = text .. "  |cffaaaaaa(" .. line.note .. ")|r"
         end
