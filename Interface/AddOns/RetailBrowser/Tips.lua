@@ -207,12 +207,20 @@ local function Lines(tip)
     return { tip[2], tip[3] }
 end
 
+-- Opens toward the middle of the screen: the window sits against the right edge, where ANCHOR_RIGHT runs off it.
+local function TipAnchor(owner)
+    local x = owner:GetCenter()
+    local onRight = x and x * owner:GetEffectiveScale() > UIParent:GetRight() * UIParent:GetEffectiveScale() / 2
+    return onRight and "ANCHOR_LEFT" or "ANCHOR_RIGHT"
+end
+
 -- Shows a tip on GameTooltip; disabledWhy (or the tip's own disabled line) is added in red.
 function RB.ShowTip(owner, tip, disabledWhy)
     if not tip then
         return
     end
-    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetOwner(owner, TipAnchor(owner))
+    GameTooltip:SetClampedToScreen(true)
     GameTooltip:SetText(tip[1] or "", T.title[1], T.title[2], T.title[3])
     for _, line in ipairs(Lines(tip)) do
         if line then
