@@ -149,6 +149,15 @@ static int PrintLooks(Retail::CascSource& source, int count, char** ids) {
             std::printf(" %u:%u", geoset.type, geoset.id);
         }
         std::printf("\n");
+        Retail::NpcPlan plan;
+        std::string reason;
+        auto fits = [&source](uint32_t race, uint32_t sex) { return source.InstalledBodyFits(race, sex); };
+        if (Retail::PlanNpc(*extra, { display->modelId, model->fileDataId }, fits, plan, reason)) {
+            std::printf("  plan: %s body %d as race %u, bake %u %s (%s)\n", plan.retailBody ? "retail" : "installed", plan.bodyModelId, plan.race,
+                plan.bakeFile, plan.bake == Retail::BakeUse::Warp ? "warped" : "as is", plan.bakeName.c_str());
+        } else {
+            std::printf("  plan refused: %s\n", reason.c_str());
+        }
         std::vector<uint32_t> modelGeosets = source.ModelGeosets(model->fileDataId);
         PrintMeshes("look meshes", Retail::RetailBodyGeosets(extra->look, modelGeosets));
         PrintMeshes("chosen", Retail::RetailBodyChosenGeosets(extra->look, modelGeosets));

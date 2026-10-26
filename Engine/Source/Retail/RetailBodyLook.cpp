@@ -14,6 +14,9 @@ constexpr uint32_t EYE_GLOW_GROUP = 17;
 // The head swap: 3201 is a small stub (shown under a helm that hides the head), 3202 the head.
 constexpr uint32_t HEAD_SWAP_GROUP = 32;
 constexpr uint32_t HEAD_VARIANT = 2;
+// Groups from here on are retail's own (3.3.5 has 0 to 18). Retail's default is variant 1, so without an x01 mesh such
+// a group draws nothing unless chosen (the void elf's head attachment 2405 would cover the face).
+constexpr uint32_t FIRST_RETAIL_ONLY_GROUP = 19;
 constexpr size_t SECTION_ID = 0x00;
 
 // Id 0 is x00, which no model has: the group draws nothing.
@@ -33,7 +36,7 @@ static std::map<uint32_t, std::set<uint32_t>> VariantsByGroup(const std::vector<
 }
 
 // The first choice of the group that names none or a mesh the model has, else x01 (none for the eye glows, the head
-// 3202 for the head swap), else the group's lowest variant.
+// 3202 for the head swap), else none for a retail-only group, else the group's lowest variant.
 static uint32_t ChosenVariant(uint32_t group, const std::set<uint32_t>& variants, const NpcLook& look) {
     for (const CustomizationGeoset& geoset : look.geosets) {
         if (geoset.type == group && (!geoset.id || variants.count(MeshOf(geoset)))) {
@@ -44,7 +47,10 @@ static uint32_t ChosenVariant(uint32_t group, const std::set<uint32_t>& variants
         return group * GEOSET_GROUP;
     }
     uint32_t standard = group * GEOSET_GROUP + (group == HEAD_SWAP_GROUP ? HEAD_VARIANT : DEFAULT_VARIANT);
-    return variants.count(standard) ? standard : *variants.begin();
+    if (variants.count(standard)) {
+        return standard;
+    }
+    return group >= FIRST_RETAIL_ONLY_GROUP ? group * GEOSET_GROUP : *variants.begin();
 }
 
 std::vector<uint32_t> RetailBodyGeosets(const NpcLook& look, const std::vector<uint32_t>& modelGeosets) {

@@ -75,6 +75,24 @@ TEST(AHeadSwapWithoutAChoiceShowsTheHeadNotTheStub) {
     CHECK(Shows(meshes, 3301));
 }
 
+// Retail's default is variant 1: a retail-only group (19 and up) without an x01 mesh draws nothing unless chosen. The
+// void elf body's only head attachment is 2405, tendrils drawn with a multiply blend, which the lowest-variant default
+// hung across Magister Umbric's face (128688). Groups below 19 keep the lowest variant: ears have no 701, only 702.
+static const std::vector<uint32_t> VOID_ELF_MODEL = { 0, 1, 2, 702, 2405, 3201, 3202, 4004, 4104 };
+
+TEST(ARetailOnlyGroupWithoutX01DrawsNothingUnlessChosen) {
+    std::vector<uint32_t> meshes = Retail::RetailBodyGeosets(Look({}), VOID_ELF_MODEL);
+
+    CHECK(!Shows(meshes, 2405) && !Shows(meshes, 4004) && !Shows(meshes, 4104));
+    CHECK(Shows(meshes, 702));
+}
+
+TEST(AChosenRetailOnlyVariantWithoutX01Shows) {
+    std::vector<uint32_t> meshes = Retail::RetailBodyGeosets(Look({ { 24, 5 }, { 40, 4 }, { 41, 4 } }), VOID_ELF_MODEL);
+
+    CHECK(Shows(meshes, 2405) && Shows(meshes, 4004) && Shows(meshes, 4104));
+}
+
 TEST(AChosenHeadSwapStillWins) {
     std::vector<uint32_t> meshes = Retail::RetailBodyGeosets(Look({ { 32, 1 } }), HEAD_SWAP_MODEL);
 
