@@ -238,9 +238,12 @@ end)
 
 SLASH_RETAILBROWSER1 = "/rb"
 SLASH_RETAILBROWSER2 = "/retailbrowser"
-SlashCmdList["RETAILBROWSER"] = function()
+SlashCmdList["RETAILBROWSER"] = function(message)
     if not RB.Available() then
         RB.Print("this client has no retail assets configured.")
+        return
+    end
+    if RB.Booth.Command(message) then
         return
     end
     RB.Toggle()
