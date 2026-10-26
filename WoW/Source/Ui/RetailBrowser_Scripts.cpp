@@ -2,7 +2,8 @@
 
 // Not in the original. The Lua functions of the retail browser addon (Interface\AddOns\RetailBrowser): a search over the
 // retail tables of the pinned CASC build, built on a worker on first use (Engine/Source/Retail/RetailIndex.h), its
-// details, world DB SQL built from an entry (RetailBuildSql, RetailExportSql), a CSV export and the clipboard. Registered only when retail assets are configured, so the addon can test
+// details, world DB SQL built from an entry (RetailBuildSql, RetailExportSql), a CSV export, the players' asset seed
+// (RetailExportSeed) and the clipboard. Registered only when retail assets are configured, so the addon can test
 // for RetailSearch to know whether it runs on such a client.
 
 #if defined(WOWDECOMP_RETAIL_ASSETS)
@@ -125,8 +126,8 @@ static int32_t Script_RetailBrowserInfo(lua_State* L) {
     return 1;
 }
 
-// Logs\RetailBrowser\<name>-<time>.<extension>; the name keeps letters, digits, '-' and '_'.
-static std::string ExportPath(const std::string& name, const char* extension) {
+// Logs\RetailBrowser\<name>-<time>; the name keeps letters, digits, '-' and '_'.
+static std::string ExportStem(const std::string& name) {
     std::string safe;
     for (char c : name) {
         bool kept = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
@@ -137,7 +138,11 @@ static std::string ExportPath(const std::string& name, const char* extension) {
     localtime_s(&local, &now);
     char stamp[32];
     std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
-    return std::string(EXPORT_FOLDER) + "\\" + (safe.empty() ? "export" : safe) + "-" + stamp + "." + extension;
+    return std::string(EXPORT_FOLDER) + "\\" + (safe.empty() ? "export" : safe) + "-" + stamp;
+}
+
+static std::string ExportPath(const std::string& name, const char* extension) {
+    return ExportStem(name) + "." + extension;
 }
 
 // Pushes the path written, or nil, error.
@@ -199,6 +204,52 @@ static int32_t Script_RetailExportSql(lua_State* L) {
         return PushError(L, "Usage: RetailExportSql(name, sql)");
     }
     return WriteExport(L, ExportPath(StringArg(L, 1), "sql"), StringArg(L, 2));
+}
+
+// The numbers of a list table; other values are ignored.
+static std::vector<uint32_t> IdsArg(lua_State* L, int index) {
+    std::vector<uint32_t> ids;
+    int count = lua_istable(L, index) ? static_cast<int>(lua_objlen(L, index)) : 0;
+    for (int i = 1; i <= count; i++) {
+        lua_rawgeti(L, index, i);
+        if (lua_isnumber(L, -1)) {
+            ids.push_back(static_cast<uint32_t>(lua_tonumber(L, -1)));
+        }
+        lua_pop(L, 1);
+    }
+    return ids;
+}
+
+// The raw installed rows, not DrawsInstalledCreatureDisplay: players run creature_displays=stock, so whatever this
+// admin client hands to retail, an id the DBC has is drawn from the DBC on theirs.
+template <class Db>
+static std::vector<uint32_t> WithoutStockRows(const Db& db, const std::vector<uint32_t>& ids) {
+    std::vector<uint32_t> kept;
+    for (uint32_t id : ids) {
+        if (!HasStockRow(db, id)) {
+            kept.push_back(id);
+        }
+    }
+    return kept;
+}
+
+// RetailExportSeed({creature display id, ...}, {item display id, ...}): what those displays read, written as a seed
+// root (Logs\RetailBrowser\seed-<time>, shipped as Data\Retail\Seed); see CascSource::ExportSeed. Ids the installed
+// DBCs have are left out. Returns the folder, the files written, the displays skipped and the first error, or nil.
+static int32_t Script_RetailExportSeed(lua_State* L) {
+    std::vector<uint32_t> creatures = WithoutStockRows(g_creatureDisplayInfoDB, IdsArg(L, 1));
+    std::vector<uint32_t> items = WithoutStockRows(g_itemDisplayInfoDB, IdsArg(L, 2));
+    std::string folder = ExportStem("seed");
+    Retail::SeedReport report = Retail::CascSource::Instance().ExportSeed(creatures, items, folder);
+    lua_pushstring(L, folder.c_str());
+    lua_pushnumber(L, report.files);
+    lua_pushnumber(L, report.skipped);
+    if (report.error.empty()) {
+        lua_pushnil(L);
+    } else {
+        lua_pushstring(L, report.error.c_str());
+    }
+    return 4;
 }
 
 // CopyToClipboard(text): true, or nil, error.
@@ -278,6 +329,7 @@ void RetailBrowserRegister() {
     FrameScript_RegisterFunction("RetailExportCsv", Script_RetailExportCsv);
     FrameScript_RegisterFunction("RetailBuildSql", Script_RetailBuildSql);
     FrameScript_RegisterFunction("RetailExportSql", Script_RetailExportSql);
+    FrameScript_RegisterFunction("RetailExportSeed", Script_RetailExportSeed);
     FrameScript_RegisterFunction("CopyToClipboard", Script_CopyToClipboard);
     FrameScript_RegisterFunction("GetClipboardText", Script_GetClipboardText);
     RetailIconsRegister();

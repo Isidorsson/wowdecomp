@@ -27,6 +27,7 @@ struct Config {
     StorageMode mode = StorageMode::Online;
     std::filesystem::path path;     // Local: the retail install. Online: the CDN cache folder.
     std::filesystem::path cache;    // Decoded originals. Never inside a local install. Defaults to Cache beside the ini.
+    std::filesystem::path seed;     // Read-only decoded originals that ship with the client. Defaults to Seed beside the ini.
     std::string product = "wow";
     std::string region = "us";
     std::string build;              // Build config key (32 hex digits). Required online, so a CDN update never changes assets.
@@ -39,6 +40,9 @@ struct Config {
 
 // Where this build's caches live: "<cache>/<product>-<build key>", or "<product>-local" without a build key.
 std::filesystem::path BuildCacheFolder(const Config& config);
+
+// Where this build's seed lives, named as its cache folder is: "<seed>/<product>-<build key>", or "<product>-local".
+std::filesystem::path SeedFolder(const Config& config);
 
 bool ParseConfig(const std::string& text, const std::filesystem::path& baseDir, Config& config, std::string& error);
 

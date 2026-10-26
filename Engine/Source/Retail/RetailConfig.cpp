@@ -76,6 +76,8 @@ static bool SetValue(const std::string& key, const std::string& value, const std
         config.path = baseDir / value;
     } else if (key == "cache") {
         config.cache = baseDir / value;
+    } else if (key == "seed") {
+        config.seed = baseDir / value;
     } else if (key == "product") {
         config.product = value;
     } else if (key == "region") {
@@ -107,8 +109,16 @@ static bool SetValue(const std::string& key, const std::string& value, const std
     return true;
 }
 
+static std::string BuildFolderName(const Config& config) {
+    return config.product + "-" + (config.build.empty() ? std::string("local") : config.build);
+}
+
 std::filesystem::path BuildCacheFolder(const Config& config) {
-    return config.cache / (config.product + "-" + (config.build.empty() ? std::string("local") : config.build));
+    return config.cache / BuildFolderName(config);
+}
+
+std::filesystem::path SeedFolder(const Config& config) {
+    return config.seed / BuildFolderName(config);
 }
 
 bool ParseConfig(const std::string& text, const std::filesystem::path& baseDir, Config& config, std::string& error) {
@@ -143,6 +153,10 @@ bool ParseConfig(const std::string& text, const std::filesystem::path& baseDir, 
 
     if (config.cache.empty()) {
         config.cache = baseDir / "Cache";
+    }
+
+    if (config.seed.empty()) {
+        config.seed = baseDir / "Seed";
     }
 
     if (config.mode == StorageMode::Online && !IsBuildKey(config.build)) {

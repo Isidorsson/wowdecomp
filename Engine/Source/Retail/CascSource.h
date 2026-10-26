@@ -39,8 +39,15 @@ struct BodyMatchResult;
 constexpr uint64_t MEMORY_CACHE_CAP = 10 << 20;
 constexpr uint32_t MEMORY_ENTRY_LIMIT = 64 << 10;
 
-// Serves retail/<FileDataID> paths and aliased stock paths from one pinned CASC build. Reads come from the
-// decoded cache when possible; a miss opens the storage (online: downloads build metadata) and blocks.
+// What ExportSeed wrote and left out.
+struct SeedReport {
+    uint32_t files = 0;     // Entries written to the seed folder.
+    uint32_t skipped = 0;   // Display ids left out: retail has no such display, or a file it needs could not be read.
+    std::string error;      // The first file that could not be read or written; empty when none failed.
+};
+
+// Serves retail/<FileDataID> paths and aliased stock paths from one pinned CASC build. Reads come from the read-only
+// seed or the decoded cache when possible; a miss opens the storage (online: downloads build metadata) and blocks.
 // Retail models (MD21) are converted to 3.3.5 once per converter version and kept in the converted cache, and
 // the skin names the client derives from them (MakeSkinFileName) are routed to the skins their SFID lists, served
 // from that conversion.
@@ -126,7 +133,17 @@ class CascSource {
     void PrefetchIcons(const std::vector<uint32_t>& fileDataIds);
     bool IconPending(uint32_t fileDataId) const;
 
+    // Writes a seed for the retail displays the server uses: the decoded originals the client reads to draw them, as
+    // a player's source would find them in its seed folder (RetailCasc.ini seed=), plus the DB2 tables that load
+    // displays. The files are read through this source, so what it lacks is fetched. Models are walked from their
+    // originals, not from what a read touches: a converted model is answered from the converted cache. Ids retail
+    // lacks are left out and warned about. The caller drops the ids its own DBCs have, which draw from them
+    // (stock rows win). Needs the installed bodies, read on the main thread, when a display's bake is warped.
+    SeedReport ExportSeed(const std::vector<uint32_t>& creatureDisplayIds, const std::vector<uint32_t>& itemDisplayIds, const std::filesystem::path& folder);
+
     private:
+    class SeedJob;
+
     // Every view's skin as the model's conversion converted it, shared by the model's dependencies.
     using ConvertedSkins = std::vector<std::vector<uint8_t>>;
 

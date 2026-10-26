@@ -31,7 +31,7 @@ struct NpcRows {
 
 // The tables, kept alive with the NpcTables view of them.
 struct NpcTableSet {
-    Retail::Db2Table extra, itemSlots, options, choices, elements, geosets, materials, textureFiles;
+    FixtureTable extra, itemSlots, options, choices, elements, geosets, materials, textureFiles;
 
     Retail::NpcTables View() const { return { extra, itemSlots, options, choices, elements, geosets, materials, textureFiles }; }
 };

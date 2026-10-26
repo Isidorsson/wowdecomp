@@ -229,7 +229,8 @@ void CascSource::PrefetchModel(const Conversion& conversion) {
 
 void CascSource::PrefetchFile(uint32_t fileDataId) {
     DecodedCacheHead head;
-    if (!fileDataId || PeekDecodedCache(DecodedCachePath(this->m_config, fileDataId), head)) {
+    if (!fileDataId || PeekDecodedCache(SeedEntryPath(this->m_config, fileDataId), head)
+        || PeekDecodedCache(DecodedCachePath(this->m_config, fileDataId), head)) {
         return;
     }
     std::vector<uint8_t> bytes;

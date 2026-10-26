@@ -245,7 +245,7 @@ SlashCmdList["RETAILBROWSER"] = function(message)
         RB.Print("this client has no retail assets configured.")
         return
     end
-    if RB.Booth.Command(message) then
+    if RB.Booth.Command(message) or RB.Seed.Command(message) then
         return
     end
     RB.Toggle()

@@ -35,12 +35,18 @@ static uint64_t FirstChecksum(const std::vector<uint8_t>& bytes) {
     return hash;
 }
 
+static constexpr const char* DECODED_FOLDER = "decoded";
+
 std::filesystem::path DecodedCacheFolder(const Config& config) {
-    return BuildCacheFolder(config) / "decoded";
+    return BuildCacheFolder(config) / DECODED_FOLDER;
 }
 
 std::filesystem::path DecodedCachePath(const Config& config, uint32_t fileDataId) {
     return DecodedCacheFolder(config) / std::to_string(fileDataId);
+}
+
+std::filesystem::path SeedEntryPath(const Config& config, uint32_t fileDataId) {
+    return SeedFolder(config) / DECODED_FOLDER / std::to_string(fileDataId);
 }
 
 static bool ReadExactly(HANDLE file, void* out, uint32_t size) {
@@ -139,6 +145,31 @@ bool ReadDecodedCache(const std::filesystem::path& path, std::vector<uint8_t>& b
     std::string error;
     if (header.magic == FIRST_MAGIC) {
         WriteDecodedCache(path, data, error);
+    }
+
+    bytes = std::move(data);
+    return true;
+}
+
+bool ReadSeedEntry(const std::filesystem::path& path, std::vector<uint8_t>& bytes, VerifiedEntries* verified) {
+    bytes.clear();
+    HANDLE file = OpenEntry(path);
+    if (file == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    Header header;
+    std::vector<uint8_t> data;
+    bool known = verified && verified->Has(path);
+    bool hit = ReadEntry(file, header, data) && (known || ChecksumHolds(header, data));
+    CloseHandle(file);
+
+    if (!hit) {
+        return false;
+    }
+
+    if (verified && !known) {
+        verified->Add(path);
     }
 
     bytes = std::move(data);

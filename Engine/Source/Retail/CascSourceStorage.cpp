@@ -2,7 +2,7 @@
 #include <algorithm>
 #include "Engine/Source/Retail/CascSource.h"
 
-// The read path of CascSource below the routing: memory, then the decoded cache, then the CASC storage, opened once
+// The read path of CascSource below the routing: memory, then the seed, then the decoded cache, then the CASC storage, opened once
 // apart from the reads; the handoff from Exists to the open that follows; and the browser's icon prefetch.
 
 namespace Retail {
@@ -45,9 +45,15 @@ bool CascSource::ReadTable(uint32_t id, std::vector<uint8_t>& bytes, std::string
     return this->ReadCached(id, CASC_STRICT_DATA_CHECK | CASC_OVERCOME_ENCRYPTED, bytes, error);
 }
 
-// Only a miss in both caches waits for the storage, so a hit never waits for an open or another thread's fetch.
+// Only a miss in the seed and the decoded cache waits for the storage, so a hit never waits for an open or another
+// thread's fetch. The seed is read first and never written, touched or trimmed.
 bool CascSource::ReadCached(uint32_t id, uint32_t openFlags, std::vector<uint8_t>& bytes, std::string& error) {
     if (this->m_memory.Find(id, bytes)) {
+        return true;
+    }
+
+    if (ReadSeedEntry(SeedEntryPath(this->m_config, id), bytes, &this->m_verified)) {
+        this->m_memory.Put(id, bytes);
         return true;
     }
 

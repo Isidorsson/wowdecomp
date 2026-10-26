@@ -7,7 +7,7 @@
 // The retail item tables, with the columns the loaders read at their WoWDBDefs physical numbers.
 
 // GeoBox[6] is column 0, the FileDataID (inline id) 1 and ModelResourcesID 4.
-inline Retail::Db2Table ModelFiles(const std::vector<std::pair<uint32_t, uint32_t>>& files, uint32_t layout = Retail::MODEL_FILE_DATA_LAYOUT) {
+inline FixtureTable ModelFiles(const std::vector<std::pair<uint32_t, uint32_t>>& files, uint32_t layout = Retail::MODEL_FILE_DATA_LAYOUT) {
     std::vector<Db2Row> rows;
     for (const auto& [file, resource] : files) {
         std::vector<uint32_t> values(6, 0);
@@ -27,7 +27,7 @@ struct ItemDisplayRow {
 
 // ModelResourcesID[2] is column 10, ModelMaterialResourcesID[2] 11, ModelType[2] 12, GeosetGroup[6] 13,
 // AttachmentGeosetGroup[6] 14 and HelmetGeosetVis[2] 15.
-inline Retail::Db2Table ItemDisplays(const std::vector<ItemDisplayRow>& displays, uint32_t layout = Retail::ITEM_DISPLAY_INFO_LAYOUT) {
+inline FixtureTable ItemDisplays(const std::vector<ItemDisplayRow>& displays, uint32_t layout = Retail::ITEM_DISPLAY_INFO_LAYOUT) {
     std::vector<uint32_t> widths(10, 1);
     widths.insert(widths.end(), { 2, 2, 2, 6, 6, 2 });
     std::vector<Db2Row> rows;
@@ -59,7 +59,7 @@ struct TextureFileRow {
 };
 
 // UsageType is column 1 and MaterialResourcesID 2.
-inline Retail::Db2Table TextureFiles(const std::vector<TextureFileRow>& files, uint32_t layout = Retail::TEXTURE_FILE_DATA_LAYOUT) {
+inline FixtureTable TextureFiles(const std::vector<TextureFileRow>& files, uint32_t layout = Retail::TEXTURE_FILE_DATA_LAYOUT) {
     std::vector<Db2Row> rows;
     for (const TextureFileRow& file : files) {
         rows.push_back({ file.file, { 0, file.usage, file.material } });
@@ -75,7 +75,7 @@ struct ComponentModelRow {
 };
 
 // GenderIndex is column 0, ClassID 1, RaceID 2 and PositionIndex 3 (the id, the file, is not inline).
-inline Retail::Db2Table ComponentModels(const std::vector<ComponentModelRow>& files, uint32_t layout = Retail::COMPONENT_MODEL_FILE_DATA_LAYOUT) {
+inline FixtureTable ComponentModels(const std::vector<ComponentModelRow>& files, uint32_t layout = Retail::COMPONENT_MODEL_FILE_DATA_LAYOUT) {
     std::vector<Db2Row> rows;
     for (const ComponentModelRow& file : files) {
         rows.push_back({ file.file, { file.gender, 0, file.race, file.position } });
@@ -90,7 +90,7 @@ struct AppearanceRow {
 };
 
 // ItemDisplayInfoID is column 1 and DefaultIconFileDataID 2 (the id is not inline).
-inline Retail::Db2Table Appearances(const std::vector<AppearanceRow>& appearances, uint32_t layout = Retail::ITEM_APPEARANCE_LAYOUT) {
+inline FixtureTable Appearances(const std::vector<AppearanceRow>& appearances, uint32_t layout = Retail::ITEM_APPEARANCE_LAYOUT) {
     std::vector<Db2Row> rows;
     for (const AppearanceRow& appearance : appearances) {
         rows.push_back({ appearance.id, { 0, appearance.display, appearance.icon, 0, 0 } });
@@ -105,7 +105,7 @@ struct SectionRow {
 };
 
 // ComponentSection is column 0 and MaterialResourcesID 1; the display is the row's relation.
-inline Retail::Db2Table Sections(const std::vector<SectionRow>& sections, uint32_t layout = Retail::ITEM_DISPLAY_INFO_MATERIAL_RES_LAYOUT) {
+inline FixtureTable Sections(const std::vector<SectionRow>& sections, uint32_t layout = Retail::ITEM_DISPLAY_INFO_MATERIAL_RES_LAYOUT) {
     std::vector<Db2Row> rows;
     std::vector<uint32_t> relations;
     for (uint32_t i = 0; i < sections.size(); i++) {
@@ -122,7 +122,7 @@ struct ComponentTextureRow {
 };
 
 // GenderIndex is column 0, ClassID 1 and RaceID 2 (the id, the file, is not inline).
-inline Retail::Db2Table ComponentTextures(const std::vector<ComponentTextureRow>& files, uint32_t layout = Retail::COMPONENT_TEXTURE_FILE_DATA_LAYOUT) {
+inline FixtureTable ComponentTextures(const std::vector<ComponentTextureRow>& files, uint32_t layout = Retail::COMPONENT_TEXTURE_FILE_DATA_LAYOUT) {
     std::vector<Db2Row> rows;
     for (const ComponentTextureRow& file : files) {
         rows.push_back({ file.file, { file.gender, 0, file.race } });
@@ -137,7 +137,7 @@ struct HelmetGeosetRow {
 };
 
 // RaceID is column 0 and HideGeosetGroup 1; the vis id is the row's relation.
-inline Retail::Db2Table HelmetGeosets(const std::vector<HelmetGeosetRow>& geosets, uint32_t layout = Retail::HELMET_GEOSET_DATA_LAYOUT) {
+inline FixtureTable HelmetGeosets(const std::vector<HelmetGeosetRow>& geosets, uint32_t layout = Retail::HELMET_GEOSET_DATA_LAYOUT) {
     std::vector<Db2Row> rows;
     std::vector<uint32_t> relations;
     for (uint32_t i = 0; i < geosets.size(); i++) {

@@ -39,6 +39,7 @@ The ini is `key=value` lines; `#` starts a comment. Relative paths resolve again
 | `region` | `us` | CDN region (online mode) |
 | `locale` | `2` | CASC locale mask in hex (`2` is enUS) |
 | `cache` | `Cache` beside the ini | Where the decoded and converted caches live. Never inside a local install |
+| `seed` | `Seed` beside the ini | Read-only decoded originals that ship with the client, laid out as a cache folder (`<seed>/<product>-<build key>/decoded/<FileDataID>`). Read before the decoded cache, never written or trimmed |
 | `decoded_cache_mb` | `4096` | Cap of the decoded cache in MB, `0` for no cap |
 | `converted_cache_mb` | `2048` | Cap of the converted cache in MB, `0` for no cap |
 | `aliases` | empty | Optional file of `FDID;client\path` rows that serve a retail file in place of a stock path |
@@ -233,6 +234,8 @@ Both caches live in `<cache>/<product>-<build key>/` (`<product>-local` without 
 | `sequences/` | Per model CSV of remapped animation ids, for reference | none |
 
 - Entries are written to a temporary file and renamed, so a crash never leaves half an entry.
+- A read goes memory, seed, decoded cache, storage. An entry of the seed that fails its checksum is a miss, so the
+  decoded cache answers instead. `CascSource::ExportSeed` writes a seed from the originals of the displays it is given.
 - Past a cap, the least recently used entries are trimmed to 90% of it on a worker thread. A hit counts as a use.
 - Converted entries are keyed by the converter version (and the source hash); an entry of another key is deleted on
   read. Caches of the product's other builds are deleted at startup.

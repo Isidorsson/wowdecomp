@@ -1,8 +1,7 @@
 #include <atomic>
 #include <chrono>
-#include <fstream>
+#include <map>
 #include <memory>
-#include <process.h>
 #include <string>
 #include <thread>
 #include "Engine/Source/Retail/CascSource.h"
@@ -11,51 +10,16 @@
 #include "Engine/Source/Retail/RetailModel.h"
 #include "Engine/Source/Retail/RetailPath.h"
 #include "Tools/Tests/Check.h"
+#include "Tools/Tests/LocalSourceFixture.h"
 #include "Tools/Tests/M2Builder.h"
-
-// A source on a local install that holds no storage, so every file it reads comes from the decoded cache.
 
 constexpr uint32_t MODEL_ID = 916541;
 constexpr uint32_t SKIN_ID = 916542;
-constexpr const char* BUILD_KEY = "88d5e8ef05ec5a8446cdec93d142d7c6";
 constexpr const char* MODEL_PATH = "retail/916541.m2";
-
-struct LocalSource {
-    std::filesystem::path dir;
-    Retail::Config config;
-    Retail::CascSource source;
-};
-
-static void WriteText(const std::filesystem::path& path, const std::string& text) {
-    std::filesystem::create_directories(path.parent_path());
-    std::ofstream(path, std::ios::binary) << text;
-}
-
-// Another source on the same install and cache, as after a restart.
-static bool Reopen(LocalSource& local, const std::filesystem::path& dir) {
-    local.dir = dir;
-    local.config.cache = local.dir / "cache";
-    local.config.build = BUILD_KEY;
-    std::string error;
-    return local.source.Configure(local.dir / "RetailCasc.ini", error);
-}
-
-static bool Configure(LocalSource& local, const char* name) {
-    std::filesystem::path dir = std::filesystem::temp_directory_path() / ("wowdecomp-tests-" + std::to_string(_getpid())) / name;
-    std::filesystem::remove_all(dir);
-    WriteText(dir / "storage" / ".build.info", std::string("Active!DEC:1|Build Key!HEX:16|Product!STRING:0\n1|") + BUILD_KEY + "|wow\n");
-    WriteText(dir / "RetailCasc.ini", "mode=local\npath=storage\ncache=cache\n");
-    return Reopen(local, dir);
-}
 
 static void DropOriginals(const LocalSource& local) {
     std::filesystem::remove(Retail::DecodedCachePath(local.config, MODEL_ID));
     std::filesystem::remove(Retail::DecodedCachePath(local.config, SKIN_ID));
-}
-
-static bool Cache(const LocalSource& local, uint32_t id, const std::vector<uint8_t>& bytes) {
-    std::string error;
-    return Retail::WriteDecodedCache(Retail::DecodedCachePath(local.config, id), bytes, error);
 }
 
 // One view of two vertices, one weighing a bone and one two, drawn by one batch.
@@ -366,4 +330,83 @@ TEST(PrefetchedIconsAreServedFromMemory) {
     std::filesystem::remove(Retail::DecodedCachePath(local.config, 134404));
     CHECK(local.source.Read("retail/134404.blp", bytes, error) && bytes == icon);
     CHECK(opener.opens == 1);
+}
+
+TEST(FilesOnlyTheSeedHoldsAreRead) {
+    LocalSource local;
+    SlowOpener opener;
+    std::vector<uint8_t> bytes;
+    std::string error;
+    std::vector<uint8_t> texture = { 'B', 'L', 'P', '2', 3, 1, 4, 1 };
+
+    CHECK(Configure(local, "seed-read") && Seed(local, 134410, texture));
+    local.source.SetStorageOpener(opener.Make(std::chrono::milliseconds(0)));
+    CHECK(local.source.Read("retail/134410.blp", bytes, error) && bytes == texture);
+    CHECK(opener.opens == 0 && !std::filesystem::exists(Retail::DecodedCachePath(local.config, 134410)));
+}
+
+TEST(ACorruptSeedEntryFallsThroughToTheDecodedCache) {
+    LocalSource local;
+    std::vector<uint8_t> bytes;
+    std::string error;
+    std::vector<uint8_t> seeded = { 'B', 'L', 'P', '2', 1, 1, 1, 1 };
+    std::vector<uint8_t> cached = { 'B', 'L', 'P', '2', 2, 2, 2, 2 };
+
+    CHECK(Configure(local, "seed-corrupt") && Seed(local, 134411, seeded) && Cache(local, 134411, cached));
+    CorruptLastByte(Retail::SeedEntryPath(local.config, 134411));
+    CHECK(local.source.Read("retail/134411.blp", bytes, error) && bytes == cached);
+}
+
+// Every file below the folder with its last write time (a folder's is updated lazily, so it says nothing).
+static std::map<std::filesystem::path, std::filesystem::file_time_type> Listing(const std::filesystem::path& folder) {
+    std::map<std::filesystem::path, std::filesystem::file_time_type> files;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(folder)) {
+        if (entry.is_regular_file()) {
+            files[entry.path()] = entry.last_write_time();
+        }
+    }
+    return files;
+}
+
+// Old enough that a cache would mark a hit as used again.
+TEST(TheSourceNeverWritesIntoTheSeed) {
+    LocalSource local;
+    std::vector<uint8_t> bytes;
+    std::string error;
+    std::vector<uint8_t> texture = { 'B', 'L', 'P', '2', 6, 2, 8, 3 };
+
+    CHECK(Configure(local, "seed-readonly") && Seed(local, 134412, texture) && Cache(local, 134413, texture));
+    std::filesystem::last_write_time(Retail::SeedEntryPath(local.config, 134412), std::filesystem::file_time_type::clock::now() - std::chrono::hours(48));
+    auto before = Listing(local.config.seed);
+
+    CHECK(local.source.Read("retail/134412.blp", bytes, error) && bytes == texture);
+    CHECK(local.source.Read("retail/134413.blp", bytes, error) && bytes == texture);
+    CHECK(!local.source.Read("retail/134414.blp", bytes, error));
+    CHECK(Listing(local.config.seed) == before);
+}
+
+// Destroying the source waits for the trim its configuration started.
+TEST(TrimmingTheDecodedCacheLeavesTheSeedAlone) {
+    LocalSource first;
+    std::vector<uint8_t> large(600 * 1024, 7);
+    const uint32_t ids[] = { 134420, 134421, 134422 };
+
+    CHECK(Configure(first, "seed-untrimmed"));
+    WriteText(first.dir / "RetailCasc.ini", "mode=local\npath=storage\ncache=cache\ndecoded_cache_mb=1\n");
+    for (uint32_t id : ids) {
+        CHECK(Seed(first, id, large) && Cache(first, id, large));
+    }
+
+    auto second = std::make_unique<LocalSource>();
+    CHECK(Reopen(*second, first.dir));
+    second.reset();
+
+    size_t seeded = 0;
+    size_t cached = 0;
+    for (uint32_t id : ids) {
+        seeded += std::filesystem::exists(Retail::SeedEntryPath(first.config, id));
+        cached += std::filesystem::exists(Retail::DecodedCachePath(first.config, id));
+    }
+    CHECK(cached < 3);
+    CHECK(seeded == 3);
 }

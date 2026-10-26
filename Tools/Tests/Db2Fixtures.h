@@ -12,8 +12,13 @@
 
 using Db2Row = std::pair<uint32_t, std::vector<uint32_t>>;   // Id, then every column's values in order.
 
+// A table with the file it was parsed from, for tests that put the file in a cache.
+struct FixtureTable : Retail::Db2Table {
+    std::vector<uint8_t> bytes;
+};
+
 // widths[c] is how many values column c holds; relations[r] is row r's parent (0 for none).
-inline Retail::Db2Table PlainTable(uint32_t layout, const std::vector<uint32_t>& widths, const std::vector<Db2Row>& rows, const std::vector<uint32_t>& relations = {}) {
+inline FixtureTable PlainTable(uint32_t layout, const std::vector<uint32_t>& widths, const std::vector<Db2Row>& rows, const std::vector<uint32_t>& relations = {}) {
     Wdc5Spec spec;
     spec.layoutHash = layout;
     uint16_t offset = 0;
@@ -35,9 +40,10 @@ inline Retail::Db2Table PlainTable(uint32_t layout, const std::vector<uint32_t>&
     }
     spec.sections = { section };
 
-    Retail::Db2Table table;
+    FixtureTable table;
+    table.bytes = BuildWdc5(spec);
     std::string error;
-    bool parsed = table.Parse(BuildWdc5(spec), error);
+    bool parsed = table.Parse(table.bytes, error);
     CHECK(parsed);
     if (!parsed) {
         std::printf("    (fixture: %s)\n", error.c_str());

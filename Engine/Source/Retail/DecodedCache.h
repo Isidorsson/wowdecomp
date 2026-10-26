@@ -19,6 +19,9 @@ constexpr uint32_t DECODED_CACHE_HEADER_SIZE = 16;   // An entry takes its origi
 std::filesystem::path DecodedCacheFolder(const Config& config);
 std::filesystem::path DecodedCachePath(const Config& config, uint32_t fileDataId);
 
+// A seed entry is a decoded cache entry of the same layout, so exporting a seed copies entries as they are.
+std::filesystem::path SeedEntryPath(const Config& config, uint32_t fileDataId);
+
 // The entries whose checksum held this session. Thread-safe.
 class VerifiedEntries {
     public:
@@ -37,6 +40,9 @@ constexpr std::chrono::hours DECODED_CACHE_TOUCH_AGE { 1 };
 // and one that passes it is added. A hit refreshes the entry's last write time once it is DECODED_CACHE_TOUCH_AGE old,
 // which TrimCacheFolder reads as its last use, and rewrites an entry of the first format (RDC1) in the current one.
 bool ReadDecodedCache(const std::filesystem::path& path, std::vector<uint8_t>& bytes, VerifiedEntries* verified = nullptr);
+
+// ReadDecodedCache for a seed entry, which is only ever read: no touch, no rewrite of an RDC1 entry.
+bool ReadSeedEntry(const std::filesystem::path& path, std::vector<uint8_t>& bytes, VerifiedEntries* verified = nullptr);
 
 // What an entry's header says, read without the original or its checksum.
 struct DecodedCacheHead {

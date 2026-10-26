@@ -1,3 +1,4 @@
+#include "Engine/Source/Retail/DecodedCache.h"
 #include "Engine/Source/Retail/RetailConfig.h"
 #include "Tools/Tests/Check.h"
 
@@ -65,6 +66,18 @@ TEST(CacheDefaultsBesideTheIni) {
     CHECK(config.cache == std::filesystem::path("F:/RetailCache"));
 }
 
+TEST(SeedDefaultsBesideTheIni) {
+    Config config;
+    std::string error;
+
+    CHECK(ParseConfig("mode=local\npath=E:/Retail\n", s_base, config, error));
+    CHECK(config.seed == s_base / "Seed");
+    CHECK(ParseConfig("mode=local\npath=E:/Retail\nseed=Shipped\n", s_base, config, error));
+    CHECK(config.seed == s_base / "Shipped");
+    CHECK(ParseConfig("mode=local\npath=E:/Retail\nseed=F:/RetailSeed\n", s_base, config, error));
+    CHECK(config.seed == std::filesystem::path("F:/RetailSeed"));
+}
+
 TEST(ConvertedCacheCapDefaultsAndParses) {
     Config config;
     std::string error;
@@ -112,6 +125,21 @@ TEST(BuildCacheFoldersAreNamedByProductAndBuild) {
     CHECK(Retail::BuildCacheFolder(config) == std::filesystem::path("C:/Cache/wow-88d5e8ef05ec5a8446cdec93d142d7c6"));
     config.build.clear();
     CHECK(Retail::BuildCacheFolder(config) == std::filesystem::path("C:/Cache/wow-local"));
+}
+
+TEST(SeedFoldersAndEntriesMirrorTheCacheLayout) {
+    Config config;
+    config.cache = "C:/Cache";
+    config.seed = "C:/Seed";
+    config.build = s_build;
+
+    CHECK(Retail::SeedFolder(config) == std::filesystem::path("C:/Seed/wow-88d5e8ef05ec5a8446cdec93d142d7c6"));
+    CHECK(Retail::SeedEntryPath(config, 916541) == std::filesystem::path("C:/Seed/wow-88d5e8ef05ec5a8446cdec93d142d7c6/decoded/916541"));
+    // Exporting is a plain copy: an entry sits at the same place below the seed folder as below the build's cache folder.
+    CHECK(Retail::SeedEntryPath(config, 916541).lexically_relative(Retail::SeedFolder(config))
+        == Retail::DecodedCachePath(config, 916541).lexically_relative(Retail::BuildCacheFolder(config)));
+    config.build.clear();
+    CHECK(Retail::SeedFolder(config) == std::filesystem::path("C:/Seed/wow-local"));
 }
 
 static const char* s_buildInfo =

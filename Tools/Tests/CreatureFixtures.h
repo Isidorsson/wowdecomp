@@ -27,7 +27,7 @@ struct CreatureModelRow {
 
 // GeoBox[6] is column 0, FileDataID 2, SizeClass 14, CollisionWidth and Height 15 and 16, ModelScale 21 and
 // MountHeight 25 (the id is not inline).
-inline Retail::Db2Table CreatureModels(const std::vector<CreatureModelRow>& models, uint32_t layout = Retail::CREATURE_MODEL_DATA_LAYOUT) {
+inline FixtureTable CreatureModels(const std::vector<CreatureModelRow>& models, uint32_t layout = Retail::CREATURE_MODEL_DATA_LAYOUT) {
     std::vector<uint32_t> widths(26, 1);
     widths[0] = 6;
     std::vector<Db2Row> rows;
@@ -60,7 +60,7 @@ struct CreatureDisplayRow {
 
 // The id is column 0, ModelID 1, SizeClass 3, CreatureModelScale 4, CreatureModelAlpha 5,
 // ExtendedDisplayInfoID 7 and TextureVariationFileDataID[4] 27.
-inline Retail::Db2Table CreatureDisplays(const std::vector<CreatureDisplayRow>& displays, uint32_t layout = Retail::CREATURE_DISPLAY_INFO_LAYOUT) {
+inline FixtureTable CreatureDisplays(const std::vector<CreatureDisplayRow>& displays, uint32_t layout = Retail::CREATURE_DISPLAY_INFO_LAYOUT) {
     std::vector<uint32_t> widths(27, 1);
     widths.push_back(4);
     std::vector<Db2Row> rows;
@@ -87,7 +87,7 @@ struct GeosetRow {
 };
 
 // GeosetIndex is column 0 and GeosetValue 1; the display is the row's relation.
-inline Retail::Db2Table DisplayGeosets(const std::vector<GeosetRow>& geosets, uint32_t layout = Retail::CREATURE_DISPLAY_INFO_GEOSET_DATA_LAYOUT) {
+inline FixtureTable DisplayGeosets(const std::vector<GeosetRow>& geosets, uint32_t layout = Retail::CREATURE_DISPLAY_INFO_GEOSET_DATA_LAYOUT) {
     std::vector<Db2Row> rows;
     std::vector<uint32_t> relations;
     for (uint32_t i = 0; i < geosets.size(); i++) {

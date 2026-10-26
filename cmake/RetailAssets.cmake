@@ -107,6 +107,7 @@ add_library(RetailAssets STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceBrowser.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceStorage.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourcePrefetch.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSourceSeed.cpp
 )
 target_link_libraries(RetailAssets PUBLIC RetailCore PRIVATE casc_static)
 target_compile_definitions(RetailAssets PUBLIC WOWDECOMP_RETAIL_ASSETS=1)

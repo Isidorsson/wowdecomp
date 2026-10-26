@@ -5,6 +5,7 @@
 ## Version: 2
 ## SavedVariables: RetailBrowserDB
 ## SavedVariablesPerCharacter: RetailBrowserCharDB
+## OptionalDeps: AIO_Client
 Core.lua
 Theme.lua
 Tips.lua
@@ -25,3 +26,4 @@ FreeEntry.lua
 Build.lua
 Keys.lua
 Booth.lua
+Seed.lua
