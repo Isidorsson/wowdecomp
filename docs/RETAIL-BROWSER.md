@@ -144,8 +144,13 @@ FROM `item_template` WHERE `entry` = 39239;
 
 - **Item level** (empty: each item's own retail level, shown in grey; sets and creatures 200; 0 is allowed): the level
   the retail stats are computed at, and the item's `ItemLevel`.
-- **Start entry** (default 9000000): the first new entry; a set's pieces take the next ones. The client cannot see
-  which entries are free, so pick a range you know is empty (the status line says the next free one after this build).
+- **Start entry**: the first new entry; a set's pieces take the next ones. Empty, the tab builds once to learn how
+  many entries the scope takes, asks the server (lua_scripts `CloticScripts/RetailBrowser/RetailBrowser_FreeEntry.lua`,
+  an addon whisper with prefix `RBFE`, GM accounts only) for the first run of that many free entries at 100000 or above,
+  and builds again there: a lone item can fill a one-wide hole, a set takes the first hole as long as its pieces, a
+  mixed scope one free in both `item_template` and `creature_template`. Copy SQL and Export SQL reserve the run on the
+  server until it restarts, so the next build skips SQL not applied yet. With no answer in 2 seconds it falls back to
+  9000000 and says so. A typed start is used as is.
   Creature entries must stay below 16777216 (the GUID keeps 24 bits of the entry).
 - **Base entry**: the stock row to copy. Blank uses a suggestion per class, subclass and slot (an epic of item level 200
   to 245 without spells, set or sockets, taken from the world DB; `SuggestedBaseItem` in `BuildSql.cpp`), or creature

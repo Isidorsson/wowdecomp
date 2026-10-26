@@ -21,6 +21,7 @@ DrawerDetails.lua
 DrawerTabs.lua
 Preview.lua
 Actions.lua
+FreeEntry.lua
 Build.lua
 Keys.lua
 Booth.lua

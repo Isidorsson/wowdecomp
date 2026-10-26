@@ -1,6 +1,6 @@
 -- The Build SQL drawer tab: world DB SQL for the focused entry, the checked rows or the page (RetailBuildSql per
 -- entry, each starting at the entry the previous one left free). Every statement copies a stock row (the base entry)
--- and overrides only the columns it names; the client cannot check that the start entry is free. Retail stats are
+-- and overrides only the columns it names; an empty start entry asks the server for a free run (FreeEntry.lua). Retail stats are
 -- computed at the item level and mapped to 3.3.5 stats as listed. The tab uses the drawer's tall step.
 
 local RB = RetailBrowser
@@ -88,7 +88,7 @@ local requiredLevel = Labelled("RequiredLevel", "Required level", 60, 2, RowY(4)
 local nameBox = Labelled("Name", "Name", 180, 2, RowY(5), "opt_name")
 local subnameBox = Labelled("Subname", "Subname", 140, 2, RowY(6), "opt_subname")
 local scale = Labelled("Scale", "Scale", 60, 2, RowY(7), "opt_scale")
-startEntry:SetText(DEFAULT_START_ENTRY)
+RB.SetHint(startEntry, "free from server")
 RB.SetHint(requiredLevel, "base's")
 RB.SetHint(scale, "base's")
 
@@ -323,9 +323,8 @@ local function ScopeEntries()
     return entries, #list
 end
 
-local function BuildAll(entries)
-    local start = tonumber(startEntry:GetText()) or DEFAULT_START_ENTRY
-    local all = { sql = {}, lines = {}, notes = {}, firstEntry = start }
+local function BuildAll(entries, start)
+    local all = { sql = {}, lines = {}, notes = {}, firstEntry = start, tables = RB.EntryTables(entries) }
     for _, d in ipairs(entries) do
         local result, err = RetailBuildSql(d.kind, d.id, Options(d, start))
         if not result or result.status ~= "ok" then
@@ -339,6 +338,20 @@ local function BuildAll(entries)
     end
     all.sql = table.concat(all.sql, "\n")
     return all
+end
+
+-- An empty Start entry builds once to learn how many entries the scope takes, then again at the server's first free
+-- run of that length. While the server is asking (or silent) the first build's fallback start stands.
+local function BuildAtFree(entries)
+    local typed = tonumber(startEntry:GetText())
+    local first, err = BuildAll(entries, typed or DEFAULT_START_ENTRY)
+    if typed or not first then
+        return first, err
+    end
+    local free, hint = RB.FreeStart(first, DEFAULT_START_ENTRY)
+    RB.SetHint(startEntry, hint)
+    if free and free ~= first.firstEntry then return BuildAll(entries, free) end
+    return first
 end
 
 local function Fail(text)
@@ -358,7 +371,7 @@ function RB.BuildSql()
         Fail(asked == 0 and "Nothing to build: focus a row or check some." or "SQL is built for items, sets and creatures.")
         return
     end
-    local result, err = BuildAll(entries)
+    local result, err = BuildAtFree(entries)
     RetailHints(entries, result)
     if not result then
         Fail(err)
@@ -408,7 +421,9 @@ local function ExportName()
 end
 
 function RB.CopyBuildSql()
-    RB.Copy(FullSql(), "SQL")
+    local sql = FullSql()
+    RB.Copy(sql, "SQL")
+    if sql ~= "" then RB.ReserveBuilt(RB.buildResult) end
 end
 
 function RB.ExportBuildSql()
@@ -418,6 +433,7 @@ function RB.ExportBuildSql()
     end
     local path, err = RetailExportSql(ExportName(), sql)
     RB.Print(path and ("wrote " .. path) or ("could not export: " .. tostring(err)))
+    if path then RB.ReserveBuilt(RB.buildResult) end
 end
 
 -- The SQL buttons share the SQL column's width.
@@ -474,6 +490,7 @@ function RB.ShowBuild(scope)
 end
 
 panel:SetScript("OnShow", function()
+    RB.ForgetFreeEntries()
     RB.buildAt = nil
     RB.BuildSql()
 end)
