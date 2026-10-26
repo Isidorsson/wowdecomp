@@ -47,7 +47,9 @@ RB.EXPANSIONS = {
 RB.CLASSIFICATIONS = { { 0, "Normal" }, { 1, "Elite" }, { 3, "Rare elite" }, { 2, "Rare" } }
 RB.RACES = {
     { 1, "Human" }, { 2, "Orc" }, { 3, "Dwarf" }, { 4, "Night Elf" }, { 5, "Undead" }, { 6, "Tauren" }, { 7, "Gnome" },
-    { 8, "Troll" }, { 9, "Goblin" }, { 10, "Blood Elf" }, { 11, "Draenei" }, { 22, "Worgen" }, { 24, "Pandaren" },
+    { 8, "Troll" }, { 9, "Goblin" }, { 10, "Blood Elf" }, { 11, "Draenei" }, { 12, "Fel Orc" }, { 13, "Naga" },
+    { 14, "Broken" }, { 15, "Skeleton" }, { 16, "Vrykul" }, { 17, "Tuskarr" }, { 18, "Forest Troll" }, { 19, "Taunka" },
+    { 20, "Northrend Skeleton" }, { 21, "Ice Troll" }, { 22, "Worgen" }, { 24, "Pandaren" },
     { 27, "Nightborne" }, { 28, "Highmountain" }, { 29, "Void Elf" }, { 30, "Lightforged" }, { 31, "Zandalari" },
     { 32, "Kul Tiran" }, { 34, "Dark Iron" }, { 35, "Vulpera" }, { 36, "Mag'har" }, { 37, "Mechagnome" },
     { 52, "Dracthyr" }, { 84, "Earthen" },
