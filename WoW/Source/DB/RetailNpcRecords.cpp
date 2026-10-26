@@ -38,8 +38,13 @@ struct ServedExtra {
     int32_t bodyModelId = 0;
     bool retailBody = false;
     std::vector<uint32_t> geosets;   // A retail body's meshes, one per geoset group.
+    std::vector<uint32_t> chosenGeosets;   // Those of the groups a choice names.
     std::vector<std::string> texturePaths;
     std::vector<RetailBodyTextureView> textures;   // Naming texturePaths.
+    // What a model without the character component draws (a mount, a plain model frame): RetailCreatureLook.
+    std::vector<uint32_t> creatureMeshes;
+    std::vector<std::string> creatureTexturePaths;
+    std::vector<RetailBodyTextureView> creatureTextures;   // Naming creatureTexturePaths.
 };
 
 static std::mutex s_servedMutex;
@@ -119,23 +124,37 @@ static bool RaceServable(uint32_t race, uint32_t sex, std::string& reason) {
     return true;
 }
 
+static std::string LookTexturePath(uint32_t file) {
+    return "Character\\" + Retail::RetailFileName(file) + ".blp";
+}
+
+// The paths are reserved first: each view names its path's characters.
+static void FillTextureViews(const std::vector<Retail::LookTexture>& textures, std::vector<std::string>& paths, std::vector<RetailBodyTextureView>& views) {
+    paths.reserve(textures.size());
+    for (const Retail::LookTexture& texture : textures) {
+        paths.push_back(LookTexturePath(texture.file));
+        views.push_back({ texture.type, paths.back().c_str() });
+    }
+}
+
 // A retail body draws the row's geosets and its chosen textures itself, placed by its race's texture layout
-// (RetailBodyLook.h).
-static void FillRetailBodyLook(ServedExtra& served, const Retail::NpcExtra& extra, const Retail::NpcBody& body) {
+// (RetailBodyLook.h). A model the character component does not dress draws the same look with the bake on its skin.
+static void FillRetailBodyLook(ServedExtra& served, const Retail::NpcExtra& extra, const Retail::NpcBody& body, uint32_t bakeFile) {
     Retail::CascSource& source = Retail::CascSource::Instance();
     served.retailBody = true;
-    served.geosets = Retail::RetailBodyGeosets(extra.look, source.ModelGeosets(body.fileDataId));
+    std::vector<uint32_t> modelGeosets = source.ModelGeosets(body.fileDataId);
+    served.geosets = Retail::RetailBodyGeosets(extra.look, modelGeosets);
+    served.chosenGeosets = Retail::RetailBodyChosenGeosets(extra.look, modelGeosets);
     const Retail::RetailRaces* races = source.Races();
     const Retail::RetailRace* race = races ? races->Race(extra.race) : nullptr;
-    if (!race || extra.sex > 1) {
+    std::vector<Retail::TextureLayer> layers = race && extra.sex <= 1 ? races->TextureLayers(race->layouts[extra.sex]) : std::vector<Retail::TextureLayer>();
+    Retail::CreatureLook creature = Retail::RetailCreatureLook(extra.look, layers, bakeFile, modelGeosets);
+    served.creatureMeshes = creature.meshes;
+    FillTextureViews(creature.textures, served.creatureTexturePaths, served.creatureTextures);
+    if (layers.empty()) {
         return;
     }
-    std::vector<Retail::LookTexture> textures = Retail::RetailBodyTextures(extra.look, races->TextureLayers(race->layouts[extra.sex]));
-    served.texturePaths.reserve(textures.size());
-    for (const Retail::LookTexture& texture : textures) {
-        served.texturePaths.push_back("Character\\" + Retail::RetailFileName(texture.file) + ".blp");
-        served.textures.push_back({ texture.type, served.texturePaths.back().c_str() });
-    }
+    FillTextureViews(Retail::RetailBodyTextures(extra.look, layers), served.texturePaths, served.textures);
 }
 
 // The served row for a retail Extra id, or false with the reason the display keeps its retail model.
@@ -162,7 +181,7 @@ static bool BuildServedExtra(uint32_t retailExtraId, const Retail::NpcBody& body
     FillExtra(served, fields);
     served.bodyModelId = plan.bodyModelId;
     if (plan.retailBody) {
-        FillRetailBodyLook(served, *extra, body);
+        FillRetailBodyLook(served, *extra, body, plan.bakeFile);
     }
     for (const std::string& note : notes) {
         LogOnce(note);
@@ -229,8 +248,27 @@ bool FindRetailBodyLook(const char* npcSkinTexture, RetailBodyLookView& look) {
     }
     look.geosets = found->second.geosets.data();
     look.count = found->second.geosets.size();
+    look.chosen = found->second.chosenGeosets.data();
+    look.chosenCount = found->second.chosenGeosets.size();
     look.textures = found->second.textures.data();
     look.textureCount = found->second.textures.size();
+    return true;
+}
+
+bool FindRetailCreatureLook(int32_t extraId, RetailBodyLookView& look) {
+    uint32_t retailId = 0;
+    if (extraId <= 0 || !Retail::RetailExtraIdOf(static_cast<uint32_t>(extraId), retailId)) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(s_servedMutex);
+    auto found = s_extras.find(retailId);
+    if (found == s_extras.end() || !found->second.served || !found->second.retailBody) {
+        return false;
+    }
+    look.geosets = found->second.creatureMeshes.data();
+    look.count = found->second.creatureMeshes.size();
+    look.textures = found->second.creatureTextures.data();
+    look.textureCount = found->second.creatureTextures.size();
     return true;
 }
 
@@ -241,6 +279,10 @@ bool ServeRetailNpcDisplay(uint32_t, uint32_t, uint32_t, int32_t&, int32_t&) {
 }
 
 bool FindRetailBodyLook(const char*, RetailBodyLookView&) {
+    return false;
+}
+
+bool FindRetailCreatureLook(int32_t, RetailBodyLookView&) {
     return false;
 }
 

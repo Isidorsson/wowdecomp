@@ -20,6 +20,8 @@ struct RetailBodyTextureView {
 struct RetailBodyLookView {
     const uint32_t* geosets = nullptr;
     size_t count = 0;
+    const uint32_t* chosen = nullptr;   // The meshes of the groups a choice names (RetailBodyChosenGeosets).
+    size_t chosenCount = 0;
     const RetailBodyTextureView* textures = nullptr;
     size_t textureCount = 0;
 };
@@ -27,5 +29,10 @@ struct RetailBodyLookView {
 // The look of the served Extra row whose bake the character component draws (its npc skin texture); false for any
 // other skin, a stock NPC's or an installed body's.
 bool FindRetailBodyLook(const char* npcSkinTexture, RetailBodyLookView& look);
+
+// The look of a served Extra row on a retail body for a model the character component does not dress (a mount, a
+// plain model frame; RetailCreatureLook): the meshes to show, the body mesh 0 among them, and every texture by type,
+// the bake on the skin. False for any other Extra id, a stock row's or an installed body's.
+bool FindRetailCreatureLook(int32_t extraId, RetailBodyLookView& look);
 
 #endif

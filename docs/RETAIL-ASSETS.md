@@ -151,6 +151,25 @@ because their model is a retail `*_HD.m2` the converter refuses. The client now 
 - The NPC tables are encrypted for unreleased content. Their still-locked rows are skipped, with one log line per
   table.
 
+### Customizable creatures
+
+The dragonriding drakes (Renewed Proto-Drake 107058 and 113594, the Swift Spectral Drake of mount 1607, displays 107020
+to 107211, and the other display ids of their models) are retail bodies too: their display names a
+`CreatureDisplayInfoExtra` row of a creature race (72 for the proto-drake, on ChrModel 124) with a bake and customization
+choices, and no texture variations. Their character texture types (skin 1, fur 8, feathers 6, armour plates 7, eyes 19)
+are filled from those choices, as for a retail race NPC above.
+
+- In-world units (`.morph`, a creature spawn) and `DressUpModel` frames (the Retail Browser preview and hover) draw them
+  through the character component. A group the choices name shows the chosen mesh over what the component's items and
+  defaults set, so a drake no longer draws the x01 jaw spikes (401), brow (501) and chin crest (801) its choices of id 0
+  hide. Face and hair groups stay with the component, so a helm still hides them.
+- Mounts, `PlayerModel` frames and the other places that draw a display without the component (corpses, character
+  select pets, effect models) used to show the whole model white with every variant of every group at once:
+  `ReplaceMonsterSkin` only knows texture variations. A display whose served Extra row draws on a retail body now gets
+  the same look there: the bake on the skin, the chosen materials on the other types (placed by the ChrModel's texture
+  layers), and the body mesh with one mesh per geoset group (`RetailCreatureLook`).
+- Displays with no Extra row, and NPCs drawn on an installed body, keep the old behaviour.
+
 Log lines in `Logs/RetailAssets.log` show what was decided:
 
 ```
@@ -237,6 +256,8 @@ first.
   the bake already carries most of them. Texture slots without a chosen material stay white.
 - Some retail race helms have no file for every race (no borrowing from another race), so those NPCs go bareheaded.
 - Model frames (`PlayerModel:SetCamera`) frame some retail bodies (Kul Tiran, Earthen) too close.
+- A `PlayerModel` frame still draws an NPC on an installed body (a human Stormwind Guard, 111839) untextured: without the
+  character component it has no bake or items. Use a `DressUpModel`.
 - Hair styles and facial hair the installed bodies lack (about 10% of NPC rows) fall back to style 0 or the closest
   combination. Hair texture comes from the installed CharSections rows, not the retail Hair Color material.
 - An item geoset the body lacks (retail boots name 506 to 510, the installed bodies stop at 505) draws the group's

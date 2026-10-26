@@ -44,6 +44,7 @@ if (TARGET RetailCore)
         PrefetchScheduleTests.cpp
         RetailRacesTests.cpp
         RetailBodyLookTests.cpp
+        RetailCreatureLookTests.cpp
         RetailIndexTests.cpp
         RetailIndexPagingTests.cpp
         RetailIndexGoldenTests.cpp

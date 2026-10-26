@@ -126,6 +126,59 @@ static void ShowRetailBodyGroups(const ComponentData& data) {
     }
 }
 
+// Not in the original. A group a retail body's choice names shows the chosen mesh over what items and defaults set (a
+// drake's x01 jaw spikes 401, brow 501 and chin crest 801, which its choices of id 0 hide). The face and hair groups
+// stay with m_geosets (ApplyRetailBodyLook), so a helm still hides them.
+static void ShowRetailBodyChoices(const ComponentData& data) {
+    RetailBodyLookView look;
+    if (!FindRetailBodyLook(data.m_npcSkinTexture, look)) {
+        return;
+    }
+    for (size_t i = 0; i < look.chosenCount; i++) {
+        uint32_t group = look.chosen[i] / GEOSET_GROUP_SIZE;
+        bool lookGroup = group >= NUM_CHARGEOSETS;
+        for (uint32_t face : s_retailLookGroups) {
+            lookGroup = lookGroup || group == face;
+        }
+        if (!lookGroup) {
+            data.m_model->SetGeometryVisible(group * GEOSET_GROUP_SIZE, group * GEOSET_GROUP_SIZE + GEOSET_GROUP_SIZE - 1, 0);
+            data.m_model->SetGeometryVisible(look.chosen[i], look.chosen[i], 1);
+        }
+    }
+}
+
+// Not in the original. A display whose served Extra row draws on a retail body (a customizable creature such as the
+// dragonriding drakes, or a retail race NPC) has no texture variations: its look is its customization choices. Where
+// no character component dresses the model (a mount, a plain model frame), the monster skin and geosets draw that
+// look instead, or the model shows every geoset untextured.
+static bool ApplyRetailCreatureGeosets(CM2Model* model, const CreatureDisplayInfoRec* displayRec) {
+    RetailBodyLookView look;
+    if (!FindRetailCreatureLook(displayRec->m_extendedDisplayInfoID, look)) {
+        return false;
+    }
+    model->SetGeometryVisible(0, LAST_GEOSET_ID, 0);
+    for (size_t i = 0; i < look.count; i++) {
+        model->SetGeometryVisible(look.geosets[i], look.geosets[i], 1);
+    }
+    model->OptimizeVisibleGeometry();
+    return true;
+}
+
+static void ReplaceRetailCreatureTextures(CM2Model* model, const CreatureDisplayInfoRec* displayRec, const CGxTexFlags& flags) {
+    RetailBodyLookView look;
+    if (!FindRetailCreatureLook(displayRec->m_extendedDisplayInfoID, look)) {
+        return;
+    }
+    for (size_t i = 0; i < look.textureCount; i++) {
+        CStatus status;
+        CTexture* texture = TextureCreate(look.textures[i].path, flags, &status, 0);
+        if (texture) {
+            model->ReplaceTexture(look.textures[i].type, texture);
+            HandleClose(reinterpret_cast<HOBJECT>(texture));
+        }
+    }
+}
+
 // Not in the original. The hide slots of HelmetGeosetVisDataRec in order and the geoset each sets. A mask holds
 // 1 << race (races 1 to 31); a served race above asks the retail rows instead.
 struct HelmHideGeoset {
@@ -512,6 +565,11 @@ void CCharacterComponent::ComponentOpenFingers(CM2Model* model, COMP_HAND_SLOT h
 // VERIFY: d3d12b40 auto
 // OFFSET: 0x004E7790
 void CCharacterComponent::ApplyMonsterGeosets(CM2Model* model, const CreatureDisplayInfoRec* displayRec) {
+    // Not in the original: a retail creature look (ApplyRetailCreatureGeosets).
+    if (model && displayRec && ApplyRetailCreatureGeosets(model, displayRec)) {
+        return;
+    }
+
     if (!model || !displayRec || !displayRec->m_creatureGeosetData) {
         return;
     }
@@ -3631,6 +3689,7 @@ void CCharacterComponent::GeosRenderPrep() {
         ShowItemGeoset(this->m_data.m_model, rec.m_geosetGroup[0] + 1801);
     }
 
+    ShowRetailBodyChoices(this->m_data);
     this->m_data.m_model->OptimizeVisibleGeometry();
     this->m_flags &= ~0x4;
 }
@@ -5502,6 +5561,9 @@ void CCharacterComponent::ReplaceMonsterSkin(CM2Model* model, const CreatureDisp
             HandleClose(reinterpret_cast<HOBJECT>(texture));
         }
     }
+
+    // Not in the original: a retail creature look's textures (ApplyRetailCreatureGeosets).
+    ReplaceRetailCreatureTextures(model, displayRec, flags);
 
     ReplaceParticleColor(displayRec->m_particleColorID, model);
 }

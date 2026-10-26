@@ -268,6 +268,8 @@ values up to 32767 (`stat_value` is a smallint). Retail socket types map to colo
 `RetailExportCsv(kind, text [, filters])`, `RetailBuildSql(kind, id [, options])` (the Build panel's options,
 `MarshalBuild` in `BrowserMarshal.h`), `RetailExportSql(name, sql)`, `CopyToClipboard(text)`, `GetClipboardText()`, and the model methods
 `model:SetDisplayInfo(displayId)` and `dressUpModel:TryOnDisplay(displayId, inventoryType [, sheathe, class, subclass])`.
+On a `PlayerModel`, `SetDisplayInfo` of a customizable creature (the dragonriding drakes) draws its customization look
+as a mount does; NPCs on an installed body need a `DressUpModel` (RETAIL-ASSETS.md, Customizable creatures).
 Kinds are `creature`, `item`, `set`, `model`, `mount`. A bad kind or id returns `nil, error`; before the index is
 ready a search returns `{ status = "building" }`.
 

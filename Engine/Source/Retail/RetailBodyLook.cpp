@@ -52,6 +52,20 @@ std::vector<uint32_t> RetailBodyGeosets(const NpcLook& look, const std::vector<u
     return meshes;
 }
 
+std::vector<uint32_t> RetailBodyChosenGeosets(const NpcLook& look, const std::vector<uint32_t>& modelGeosets) {
+    std::set<uint32_t> named;
+    for (const CustomizationGeoset& geoset : look.geosets) {
+        named.insert(geoset.type);
+    }
+    std::vector<uint32_t> chosen;
+    for (uint32_t mesh : RetailBodyGeosets(look, modelGeosets)) {
+        if (named.count(mesh / GEOSET_GROUP)) {
+            chosen.push_back(mesh);
+        }
+    }
+    return chosen;
+}
+
 bool SkinGeosetIds(const std::vector<uint8_t>& skin, std::vector<uint32_t>& ids, std::string& error) {
     Span sections;
     if (skin.size() < SkinAt::HEADER || std::memcmp(skin.data(), "SKIN", 4) != 0) {
@@ -105,6 +119,21 @@ std::vector<LookTexture> RetailBodyTextures(const NpcLook& look, const std::vect
         textures.push_back({ type, placed.second });
     }
     return textures;
+}
+
+CreatureLook RetailCreatureLook(const NpcLook& look, const std::vector<TextureLayer>& layers, uint32_t bake, const std::vector<uint32_t>& modelGeosets) {
+    CreatureLook creature;
+    if (bake) {
+        creature.textures.push_back({ BAKED_TEXTURE_TYPE, bake });
+    }
+    for (const LookTexture& texture : RetailBodyTextures(look, layers)) {
+        creature.textures.push_back(texture);
+    }
+    creature.meshes.push_back(BODY_MESH);
+    for (uint32_t mesh : RetailBodyGeosets(look, modelGeosets)) {
+        creature.meshes.push_back(mesh);
+    }
+    return creature;
 }
 
 }
