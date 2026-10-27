@@ -101,15 +101,31 @@ static std::string Number(uint32_t value) {
     return std::to_string(value);
 }
 
+// A clean item: the base lends its shape (durability, material, sheath, sound, price), never a requirement, flag,
+// binding, spell, set, quest, lock, script or limit, so a player of any level, class or race can use it as it is.
+static void ClearBaseExtras(std::map<std::string, std::string>& set) {
+    for (const char* column : { "Flags", "FlagsExtra", "flagsCustom", "RequiredSkill", "RequiredSkillRank", "requiredspell",
+             "requiredhonorrank", "RequiredCityRank", "RequiredReputationFaction", "RequiredReputationRank", "maxcount", "bonding",
+             "PageText", "startquest", "lockid", "RandomProperty", "RandomSuffix", "itemset", "area", "Map", "ItemLimitCategory",
+             "duration", "HolidayId", "minMoneyLoot", "maxMoneyLoot" }) {
+        set[column] = "0";
+    }
+    set["AllowableClass"] = set["AllowableRace"] = "-1";
+    set["description"] = set["ScriptName"] = "''";
+    for (int slot = 1; slot <= 5; slot++) {
+        std::string n = std::to_string(slot);
+        set["spellid_" + n] = set["spelltrigger_" + n] = set["spellcharges_" + n] = set["spellppmRate_" + n] = set["spellcategory_" + n] = "0";
+        set["spellcooldown_" + n] = set["spellcategorycooldown_" + n] = "-1";
+    }
+}
+
 std::string BuildItemSql(const ItemSql& item, std::string& error) {
     std::map<std::string, std::string> set = { { "entry", Number(item.entry) }, { "class", Number(item.classId) },
         { "subclass", Number(item.subclass) }, { "name", SqlQuote(item.name) }, { "displayid", Number(item.displayId) },
         { "Quality", Number(item.quality) }, { "InventoryType", Number(item.inventoryType) }, { "ItemLevel", Number(item.itemLevel) },
         { "StatsCount", Number(static_cast<uint32_t>(item.stats.stats.size())) }, { "ScalingStatDistribution", "0" },
-        { "ScalingStatValue", "0" }, { "socketBonus", "0" } };
-    if (item.requiredLevel >= 0) {
-        set["RequiredLevel"] = std::to_string(item.requiredLevel);
-    }
+        { "ScalingStatValue", "0" }, { "socketBonus", "0" }, { "RequiredLevel", Number(item.requiredLevel) } };
+    ClearBaseExtras(set);
     for (size_t slot = 0; slot < CLASSIC_STAT_SLOTS; slot++) {
         bool filled = slot < item.stats.stats.size();
         set["stat_type" + std::to_string(slot + 1)] = filled ? Number(item.stats.stats[slot].first) : "0";

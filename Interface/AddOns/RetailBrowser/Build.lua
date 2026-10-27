@@ -88,7 +88,7 @@ local nameBox = Labelled("Name", "Name", 180, 2, RowY(5), "opt_name")
 local subnameBox = Labelled("Subname", "Subname", 140, 2, RowY(6), "opt_subname")
 local scale = Labelled("Scale", "Scale", 60, 2, RowY(7), "opt_scale")
 RB.SetHint(startEntry, "free from server")
-RB.SetHint(requiredLevel, "base's")
+RB.SetHint(requiredLevel, "0 (any level)")
 RB.SetHint(scale, "base's")
 
 -- Empty override fields show the retail value they stand for (the SQL uses it); typed text replaces it.
@@ -131,7 +131,21 @@ end
 
 local retailStamina = Check("RetailStamina", "Retail stamina multiplier", RowY(9), false, "opt_retailStamina")
 local allVariants = Check("AllVariants", "Every set variant", RowY(10), false, "opt_allVariants")
-local otherDisplays = Check("OtherDisplays", "Other displays as modelid2-4", RowY(11), false, "opt_otherDisplays")
+
+-- What a creature, model or mount with several displays builds; a click steps to the next way.
+local DISPLAY_MODES = { { 1, "One creature each" }, { 0, "Picked only" }, { 2, "As modelid1-4 variants" } }
+local displaysLabel = RB.CreateText(options, "RetailBrowserLabelFont")
+displaysLabel:SetPoint("TOPLEFT", 2, RowY(11) - 2)
+displaysLabel:SetText("Displays")
+local displays
+displays = RB.CreateButton(options, DISPLAY_MODES[1][2], 160, 18, function()
+    displays.mode = displays.mode % #DISPLAY_MODES + 1
+    displays:SetLabel(DISPLAY_MODES[displays.mode][2])
+    RB.ScheduleBuild()
+end)
+displays.mode = 1
+displays:SetPoint("TOPLEFT", 82, RowY(11))
+RB.AttachTip(displays, "opt_displays")
 local retailArmour = Check("RetailArmour", "Retail armour/damage", RowY(12), true, "opt_retailArmour")
 local CHECK_BOTTOM = RowY(13) - 4
 
@@ -224,7 +238,7 @@ local function Options(d, start)
         combo = combo.value,
         retailStamina = retailStamina:GetChecked() and 1 or 0,
         allVariants = allVariants:GetChecked() and 1 or 0,
-        otherDisplays = otherDisplays:GetChecked() and 1 or 0,
+        displays = DISPLAY_MODES[displays.mode][1],
         retailArmour = retailArmour:GetChecked() and 1 or 0,
         display = RB.ActionDisplay(d),
     }
@@ -353,11 +367,38 @@ local function BuildAtFree(entries)
     return first
 end
 
+-- Build now reads "Building..." while a build waits (the pause after a change, or the server's free entry), then
+-- "Built" for a moment after one succeeds.
+local BUILT_SECONDS = 1.5
+local builtAt
+local buildButton
+
+local function BuildLabel()
+    if RB.buildAt then
+        return "Building" .. string.rep(".", math.floor(GetTime() * 3) % 3 + 1)
+    end
+    if builtAt and GetTime() - builtAt < BUILT_SECONDS then
+        return RB.Colored("Built", RB.THEME.good)
+    end
+    return "Build now"
+end
+
 local function Fail(text)
+    builtAt = nil
     status:SetText(RB.Colored(text, RB.THEME.bad))
     mapping:SetText("")
     RB.buildResult = nil
     ShowSql("")
+end
+
+-- " (5 displays)" for a lone creature, model or mount with several, so a build of one of them says why it wrote more rows.
+local function DisplaysText(entries)
+    local d = entries[1]
+    if #entries ~= 1 or RB.BUILD_TABLES[d.kind] ~= "creature" then
+        return ""
+    end
+    local count = d.displayCount or #(d.displays or {})
+    return count > 1 and string.format(" (%d displays)", count) or ""
 end
 
 -- Rebuilds the SQL of the scope's entries with the tab's options.
@@ -378,19 +419,27 @@ function RB.BuildSql()
     end
     RB.buildResult = result
     local skipped = asked - #entries
+    local rows = result.nextEntry - result.firstEntry
     -- The time shows a rebuild happened even when its SQL is the same as before.
-    status:SetText(RB.Colored("Built " .. date("%H:%M:%S") .. ".", RB.THEME.good) .. string.format(" Entries %d to %d (%d %s), base %d%s, item level %d. Next free: %d.%s", result.firstEntry, result.nextEntry - 1,
-        #entries, #entries == 1 and "entry" or "entries", result.base, baseEntry:GetText() == "" and " (suggested)" or "", result.itemLevel,
+    status:SetText(RB.Colored("Built " .. date("%H:%M:%S") .. ".", RB.THEME.good) .. string.format(" Entries %d to %d: %d %s from %d %s%s, base %d%s, item level %d. Next free: %d.%s",
+        result.firstEntry, result.nextEntry - 1, rows, rows == 1 and "row" or "rows", #entries, #entries == 1 and "entry" or "entries", DisplaysText(entries),
+        result.base, baseEntry:GetText() == "" and " (suggested)" or "", result.itemLevel,
         result.nextEntry, skipped > 0 and " " .. RB.Colored(string.format("%d skipped (kind, or over %d).", skipped, RB.BULK_LIMIT), RB.THEME.bad) or ""))
     local lone = #entries == 1 and entries[1].kind == "item"
     mapping:SetText(MappingText(result.lines, result.notes, lone and result.base or nil))
     ShowSql(result.sql)
+    builtAt = GetTime()
 end
 
 panel:SetScript("OnUpdate", function()
     if RB.buildAt and GetTime() >= RB.buildAt then
         RB.buildAt = nil
         RB.BuildSql()
+    end
+    local label = BuildLabel()
+    if buildButton and label ~= buildButton.text then
+        buildButton.text = label
+        buildButton:SetLabel(label)
     end
 end)
 
@@ -444,8 +493,9 @@ local function SqlButton(text, hotkey, onClick, tipKey)
     RB.AttachTip(button, tipKey)
     button.text, button.hotkey = text, hotkey
     sqlButtons[#sqlButtons + 1] = button
+    return button
 end
-SqlButton("Build now", nil, function() RB.buildAt = nil RB.BuildSql() end, "sql_build")
+buildButton = SqlButton("Build now", nil, function() RB.buildAt = nil RB.BuildSql() end, "sql_build")
 SqlButton("Copy SQL", "Ctrl+Enter", function() RB.CopyBuildSql() end, "sql_copy")
 SqlButton("Export SQL", "Ctrl+S", function() RB.ExportBuildSql() end, "sql_export")
 SqlButton("Edit full SQL", nil, EditFullSql, "sql_edit")

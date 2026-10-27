@@ -246,7 +246,7 @@ TEST(ItemBuildTakesTheChosenEntriesNameAndCombo) {
     options.texts["name"] = "Judgment's \"Best\" Plate";
     std::string sql = Text(Build(index, "item", 16958, options), "sql");
     CHECK(Contains(sql, "\nSELECT 9100000, 4, 4, `SoundOverrideSubclass`, 'Judgment''s \"Best\" Plate', 31019, "));
-    CHECK(Contains(sql, ", 40, 80, `RequiredSkill`"));
+    CHECK(Contains(sql, ", 40, 80, 0, "));
     CHECK(Contains(sql, "`ContainerSlots`, 3, 5, 8, "));
     CHECK(Contains(sql, "WHERE `entry` = 50606;"));
 }
@@ -298,30 +298,52 @@ TEST(SetBuildPrefersThePieceOfASlotWithStats) {
     CHECK(Contains(sql, "`ContainerSlots`, 3, 4, 8, "));
 }
 
-TEST(CreatureBuildCopiesTheDefaultBaseWithTheRetailDisplay) {
+static bool Noted(const BrowserValue& out, const std::string& part) {
+    const BrowserValue* notes = out.Get("notes");
+    for (size_t i = 0; notes && i < notes->items.size(); i++) {
+        if (Contains(notes->items[i].text, part)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+TEST(CreatureBuildWritesOneCreaturePerDisplay) {
     RetailIndex index = BuildIndex();
     BrowserValue out = Build(index, "creature", 178184);
     std::string sql = Text(out, "sql");
-    CHECK(Contains(sql, "\nSELECT 9000000, 0, 0, 0, `KillCredit1`, `KillCredit2`, 3167, 0, 0, 0, 'Stormwind Guard Captain', '', "));
+    CHECK(Contains(sql, "\nSELECT 9000000, 0, 0, 0, `KillCredit1`, `KillCredit2`, 3167, 0, 0, 0, 'Stormwind Guard Captain (3167)', '', "));
+    CHECK(Contains(sql, "\nSELECT 9000001, 0, 0, 0, `KillCredit1`, `KillCredit2`, 3258, 0, 0, 0, 'Stormwind Guard Captain (3258)', '', "));
     CHECK(Contains(sql, "WHERE `entry` = 15166;") && Contains(sql, "creature_model_info"));
+    CHECK(NumberOf(out, "nextEntry") == 9000002 && NumberOf(out, "pieces") == 2);
+    CHECK(Noted(out, ".npc add 9000000 (3167), 9000001 (3258)"));
+}
+
+TEST(CreatureBuildWritesThePickedDisplayOrAllAsVariants) {
+    RetailIndex index = BuildIndex();
     BuildOptions options;
-    options.numbers = { { "display", 3258 }, { "otherDisplays", 1 }, { "scale", 2 }, { "startEntry", 9000500 } };
+    options.numbers = { { "displays", 0 }, { "display", 3258 } };
+    BrowserValue out = Build(index, "creature", 178184, options);
+    CHECK(Contains(Text(out, "sql"), "`KillCredit2`, 3258, 0, 0, 0, 'Stormwind Guard Captain', '', ") && NumberOf(out, "pieces") == 1);
+    options.numbers = { { "displays", 2 }, { "display", 3258 }, { "scale", 2 }, { "startEntry", 9000500 } };
     options.texts["subname"] = "Watch";
-    sql = Text(Build(index, "creature", 178184, options), "sql");
+    std::string sql = Text(Build(index, "creature", 178184, options), "sql");
     CHECK(Contains(sql, "SELECT 9000500, 0, 0, 0, `KillCredit1`, `KillCredit2`, 3258, 3167, 0, 0, 'Stormwind Guard Captain', 'Watch', "));
     CHECK(Contains(sql, ", `speed_run`, 2, `rank`"));
 }
 
-TEST(ModelBuildWritesACreatureWithTheModelsDisplay) {
+TEST(ModelBuildWritesACreaturePerDisplayNamedAfterItsFirstUser) {
     RetailIndex index = BuildIndex();
-    std::string sql = Text(Build(index, "model", 1011653), "sql");
-    CHECK(Contains(sql, "SELECT 9000000, 0, 0, 0, `KillCredit1`, `KillCredit2`, 3167, 0, 0, 0, 'Stormwind Guard', '', "));
-    CHECK(Contains(sql, "retail model 1011653") && Contains(sql, "WHERE `entry` = 15166;"));
+    BrowserValue out = Build(index, "model", 1011653);
+    std::string sql = Text(out, "sql");
+    CHECK(Contains(sql, "SELECT 9000000, 0, 0, 0, `KillCredit1`, `KillCredit2`, 3167, 0, 0, 0, 'Stormwind Guard (3167)', '', "));
+    CHECK(Contains(sql, "SELECT 9000002, 0, 0, 0, `KillCredit1`, `KillCredit2`, 3259, 0, 0, 0, 'Stormwind Guard (3259)', '', "));
+    CHECK(Contains(sql, "retail model 1011653") && NumberOf(out, "pieces") == 3);
     BuildOptions options;
-    options.numbers = { { "display", 3259 } };
     options.texts["name"] = "Guard Look";
-    sql = Text(Build(index, "model", 1011653, options), "sql");
-    CHECK(Contains(sql, "`KillCredit2`, 3259, 0, 0, 0, 'Guard Look', '', "));
+    CHECK(Contains(Text(Build(index, "model", 1011653, options), "sql"), "`KillCredit2`, 3258, 0, 0, 0, 'Guard Look (3258)', '', "));
+    options.numbers = { { "displays", 0 }, { "display", 3259 } };
+    CHECK(Contains(Text(Build(index, "model", 1011653, options), "sql"), "`KillCredit2`, 3259, 0, 0, 0, 'Guard Look', '', "));
 }
 
 TEST(MountBuildWritesTheCreatureAMountAuraNames) {
@@ -329,12 +351,7 @@ TEST(MountBuildWritesTheCreatureAMountAuraNames) {
     BrowserValue out = Build(index, "mount", 6);
     std::string sql = Text(out, "sql");
     CHECK(Contains(sql, "`KillCredit2`, 2404, 0, 0, 0, 'Brown Horse', '', ") && Contains(sql, "retail mount 6"));
-    bool noted = false;
-    const BrowserValue* notes = out.Get("notes");
-    for (size_t i = 0; notes && i < notes->items.size(); i++) {
-        noted = noted || Contains(notes->items[i].text, "misc value 9000000");
-    }
-    CHECK(noted);
+    CHECK(Noted(out, "misc value 9000000"));
 }
 
 TEST(BuildRefusesOtherKindsAndUnknownIds) {

@@ -42,7 +42,7 @@ struct ItemSql {
     uint32_t classId = 0;
     uint32_t subclass = 0;
     uint32_t itemLevel = 0;
-    int32_t requiredLevel = -1;   // -1 keeps the base's.
+    uint32_t requiredLevel = 0;   // 0: any level; the base's requirements are never kept.
     ClassicStats stats;
     std::array<uint32_t, 3> socketColors = {};
     int32_t armor = -1;           // -1 keeps the base's.

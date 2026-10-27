@@ -15,6 +15,7 @@ constexpr uint32_t MAX_CLASSIC_QUALITY = 7;   // Heirloom.
 constexpr uint32_t INVENTORY_CHEST = 5;
 constexpr uint32_t INVENTORY_ROBE = 20;
 constexpr size_t CREATURE_MODELS = 4;
+constexpr size_t MAX_CREATURE_ROWS = 50;   // One creature per display: a model can have hundreds.
 
 namespace {
 
@@ -239,7 +240,7 @@ bool AddItem(Build& build, const BrowseItem& item, uint32_t displayId, bool lone
     row.quality = item.quality > MAX_CLASSIC_QUALITY ? MAX_CLASSIC_QUALITY : item.quality;
     row.inventoryType = item.inventoryType;
     row.itemLevel = build.itemLevel;
-    row.requiredLevel = static_cast<int32_t>(NumberOption(build.options, "requiredLevel", -1));
+    row.requiredLevel = Unsigned(NumberOption(build.options, "requiredLevel", 0));
     row.stats = StatsOf(build, item);
     AddSockets(build, item, row);
     bool retailCombat = NumberOption(build.options, "retailArmour", 1) != 0;
@@ -316,35 +317,52 @@ struct CreatureSource {
     const std::vector<BrowseDisplay>& displays;
 };
 
-// modelid1 is the picked display (else the first); with otherDisplays the source's other displays follow.
-std::vector<uint32_t> CreatureModels(const Build& build, const std::vector<BrowseDisplay>& displays) {
+// The displays option: one creature per display (the default), the picked display alone, or the picked display as
+// modelid1 and the others as modelid2-4 (a creature that shows one of them at random).
+enum class DisplayMode : uint32_t { Picked = 0, Each = 1, Variants = 2 };
+
+DisplayMode DisplayModeOf(const BuildOptions& options) {
+    uint32_t mode = Unsigned(NumberOption(options, "displays", static_cast<double>(DisplayMode::Each)));
+    return mode == 0 ? DisplayMode::Picked : (mode == 2 ? DisplayMode::Variants : DisplayMode::Each);
+}
+
+// The modelid1-4 of each row to write; empty when the source has no creature display.
+std::vector<std::vector<uint32_t>> CreatureRows(Build& build, const std::vector<BrowseDisplay>& displays) {
+    DisplayMode mode = DisplayModeOf(build.options);
+    std::vector<std::vector<uint32_t>> rows;
+    if (mode == DisplayMode::Each) {
+        for (const BrowseDisplay& display : displays) {
+            if (rows.size() == MAX_CREATURE_ROWS) {
+                build.Note("only the first " + std::to_string(MAX_CREATURE_ROWS) + " of " + std::to_string(displays.size()) + " displays get a creature");
+                break;
+            }
+            rows.push_back({ display.id });
+        }
+        return rows;
+    }
     std::vector<uint32_t> models;
     uint32_t picked = Unsigned(NumberOption(build.options, "display", 0));
     if (picked) {
         models.push_back(picked);
     }
-    bool others = NumberOption(build.options, "otherDisplays", 0) != 0;
     for (const BrowseDisplay& display : displays) {
-        if (models.size() < CREATURE_MODELS && (models.empty() || (others && display.id != models[0]))) {
+        if (models.size() < CREATURE_MODELS && (models.empty() || (mode == DisplayMode::Variants && display.id != models[0]))) {
             models.push_back(display.id);
         }
     }
-    return models;
+    if (!models.empty()) {
+        rows.push_back(models);
+    }
+    return rows;
 }
 
-bool AddCreature(Build& build, const CreatureSource& source, std::string& error) {
-    std::vector<uint32_t> models = CreatureModels(build, source.displays);
-    if (models.empty()) {
-        error = source.name + " has no creature display";
-        return false;
-    }
+bool AddCreatureRow(Build& build, const CreatureSource& source, const std::vector<uint32_t>& models, const std::string& name, std::string& error) {
     CreatureSql row;
     row.entry = build.nextEntry++;
     uint32_t chosen = Unsigned(NumberOption(build.options, "baseEntry", 0));
     row.base = chosen ? chosen : DEFAULT_BASE_CREATURE;
-    const std::string* name = TextOption(build.options, "name");
     const std::string* subname = TextOption(build.options, "subname");
-    row.name = name && !name->empty() ? *name : source.name;
+    row.name = name;
     row.subname = subname ? *subname : source.title;
     for (size_t slot = 0; slot < models.size(); slot++) {
         row.models[slot] = models[slot];
@@ -357,25 +375,49 @@ bool AddCreature(Build& build, const CreatureSource& source, std::string& error)
     }
     build.sql += sql + "\n";
     build.base = row.base;
-    build.pieces = 1;
-    build.Note("level, faction, flags, AI and loot come from the base creature " + std::to_string(row.base) + "; spawn it with .npc add " +
-        std::to_string(row.entry));
+    return true;
+}
+
+// One row per CreatureRows entry, named "<name> (<display>)" when there are several so each can be told apart.
+bool AddCreature(Build& build, const CreatureSource& source, std::string& error) {
+    std::vector<std::vector<uint32_t>> rows = CreatureRows(build, source.displays);
+    if (rows.empty()) {
+        error = source.name + " has no creature display";
+        return false;
+    }
+    const std::string* typed = TextOption(build.options, "name");
+    std::string name = typed && !typed->empty() ? *typed : source.name;
+    bool several = rows.size() > 1;
+    std::string spawns;
+    for (const std::vector<uint32_t>& models : rows) {
+        std::string display = std::to_string(models[0]);
+        uint32_t entry = build.nextEntry;
+        if (!AddCreatureRow(build, source, models, several ? name + " (" + display + ")" : name, error)) {
+            return false;
+        }
+        spawns += (spawns.empty() ? "" : ", ") + std::to_string(entry) + (several ? " (" + display + ")" : "");
+    }
+    build.pieces = static_cast<uint32_t>(rows.size());
+    build.Note("level, faction, flags, AI and loot come from the base creature " + std::to_string(build.base) + "; spawn " + (several ? "each" : "it") +
+        " with .npc add " + spawns);
     return true;
 }
 
 // 3.3.5 has no mount spell table to write: SPELL_AURA_MOUNTED (78) takes its display from the creature_template its
-// misc value names, so the mount is that creature row.
+// misc value names, so the mount is that creature row (one per display).
 bool AddMount(Build& build, uint32_t id, std::string& error) {
     const BrowseMount* mount = build.index.Mount(id);
     if (!mount) {
         return false;
     }
     std::string name(mount->name);
-    uint32_t entry = build.nextEntry;
+    uint32_t first = build.nextEntry;
     if (!AddCreature(build, { "retail mount " + std::to_string(id) + " " + name, name, "", mount->displays }, error)) {
         return false;
     }
-    build.Note("ride it with a spell whose SPELL_AURA_MOUNTED (78) effect has misc value " + std::to_string(entry) + "; retail spell " +
+    uint32_t last = build.nextEntry - 1;
+    std::string entries = std::to_string(first) + (last > first ? " to " + std::to_string(last) + " (one per display)" : "");
+    build.Note("ride it with a spell whose SPELL_AURA_MOUNTED (78) effect has misc value " + entries + "; retail spell " +
         std::to_string(mount->spellId) + " is not in 3.3.5");
     return true;
 }
@@ -405,8 +447,8 @@ bool BuildEntry(Build& build, BrowseKind kind, uint32_t id, std::string& error) 
             return false;
         }
         bool retailCombat = NumberOption(build.options, "retailArmour", 1) != 0;
-        build.Note(std::string(retailCombat ? "" : "damage, speed, armour, ") + "bonding, flags, spells and price come from the base item " +
-            std::to_string(build.base));
+        build.Note(std::string(retailCombat ? "" : "damage, speed, armour, ") + "durability, material, sheath and price come from the base item " +
+            std::to_string(build.base) + "; its requirements, flags, binding, spells and set are cleared");
         return true;
     }
     if (kind == BrowseKind::Set) {

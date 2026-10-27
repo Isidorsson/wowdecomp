@@ -64,12 +64,21 @@ TEST(ItemSqlCopiesTheBaseAndSetsNameDisplayAndStats) {
     std::string sql = BuildItemSql(PlateChest(), error);
     CHECK(error.empty());
     CHECK(sql.rfind("-- retail item 16958 at item level 200\nDELETE FROM `item_template` WHERE `entry` = 9000000;\nINSERT INTO `item_template` (`entry`, `class`, ", 0) == 0);
-    CHECK(Contains(sql, "\nSELECT 9000000, 4, 4, `SoundOverrideSubclass`, 'Judgment Breastplate', 31019, 4, `Flags`, "));
-    CHECK(Contains(sql, ", 5, `AllowableClass`, `AllowableRace`, 200, `RequiredLevel`, "));
+    CHECK(Contains(sql, "\nSELECT 9000000, 4, 4, `SoundOverrideSubclass`, 'Judgment Breastplate', 31019, 4, 0, 0, `BuyCount`, "));
     CHECK(Contains(sql, "`ContainerSlots`, 3, 4, 49, 7, 81, 32, 37, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "));
     CHECK(Contains(sql, "`armor`, 0, 9, 0, 0, 0, 0, `delay`"));
     CHECK(Contains(sql, "\nFROM `item_template` WHERE `entry` = 39239;\n"));
     CHECK(Count(sql, "INSERT") == 1 && Count(sql, "DELETE") == 1 && !Contains(sql, "UPDATE"));
+}
+
+// A clean item: the base gives its shape (durability, material, sheath, price), never a requirement, spell or set.
+TEST(ItemSqlClearsTheBasesRequirementsSpellsAndSet) {
+    std::string error;
+    std::string sql = BuildItemSql(PlateChest(), error);
+    CHECK(Contains(sql, ", 5, -1, -1, 200, 0, 0, 0, 0, 0, 0, 0, 0, 0, `stackable`, "));
+    CHECK(Contains(sql, "`RangedModRange`, 0, 0, 0, 0, -1, 0, -1, 0, 0, 0, 0, -1, 0, -1, 0, 0, 0, 0, -1, 0, -1, 0, 0, 0, 0, -1, 0, -1, 0, 0, 0, 0, -1, 0, -1, 0, '', 0, "));
+    CHECK(Contains(sql, ", 0, 0, `Material`, `sheath`, 0, 0, `block`, 0, `MaxDurability`, 0, 0, "));
+    CHECK(Contains(sql, "`ArmorDamageModifier`, 0, 0, 0, '', `DisenchantID`, `FoodType`, 0, 0, 0, `VerifiedBuild`"));
 }
 
 TEST(ItemSqlSetsRequiredLevelAndSocketsWhenAsked) {
@@ -80,7 +89,7 @@ TEST(ItemSqlSetsRequiredLevelAndSocketsWhenAsked) {
     item.comment = "two\nlines";
     std::string error;
     std::string sql = BuildItemSql(item, error);
-    CHECK(Contains(sql, ", 200, 80, `RequiredSkill`, "));
+    CHECK(Contains(sql, ", 200, 80, 0, "));
     CHECK(Contains(sql, "`TotemCategory`, 2, `socketContent_1`, 14, `socketContent_2`, 0, `socketContent_3`, 0, `GemProperties`"));
     CHECK(Contains(sql, "'O''Brien \\\\ \"the\" bold'"));
     CHECK(sql.rfind("-- two lines\nDELETE", 0) == 0);

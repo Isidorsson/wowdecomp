@@ -169,6 +169,8 @@ RB.COLUMNS.model = {
     end),
     { key = "count", label = "Users", width = 46, align = "RIGHT", sort = S.count, filter = { type = "range", min = "minCount", max = "maxCount" },
         cell = function(row, d) return Text(d.userCount, (d.userCount or 0) > 1 and GOLD or VALUE) end },
+    { key = "disp", label = "Disp", width = 38, align = "RIGHT",
+        cell = function(row, d) return Text(d.displayCount, (d.displayCount or 0) > 1 and GOLD or VALUE) end },
     DisplayColumn("Display 1"),
     FAV,
 }
