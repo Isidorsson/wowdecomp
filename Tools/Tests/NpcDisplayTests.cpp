@@ -302,6 +302,33 @@ TEST(PlanNpcLeavesSliceAPlansAsTheyWere) {
     CHECK(!plan.retailBody && plan.bodyModelId == 2299 && plan.bakeName == "retail-600002.blp");
 }
 
+// The installed human body is classic, no HD port: the guard's HD bake cannot be warped onto it, so it draws on its
+// own retail body (1011653) with the bake as is, as a goblin does.
+TEST(AnHdBakeWhoseInstalledBodyIsNoPortDrawsOnItsRetailBody) {
+    NpcPlan plan;
+    std::string reason;
+    Retail::BodyFits misfit = [](uint32_t, uint32_t) { return false; };
+    CHECK(Retail::PlanNpc(Extra(1, 0, 0, 8046191), NpcBody{ 7661, 1011653 }, misfit, plan, reason));
+    CHECK(plan.retailBody && plan.race == 1 && plan.bodyModelId == static_cast<int32_t>(Retail::SyntheticNpcBodyModelId(7661)));
+    CHECK(plan.bake == BakeUse::AsIs && plan.bakeFile == 8046191);
+}
+
+TEST(AnHdBakeWithNoPortAndNoRetailBodyIsStillRefused) {
+    NpcPlan plan;
+    std::string reason;
+    Retail::BodyFits misfit = [](uint32_t, uint32_t) { return false; };
+    CHECK(!Retail::PlanNpc(Extra(1, 0, 0, 8046191), NpcBody{}, misfit, plan, reason));
+    CHECK(reason.find("HD port") != std::string::npos);
+}
+
+TEST(AnSdBakeStaysOnTheInstalledBodyWhateverItsFit) {
+    NpcPlan plan;
+    std::string reason;
+    Retail::BodyFits misfit = [](uint32_t, uint32_t) { return false; };
+    CHECK(Retail::PlanNpc(Extra(10, 0, 570636, 0), NpcBody{ 1, 2 }, misfit, plan, reason));
+    CHECK(!plan.retailBody && plan.bake == BakeUse::AsIs);
+}
+
 TEST(TheServedRowOfAMagharNamesTheOrc) {
     NpcPlan plan;
     std::string reason;

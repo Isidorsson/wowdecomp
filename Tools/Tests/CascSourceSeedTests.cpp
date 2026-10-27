@@ -278,17 +278,16 @@ TEST(AnOriginalThatCannotBeReadIsReportedAndItsDisplayLeftOut) {
     CHECK(SeedIds(trip.player).count(NPC_BAKE));
 }
 
-// The HD bake needs the installed body to be the HD port, which the client finds by reading it: without one the display
-// keeps its retail model, which it cannot draw, so there is nothing to seed.
-TEST(AnNpcTheClientPlansNoBodyForIsLeftOutAndSaysSo) {
+// The HD bake needs the installed body to be the HD port, which the client finds by reading it: without one the NPC is
+// drawn on its own retail body with the bake as is, so the bake is seeded and no HD body is matched against.
+TEST(AnHdNpcWithNoPortBodyIsSeededOnItsRetailBody) {
     Trip trip;
-    std::vector<std::string> warnings;
-    CHECK(Begin(trip, "seed-noplan"));
-    trip.admin.source.SetWarningSink([&warnings](const std::string& warning) { warnings.push_back(warning); });
+    CHECK(Begin(trip, "seed-noport"));
 
     Retail::SeedReport report = trip.admin.source.ExportSeed({ WARP_DISPLAY }, {}, trip.player.config.seed);
-    CHECK(report.skipped == 1 && report.error.empty() && Mentions(warnings, std::to_string(WARP_DISPLAY)));
-    CHECK(!SeedIds(trip.player).count(HD_BAKE));
+    CHECK(report.skipped == 0 && report.error.empty());
+    std::set<uint32_t> seeded = SeedIds(trip.player);
+    CHECK(seeded.count(HD_BAKE) && !seeded.count(HD_BODY_SKIN));
 }
 
 // Warping needs the retail HD body to match the installed one against, and the admin has matched it and kept the

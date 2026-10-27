@@ -135,7 +135,8 @@ bool BuildNpcPlan(const NpcExtra& extra, const BodyFits& bodyFits, NpcPlan& plan
 // the retail 2:1 layout of their own model). Refused without a model or a bake.
 bool BuildRetailRacePlan(const NpcExtra& extra, const NpcBody& body, const BodyFits& bodyFits, NpcPlan& plan, std::string& reason);
 
-// BuildRetailRacePlan for Goblin and races 22 and up, BuildNpcPlan for the rest.
+// BuildRetailRacePlan for Goblin and races 22 and up, and for an HD bake whose installed body is no HD port (the
+// display's retail body takes it as is); BuildNpcPlan for the rest.
 bool PlanNpc(const NpcExtra& extra, const NpcBody& body, const BodyFits& bodyFits, NpcPlan& plan, std::string& reason);
 
 // Goblin and races 22 and up, whose installed bodies (if any) are no ports of their retail ones.

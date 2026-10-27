@@ -270,8 +270,17 @@ bool BuildRetailRacePlan(const NpcExtra& extra, const NpcBody& body, const BodyF
     return true;
 }
 
+// An HD bake needs the installed body to be the HD port; a classic body cannot take it, so the NPC is drawn on its own
+// retail body with the bake as is, as goblins and the newer races are.
+static bool NeedsRetailBody(const NpcExtra& extra, const NpcBody& body, const BodyFits& bodyFits) {
+    return IsHdPortRace(extra.race) && extra.hdBake && body.fileDataId && !bodyFits(extra.race, extra.sex);
+}
+
 bool PlanNpc(const NpcExtra& extra, const NpcBody& body, const BodyFits& bodyFits, NpcPlan& plan, std::string& reason) {
-    return IsRetailBodyRace(extra.race) ? BuildRetailRacePlan(extra, body, bodyFits, plan, reason) : BuildNpcPlan(extra, bodyFits, plan, reason);
+    if (IsRetailBodyRace(extra.race) || NeedsRetailBody(extra, body, bodyFits)) {
+        return BuildRetailRacePlan(extra, body, bodyFits, plan, reason);
+    }
+    return BuildNpcPlan(extra, bodyFits, plan, reason);
 }
 
 }
