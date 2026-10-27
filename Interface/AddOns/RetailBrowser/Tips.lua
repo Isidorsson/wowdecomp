@@ -120,6 +120,7 @@ RB.TIPS = {
     sql_build = { "Build now", "Builds at once (changes also rebuild 0.3 s after the last one). The status under the options shows the time of the last build." },
     sql_copy = { "Copy SQL", "Copies all the SQL, not just the 4 KB shown.", key = "Ctrl+Enter" },
     sql_export = { "Export SQL", "Writes all the SQL to Logs\\RetailBrowser\\<kind>-<id>-<time>.sql.", key = "Ctrl+S" },
+    sql_apply = { "Apply to DB", "Runs all the SQL on the server's world DB (GM only; click twice). Template rows in this build's entries only. Creatures reload at once, items load after a server restart." },
     sql_edit = { "Edit full SQL", "Puts every statement in the box to edit (over 64 KB asks for a second click: the box can freeze the client)." },
     sql_mapping = { "Stat mapping", "Every retail stat, its value, what it became on 3.3.5 and why." },
     sql_preview = { "SQL preview", "The first row's statements (at most 4 KB); Copy and Export use all of it." },

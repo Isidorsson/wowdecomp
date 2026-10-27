@@ -485,6 +485,28 @@ function RB.ExportBuildSql()
     if path then RB.ReserveBuilt(RB.buildResult) end
 end
 
+-- Writes to the live world DB, so the first click only asks.
+local confirmApplyAt
+function RB.ApplyBuildSql()
+    local sql, result = FullSql(), RB.buildResult
+    if sql == "" or not result then
+        return
+    end
+    if not (confirmApplyAt and GetTime() - confirmApplyAt < CONFIRM_SECONDS) then
+        confirmApplyAt = GetTime()
+        status:SetText(RB.Colored(string.format("Apply to DB writes entries %d to %d into the world DB. Click it again to go ahead.",
+            result.firstEntry, result.nextEntry - 1), RB.THEME.title))
+        return
+    end
+    confirmApplyAt = nil
+    local started = RB.ApplySql(result.firstEntry, result.nextEntry - 1, sql, function(ok, text)
+        status:SetText(RB.Colored(ok and "Applied: " or "Not applied: ", ok and RB.THEME.good or RB.THEME.bad) .. text)
+        RB.Print((ok and "applied: " or "apply failed: ") .. text)
+    end)
+    status:SetText(started and string.format("Applying %.1f KB to the world DB...", #sql / 1024)
+        or RB.Colored("An apply is still running.", RB.THEME.bad))
+end
+
 -- The SQL buttons share the SQL column's width.
 local sqlButtons = {}
 local KEY_HINT_WIDTH = 140
@@ -498,6 +520,7 @@ end
 buildButton = SqlButton("Build now", nil, function() RB.buildAt = nil RB.BuildSql() end, "sql_build")
 SqlButton("Copy SQL", "Ctrl+Enter", function() RB.CopyBuildSql() end, "sql_copy")
 SqlButton("Export SQL", "Ctrl+S", function() RB.ExportBuildSql() end, "sql_export")
+SqlButton("Apply to DB", nil, function() RB.ApplyBuildSql() end, "sql_apply")
 SqlButton("Edit full SQL", nil, EditFullSql, "sql_edit")
 
 local function SpreadSqlButtons(width)
