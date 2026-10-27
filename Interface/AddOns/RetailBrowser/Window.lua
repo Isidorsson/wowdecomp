@@ -1,20 +1,26 @@
--- The browser window: about 1280x800 (40 px inside a smaller screen), resizable from its corner grip down to 960x600,
--- moved by its title bar, its place, size and scale saved per character and kept on screen. Title bar, kind tabs,
--- the query row (active filter chips, pager, CSV) and the status line that says who owns the keys.
+-- The browser window, the shell of the Ledger layout: about 1280x800 (40 px inside a smaller screen), resizable from
+-- its corner grip down to 1100x600, moved by its title bar, its place and size saved per character and kept on
+-- screen. It is drawn at scale 1 for everyone (an old saved scale is ignored). Under the title bar the rail (Rail.lua)
+-- and a page: browse (the main column with the query row, the grid, the bulk bar and the status line that says who
+-- owns the keys, and the inspector, Inspector.lua) or build (the Build SQL page, BuildPage.lua). Layout.lua does
+-- the maths.
 
 local RB = RetailBrowser
 local T = RB.THEME
+local Layout = RB.Layout
 
 RB.LAYOUT = {
-    pad = 10, gridTop = 92, rowHeight = 16, headHeight = 17, filterHeight = 19, bulkHeight = 24, statusHeight = 20,
+    rowHeight = 16, headHeight = 17, filterHeight = 19, searchHeight = 24, queryHeight = 22, bulkHeight = 24, statusHeight = 20,
 }
 local L = RB.LAYOUT
+local TITLE_SPACE = 34
+local BOTTOM_SPACE = 6
 local DEFAULT_WIDTH, DEFAULT_HEIGHT = 1280, 800
-local MIN_WIDTH, MIN_HEIGHT = 960, 600
+local MIN_WIDTH, MIN_HEIGHT = 1100, 600
 local SCREEN_MARGIN = 40
 local DEFAULT_X, DEFAULT_TOP = -14, 134
-local SCALES = { 0.9, 1, 1.1 }
 local MAX_CHIPS = 8
+local CHIP_GAP = 4
 
 local frame = CreateFrame("Frame", "RetailBrowserFrame", UIParent)
 RB.frame = frame
@@ -51,44 +57,103 @@ title:SetPoint("LEFT", 8, 0)
 title:SetText("Retail Browser")
 local status = RB.CreateText(titleBar, "RetailBrowserLabelFont")
 status:SetPoint("LEFT", title, "RIGHT", 12, 0)
-status:SetWidth(330)
+status:SetPoint("RIGHT", -40, 0)
 RB.statusText = status
 
 function RB.SetStatus(text)
     status:SetText(text or "")
 end
 
-local close = CreateFrame("Button", nil, titleBar, "UIPanelCloseButton")
-close:SetSize(26, 26)
-close:SetPoint("RIGHT", 2, 0)
--- The template hides its parent, which here is the title bar, not the window.
+-- A flat x: muted, teal under the mouse.
+local close = CreateFrame("Button", nil, titleBar)
+close:SetSize(22, 20)
+close:SetPoint("RIGHT", -2, 0)
+close.text = RB.CreateText(close, "GameFontHighlight", "CENTER")
+close.text:SetPoint("CENTER", 0, 1)
+close.text:SetText("x")
+RB.SetColor(close.text, T.label)
+close:SetScript("OnEnter", function(self) RB.SetColor(self.text, T.accent) end)
+close:SetScript("OnLeave", function(self) RB.SetColor(self.text, T.label) end)
 close:SetScript("OnClick", function() frame:Hide() end)
 RB.AttachTip(close, "close")
 
-local scaleButtons = {}
-for i = #SCALES, 1, -1 do
-    local scale = SCALES[i]
-    local button = RB.CreateButton(titleBar, math.floor(scale * 100 + 0.5) .. "%", 44, 18, function() RB.SetWindowScale(scale) end)
-    button:SetPoint("RIGHT", i == #SCALES and close or scaleButtons[i + 1], "LEFT", -3, 0)
-    button.scale = scale
-    RB.AttachTip(button, "scale")
-    scaleButtons[i] = button
+-- The three columns. The rail and the inspector take their widths from Layout; the main column takes the rest.
+local function Column()
+    local column = CreateFrame("Frame", nil, frame)
+    column:SetPoint("TOP", 0, -TITLE_SPACE)
+    column:SetPoint("BOTTOM", 0, BOTTOM_SPACE)
+    return column
+end
+RB.railCol, RB.mainCol, RB.inspectorCol = Column(), Column(), Column()
+RB.railCol:SetPoint("LEFT", Layout.PAD, 0)
+RB.inspectorCol:SetPoint("RIGHT", -Layout.PAD, 0)
+RB.mainCol:SetPoint("LEFT", RB.railCol, "RIGHT", Layout.GAP, 0)
+RB.mainCol:SetPoint("RIGHT", RB.inspectorCol, "LEFT", -Layout.GAP, 0)
+-- The build page takes the place of the main column and the inspector.
+RB.buildCol = Column()
+RB.buildCol:SetPoint("LEFT", RB.railCol, "RIGHT", Layout.GAP, 0)
+RB.buildCol:SetPoint("RIGHT", -Layout.PAD, 0)
+RB.buildCol:Hide()
+RB.page = "browse"
+
+-- page: "browse" (the grid and the inspector) or "build" (the Build SQL page).
+function RB.ShowPage(page)
+    RB.page = page
+    local build = page == "build"
+    RB.Shown(RB.mainCol, not build)
+    RB.Shown(RB.inspectorCol, not build)
+    RB.Shown(RB.buildCol, build)
+    if RB.RefreshRail then
+        RB.RefreshRail()
+    end
 end
 
-local atLogin = CreateFrame("CheckButton", "RetailBrowserIndexAtLogin", titleBar, "UICheckButtonTemplate")
-atLogin:SetSize(20, 20)
-atLogin:SetPoint("RIGHT", scaleButtons[1], "LEFT", -96, 0)
-_G[atLogin:GetName() .. "Text"]:SetFontObject(RetailBrowserLabelFont)
-_G[atLogin:GetName() .. "Text"]:SetText("Index at login")
-atLogin:SetScript("OnClick", function(self) RB.SetIndexAtLogin(self:GetChecked()) end)
-atLogin:SetScript("OnShow", function(self) self:SetChecked(RB.IndexAtLogin()) end)
-RB.AttachTip(atLogin, "indexAtLogin")
+-- The columns' height, from the window's (anchored sizes can lag a frame behind a resize).
+function RB.ColumnHeight()
+    return frame:GetHeight() - TITLE_SPACE - BOTTOM_SPACE
+end
+
+function RB.RailWidth()
+    return Layout.RailWidth(frame:GetWidth())
+end
+
+-- The inspector's set width (the splitter, saved per character), within what this window allows.
+function RB.InspectorWidth()
+    return Layout.InspectorWidth(RB.inspectorWidth or RB.CharSetting("inspectorWidth"), frame:GetWidth(), RB.RailWidth())
+end
+
+-- Sets the splitter (saved unless dragging, which saves on release).
+function RB.SetInspectorWidth(width, unsaved)
+    RB.inspectorWidth = Layout.InspectorWidth(width, frame:GetWidth(), RB.RailWidth())
+    if not unsaved then
+        RB.SetCharSetting("inspectorWidth", RB.inspectorWidth)
+    end
+    RB.LayOutColumns()
+end
+
+function RB.StepInspector(delta)
+    RB.SetInspectorWidth(Layout.StepInspector(RB.InspectorWidth(), delta, frame:GetWidth(), RB.RailWidth()))
+end
+
+-- Other files follow the columns (rail labels, grid rows and columns, the inspector), in load order.
+local columnListeners = {}
+function RB.OnColumnsResized(listener)
+    columnListeners[#columnListeners + 1] = listener
+end
+
+-- Column widths for the window's width.
+function RB.LayOutColumns()
+    RB.railCol:SetWidth(RB.RailWidth())
+    RB.inspectorCol:SetWidth(RB.InspectorWidth())
+    for _, listener in ipairs(columnListeners) do
+        listener()
+    end
+end
 
 -- Size and place: the saved size (default about 1280x800) within the screen less its margins; offsets of TOPRIGHT
 -- from UIParent's TOPRIGHT, in UIParent units.
 local function ScreenSize()
-    local scale = RB.CharSetting("scale", 1)
-    return UIParent:GetWidth() / scale, UIParent:GetHeight() / scale
+    return UIParent:GetWidth(), UIParent:GetHeight()
 end
 
 local function WindowSize()
@@ -100,9 +165,8 @@ local function WindowSize()
 end
 
 function RB.SaveWindowPlace()
-    local ratio = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
-    RB.SetCharSetting("x", frame:GetRight() * ratio - UIParent:GetRight())
-    RB.SetCharSetting("y", frame:GetTop() * ratio - UIParent:GetTop())
+    RB.SetCharSetting("x", frame:GetRight() - UIParent:GetRight())
+    RB.SetCharSetting("y", frame:GetTop() - UIParent:GetTop())
 end
 
 local function DefaultY(height)
@@ -111,24 +175,12 @@ local function DefaultY(height)
 end
 
 local function PlaceWindow()
-    local scale = RB.CharSetting("scale", 1)
-    frame:SetScale(scale)
-    for _, button in ipairs(scaleButtons) do
-        button:SetOn(button.scale == scale)
-    end
+    frame:SetScale(1)
     local width, height = WindowSize()
     frame:SetSize(width, height)
     frame:SetMaxResize(ScreenSize())
     frame:ClearAllPoints()
-    frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", RB.CharSetting("x", DEFAULT_X) / scale, RB.CharSetting("y", DefaultY(height)) / scale)
-end
-
-function RB.SetWindowScale(scale)
-    if frame:IsShown() and frame:GetRight() then
-        RB.SaveWindowPlace()
-    end
-    RB.SetCharSetting("scale", scale)
-    PlaceWindow()
+    frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", RB.CharSetting("x", DEFAULT_X), RB.CharSetting("y", DefaultY(height)))
 end
 
 function RB.ResetWindowPlace()
@@ -138,13 +190,17 @@ function RB.ResetWindowPlace()
     PlaceWindow()
 end
 
--- The corner grip.
+-- The corner grip, above the inspector.
 local grip = CreateFrame("Button", nil, frame)
 grip:SetSize(16, 16)
 grip:SetPoint("BOTTOMRIGHT", -4, 4)
+grip:SetFrameLevel(frame:GetFrameLevel() + 60)
 grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
 grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
 grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+RB.SetVertex(grip:GetNormalTexture(), T.label)
+RB.SetVertex(grip:GetHighlightTexture(), T.accent)
+RB.SetVertex(grip:GetPushedTexture(), T.accent)
 grip:SetScript("OnMouseDown", function() frame:StartSizing("BOTTOMRIGHT") end)
 RB.AttachTip(grip, "grip")
 grip:SetScript("OnMouseUp", function()
@@ -154,75 +210,31 @@ grip:SetScript("OnMouseUp", function()
     RB.SaveWindowPlace()
 end)
 
-frame:SetScript("OnSizeChanged", function()
-    if RB.OnWindowResized then
-        RB.OnWindowResized()
-    end
-end)
+frame:SetScript("OnSizeChanged", function() RB.LayOutColumns() end)
 
--- Kind tabs (Ctrl+1 to Ctrl+5), then the saved lists (F8, F9), and Clear history.
-local tabs = {}
-local function AddTab(key, label, hotkey, onClick)
-    local tab = RB.CreateTab(frame, "RetailBrowserTab" .. (#tabs + 1), label, onClick)
-    tab.key, tab.baseLabel, tab.hotkey = key, label, hotkey
-    RB.AttachTip(tab, "tab_" .. key)
-    local previous = tabs[#tabs]
-    if previous then
-        tab:SetPoint("LEFT", previous, "RIGHT", key == "favourites" and 12 or -4, 0)
-    else
-        tab:SetPoint("TOPLEFT", L.pad, -32)
-    end
-    tabs[#tabs + 1] = tab
-end
+-- Query row (under the search box, Filters.lua): a chip per active filter (click clears it), Clear filters, the
+-- pager and Export CSV.
+local queryRow = CreateFrame("Frame", nil, RB.mainCol)
+queryRow:SetPoint("TOPLEFT", 0, -(L.searchHeight + 4))
+queryRow:SetPoint("TOPRIGHT", 0, -(L.searchHeight + 4))
+queryRow:SetHeight(L.queryHeight)
 
-for i, kind in ipairs(RB.KINDS) do
-    AddTab(kind.key, kind.label, "Ctrl+" .. i, function() RB.SetKind(kind.key) end)
-end
-AddTab("favourites", "Favourites", "F8", function() RB.ShowSaved("favourites") end)
-AddTab("history", "History", "F9", function() RB.ShowSaved("history") end)
-
-
-function RB.ClearHistoryNow()
-    RB.ClearHistory()
-    if RB.state.source == "history" then
-        RB.ShowSaved("history")
-    end
-    RB.RefreshTabs()
-end
-
--- Tab labels: the hotkey and, once the index is ready, how many entries the kind has.
-function RB.RefreshTabs()
-    local counts = RB.info and RB.info.counts or {}
-    local selected = RB.state.source == "search" and RB.state.kind or RB.state.source
-    for _, tab in ipairs(tabs) do
-        local count = counts[tab.key]
-        if tab.key == "favourites" then
-            count = #RB.Favourites()
-        elseif tab.key == "history" then
-            count = #RB.History()
-        end
-        tab:SetLabel(string.format("%s %s %s", tab.baseLabel, RB.Colored(count and tostring(count) or "", T.value), RB.Key(tab.hotkey)))
-        tab:SetOn(tab.key == selected)
-    end
-end
-
-local tabLine = frame:CreateTexture(nil, "ARTWORK")
-tabLine:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
-RB.SetVertex(tabLine, T.borderDim)
-tabLine:SetPoint("TOPLEFT", L.pad, -62)
-tabLine:SetPoint("TOPRIGHT", -L.pad, -62)
-tabLine:SetHeight(1)
-
--- Query row: a chip per active filter (click clears it), Clear filters, the pager and Export CSV.
-local queryRow = CreateFrame("Frame", nil, frame)
-queryRow:SetPoint("TOPLEFT", L.pad, -66)
-queryRow:SetPoint("TOPRIGHT", -L.pad, -66)
-queryRow:SetHeight(20)
+local export = RB.CreateButton(queryRow, "Export CSV " .. RB.Key("E"), 88, 18, function() RB.ExportCsv() end)
+export:SetPoint("RIGHT", 0, 0)
+RB.AttachTip(export, "exportCsv")
+local nextPage = RB.CreateButton(queryRow, "Next " .. RB.Key("]"), 52, 18, function() RB.TurnPage(1) end)
+nextPage:SetPoint("RIGHT", export, "LEFT", -10, 0)
+RB.AttachTip(nextPage, "nextPage")
+local pageText = RB.CreateText(queryRow, "RetailBrowserValueFont", "RIGHT")
+pageText:SetPoint("RIGHT", nextPage, "LEFT", -6, 0)
+local prevPage = RB.CreateButton(queryRow, RB.Key("[") .. " Prev", 52, 18, function() RB.TurnPage(-1) end)
+prevPage:SetPoint("RIGHT", pageText, "LEFT", -6, 0)
+RB.AttachTip(prevPage, "prevPage")
 
 local chips = {}
 for i = 1, MAX_CHIPS do
     local chip = RB.CreateButton(queryRow, "", 60, 18, function(self) RB.ClearColumnFilter(self.column) end)
-    chip:SetPoint("LEFT", i == 1 and queryRow or chips[i - 1], i == 1 and "LEFT" or "RIGHT", i == 1 and 0 or 4, 0)
+    chip:SetPoint("LEFT", i == 1 and queryRow or chips[i - 1], i == 1 and "LEFT" or "RIGHT", i == 1 and 0 or CHIP_GAP, 0)
     chip:Hide()
     RB.AttachTip(chip, "chip")
     chips[i] = chip
@@ -231,56 +243,64 @@ local clearFilters = RB.CreateButton(queryRow, "Clear filters", 84, 18, function
 RB.AttachTip(clearFilters, "clearFilters")
 local noFilters = RB.CreateText(queryRow, "RetailBrowserLabelFont")
 noFilters:SetPoint("LEFT", 2, 0)
+noFilters:SetPoint("RIGHT", prevPage, "LEFT", -8, 0)
 noFilters:SetText("Filters sit on top of their column; they search the whole index.")
-
-local export = RB.CreateButton(queryRow, "Export CSV " .. RB.Key("E"), 100, 18, function() RB.ExportCsv() end)
-export:SetPoint("RIGHT", 0, 0)
-RB.AttachTip(export, "exportCsv")
-local nextPage = RB.CreateButton(queryRow, "Next " .. RB.Key("]"), 60, 18, function() RB.TurnPage(1) end)
-nextPage:SetPoint("RIGHT", export, "LEFT", -10, 0)
-RB.AttachTip(nextPage, "nextPage")
-local pageText = RB.CreateText(queryRow, "RetailBrowserValueFont", "RIGHT")
-pageText:SetPoint("RIGHT", nextPage, "LEFT", -6, 0)
-local prevPage = RB.CreateButton(queryRow, RB.Key("[") .. " Prev", 60, 18, function() RB.TurnPage(-1) end)
-prevPage:SetPoint("RIGHT", pageText, "LEFT", -6, 0)
-RB.AttachTip(prevPage, "prevPage")
 
 function RB.SetPageText(text)
     pageText:SetText(text or "")
 end
 
--- chipList: { { column = column, text = "Slot = Chest" }, ... }
+-- The query row's width left of the pager, from the window's width (anchored sizes lag a frame behind a resize).
+local function ChipRoom()
+    local main = frame:GetWidth() - Layout.ColumnsChrome(RB.RailWidth()) - Layout.GAP - RB.InspectorWidth()
+    local pager = export:GetWidth() + 10 + nextPage:GetWidth() + 6 + pageText:GetStringWidth() + 6 + prevPage:GetWidth()
+    return main - pager - 8
+end
+
+-- chipList: { { column = column, text = "Slot = Chest" }, ... }. Each chip clears its filter; Clear filters shows when
+-- there are several, and counts them all when some chips do not fit (their filters stay).
+local chipsNow = {}
 function RB.ShowChips(chipList)
-    local last
+    chipsNow = chipList
+    local widths = {}
     for i, chip in ipairs(chips) do
         local entry = chipList[i]
         if entry then
             chip.column = entry.column
-            chip:SetLabel(entry.text .. " " .. RB.Colored("x", T.bad))
+            chip:SetLabel(entry.text .. "  " .. RB.Colored("x", T.label))
             chip:SetWidth(chip.label:GetStringWidth() + 20)
-            chip:Show()
-            last = chip
-        else
-            chip:Hide()
+            chip:SetOn(true)
+            widths[i] = chip:GetWidth()
         end
     end
-    RB.Shown(noFilters, not last)
-    clearFilters:ClearAllPoints()
-    if last then
-        clearFilters:SetPoint("LEFT", last, "RIGHT", 8, 0)
+    local room = ChipRoom()
+    local shown = Layout.FitChips(widths, room, CHIP_GAP)
+    local clear = #chipList > 1 or shown < #chipList
+    if clear then
+        shown = Layout.FitChips(widths, room - clearFilters:GetWidth() - 8, CHIP_GAP)
     end
-    RB.Shown(clearFilters, last)
+    for i, chip in ipairs(chips) do
+        RB.Shown(chip, i <= shown)
+    end
+    local count = #chipList
+    clearFilters:SetLabel(Layout.ClearFiltersLabel(count, shown))
+    RB.Shown(noFilters, count == 0)
+    clearFilters:ClearAllPoints()
+    local last = chips[shown]
+    clearFilters:SetPoint("LEFT", last or queryRow, last and "RIGHT" or "LEFT", last and 8 or 0, 0)
+    RB.Shown(clearFilters, clear)
 end
 
--- Status line: the key owner, then the key hints.
-local statusLine = CreateFrame("Frame", nil, frame)
-statusLine:SetPoint("BOTTOMLEFT", L.pad, 6)
-statusLine:SetPoint("BOTTOMRIGHT", -L.pad - 14, 6)
+RB.OnColumnsResized(function() RB.ShowChips(chipsNow) end)
+
+-- Status line (bottom of the main column): the key owner, then the key hints.
+local statusLine = CreateFrame("Frame", nil, RB.mainCol)
+statusLine:SetPoint("BOTTOMLEFT", 0, 0)
+statusLine:SetPoint("BOTTOMRIGHT", 0, 0)
 statusLine:SetHeight(L.statusHeight)
 local keysButton = RB.CreateButton(statusLine, "", 110, 18, function() RB.ToggleGridKeys() end)
 keysButton:SetPoint("LEFT", 0, 0)
 RB.AttachTip(keysButton, "keys")
--- Clear history sits here, not by the tabs: the tab strip needs the whole width of a small window.
 local clearHistory = RB.CreateButton(statusLine, "Clear history " .. RB.Key("Ctrl+Del"), 130, 18, function() RB.ClearHistoryNow() end)
 clearHistory:SetPoint("RIGHT", 0, 0)
 RB.AttachTip(clearHistory, "clearHistory")
@@ -288,29 +308,29 @@ local hints = RB.CreateText(statusLine, "RetailBrowserLabelFont")
 hints:SetPoint("LEFT", keysButton, "RIGHT", 8, 0)
 hints:SetPoint("RIGHT", clearHistory, "LEFT", -8, 0)
 
+-- The key owner badge: teal while the browser has the keys, muted when the game has them.
 local OWNER_TEXT = {
-    grid = RB.Colored("Keys: grid", T.good),
-    search = RB.Colored("Keys: search", T.title),
-    filter = RB.Colored("Keys: filter", T.title),
-    build = RB.Colored("Keys: Build", T.title),
-    game = RB.Colored("Keys: game", T.disabled),
+    grid = "Keys: grid", search = "Keys: search", filter = "Keys: filter", build = "Keys: Build", game = "Keys: game",
 }
 local OWNER_HINTS = {
-    grid = "Up/Dn move  Enter details  Space check  Left/Right display  / search  Tab filters  M morph  T target  I add  Y try on"
-        .. "  G GM  F fav  B build  D details  P displays  Ctrl+Up/Dn drawer  Esc clear/close",
-    search = "Typing searches the whole index.  Enter or Esc: back to the grid.",
-    filter = "Range: 200-  -300  100-200  >=5  =5.  Tab next filter, Enter or Esc: back to the grid.",
-    build = "Changes rebuild after 0.3 s.  Esc: back to the grid.",
+    grid = "Up/Dn move   Left/Right display   Space check   / search   Tab filters   M morph   T target   I add   Y try on"
+        .. "   G GM   F fav   B SQL   D overview   P displays   U used by   S stats   R raw   Ctrl+Left/Right inspector"
+        .. "   Esc clear/close",
+    search = "Typing searches the whole index.   Enter or Esc: back to the grid.",
+    filter = "Range: 200-  -300  100-200  >=5  =5.   Tab next filter, Enter or Esc: back to the grid.",
+    build = "Changes rebuild after 0.3 s.   Esc: back to the grid.",
     game = "Click the grid or this button to give it the keys.",
 }
 
 function RB.ShowKeyOwner(owner)
     keysButton:SetLabel(OWNER_TEXT[owner] or OWNER_TEXT.game)
+    keysButton:SetOn(owner ~= "game" and OWNER_TEXT[owner] ~= nil)
     hints:SetText(OWNER_HINTS[owner] or OWNER_HINTS.game)
 end
 
 frame:SetScript("OnShow", function()
     PlaceWindow()
+    RB.LayOutColumns()
     if RB.OnWindowShown then
         RB.OnWindowShown()
     end

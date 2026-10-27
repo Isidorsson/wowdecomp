@@ -1,128 +1,8 @@
--- The drawer's list tabs, on one scrolling mini grid: Displays (every display, appearance, piece or user; the picked
--- one drives the preview and every action), Used by (what else uses the picked display's model; click opens it),
--- Stats (items) and Raw (every field RetailDetails labels; click copies).
+-- The inspector's list tabs, each a scrolling List.lua mini grid: Displays (every display, appearance, piece or user;
+-- the picked one drives the preview and every action), Used by (what else uses the picked display's model; click opens
+-- it), Stats (items: every stat line) and Raw (every field RetailDetails labels; click copies).
 
 local RB = RetailBrowser
-
-local ROW_HEIGHT = 14
-local MAX_ROWS = 20
-local lists = {}
-
-local SetColumns
-
--- A mini grid: columns { { label, width (nil: the rest), align } }, entries { cells = {...}, ... }, onClick(entry, index).
-local function CreateList(name, onClick, tipKey)
-    local panel = CreateFrame("Frame")
-    local list = { panel = panel, entries = {}, onClick = onClick, rows = {}, headers = {}, columns = {} }
-    panel:SetBackdrop(RB.PANEL_BACKDROP)
-    RB.SetBack(panel, RB.THEME.well)
-    RB.SetBorder(panel, RB.THEME.borderDim)
-    list.title = RB.CreateText(panel, "RetailBrowserLabelFont", "RIGHT")
-    list.title:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -24, 3)
-    local scroll = CreateFrame("ScrollFrame", "RetailBrowserList" .. name, panel, "FauxScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 1, -15)
-    scroll:SetPoint("BOTTOMRIGHT", -22, 1)
-    list.scroll = scroll
-    for i = 1, 10 do
-        local header = RB.CreateText(panel, "RetailBrowserHeadFont")
-        header:SetHeight(14)
-        list.headers[i] = header
-    end
-    for r = 1, MAX_ROWS do
-        local row = CreateFrame("Button", nil, panel)
-        row:SetHeight(ROW_HEIGHT)
-        row:SetPoint("TOPLEFT", 2, -15 - (r - 1) * ROW_HEIGHT)
-        row:SetPoint("RIGHT", panel, "RIGHT", -22, 0)
-        row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-        row.focus = RB.CreateFill(row, "BACKGROUND", RB.THEME.selected)
-        row.cells = {}
-        for c = 1, 10 do
-            row.cells[c] = RB.CreateText(row, "RetailBrowserGridFont")
-            row.cells[c]:SetHeight(ROW_HEIGHT)
-        end
-        row:SetScript("OnClick", function(self) if list.onClick then list.onClick(list.entries[self.index], self.index) end end)
-        RB.AttachTip(row, tipKey)
-        list.rows[r] = row
-    end
-    scroll:SetScript("OnVerticalScroll", function(self, offset)
-        FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, function() RB.RefreshList(list) end)
-    end)
-    panel:SetScript("OnSizeChanged", function()
-        local columns = list.columns
-        list.columns = nil
-        if columns then SetColumns(list, columns) end
-        RB.RefreshList(list)
-    end)
-    lists[name] = list
-    return list
-end
-
-function SetColumns(list, columns)
-    if list.columns == columns then
-        return
-    end
-    list.columns = columns
-    local fixed = 0
-    for _, column in ipairs(columns) do fixed = fixed + (column[2] or 0) end
-    local width = (list.panel:GetWidth() > 0 and list.panel:GetWidth() or 540) - 26
-    local x = 4
-    for c = 1, 10 do
-        local column, header = columns[c], list.headers[c]
-        local w = column and (column[2] or math.max(40, width - fixed)) or 0
-        header:ClearAllPoints()
-        if column then
-            header:SetPoint("TOPLEFT", list.panel, "TOPLEFT", x, -1)
-            header:SetWidth(w - 4)
-            header:SetJustifyH(column[3] or "LEFT")
-            header:SetText(column[1])
-            header:Show()
-        else
-            header:Hide()
-        end
-        for _, row in ipairs(list.rows) do
-            local cell = row.cells[c]
-            cell:ClearAllPoints()
-            if column then
-                cell:SetPoint("LEFT", row, "LEFT", x - 2, 0)
-                cell:SetWidth(w - 4)
-                cell:SetJustifyH(column[3] or "LEFT")
-                cell:Show()
-            else
-                cell:Hide()
-            end
-        end
-        x = x + w
-    end
-end
-
-function RB.RefreshList(list)
-    local height = list.panel:GetHeight()
-    local visible = math.max(1, math.min(MAX_ROWS, math.floor((height - 16) / ROW_HEIGHT)))
-    local offset = FauxScrollFrame_GetOffset(list.scroll)
-    for r, row in ipairs(list.rows) do
-        local index = offset + r
-        local entry = r <= visible and list.entries[index]
-        row.index = index
-        if entry then
-            for c, cell in ipairs(row.cells) do
-                cell:SetText(entry.cells[c] or "")
-            end
-            RB.Shown(row.focus, index == list.focused)
-            row:Show()
-        else
-            row:Hide()
-        end
-    end
-    FauxScrollFrame_Update(list.scroll, #list.entries, visible, ROW_HEIGHT)
-end
-
-local function ShowEntries(list, columns, entries, title, focused)
-    list.columns = nil
-    SetColumns(list, columns)
-    list.entries, list.focused = entries, focused
-    list.title:SetText(title or "")
-    RB.RefreshList(list)
-end
 
 local function Badge(custom, displayId, itemDisplay)
     local badge = RB.BadgeOf(custom, displayId, itemDisplay)
@@ -154,7 +34,7 @@ local function DisplayCells(kind, index, e)
         string.format("%.2f", e.scale), e.extraId > 0 and e.extraId or "", race, Badge(e.custom, e.displayId, false) }
 end
 
-local displays = CreateList("Displays", function(entry, index)
+local displays = RB.CreateList("Displays", function(entry, index)
     if entry and IsShiftKeyDown() and entry.open then
         RB.OpenEntry(entry.open.kind, entry.open.id)
     elseif entry then
@@ -184,14 +64,19 @@ local function RefreshDisplays(d)
         entries[i] = { cells = cells, open = e.kind and { kind = e.kind, id = e.id } or nil }
     end
     local hint = kind == "model" and "click picks, Shift+click opens" or "Left/Right or Alt+1..4 pick; the green one drives the preview and every action"
-    ShowEntries(displays, DISPLAY_COLUMNS[kind], entries, hint, picked)
+    RB.ShowListEntries(displays, DISPLAY_COLUMNS[kind], entries, hint, picked)
 end
 
 local PICK_LABELS = { creature = "Displays", mount = "Displays", item = "Appearances", set = "Pieces" }
-RB.AddDrawerTab("displays", function(kind, d)
-    local label = PICK_LABELS[kind] or (d and not RB.IsDisplayRow(d, RB.PickList(d)[1]) and "Users") or "Displays"
-    return label .. " " .. RB.Colored(#RB.PickList(d), RB.THEME.value)
-end, displays.panel, RefreshDisplays, { hotkey = "P", order = 3 })
+local SHORT_LABELS = { Displays = "Disp.", Appearances = "Looks" }
+
+local function PickLabel(kind, d)
+    return PICK_LABELS[kind] or (d and not RB.IsDisplayRow(d, RB.PickList(d)[1]) and "Users") or "Displays"
+end
+
+RB.AddInspectorTab("displays", PickLabel, displays.panel, RefreshDisplays, { order = 3,
+    short = function(kind, d) return SHORT_LABELS[PickLabel(kind, d)] end,
+    count = function(kind, d) return #RB.PickList(d) end })
 
 -- Used by: the users of the picked display's model.
 local function PickedModel(d)
@@ -207,7 +92,7 @@ local function PickedModel(d)
     return picked.modelFdid
 end
 
-local usedBy = CreateList("UsedBy", function(entry)
+local usedBy = RB.CreateList("UsedBy", function(entry)
     if entry then RB.OpenEntry(entry.kind, entry.id) end
 end, "list_usedby")
 
@@ -220,13 +105,13 @@ local function RefreshUsedBy(d)
     end
     local title = model and string.format("model %d: %d users%s, click opens one", fdid, model.userCount, model.userCount > #entries and (" (" .. #entries .. " listed)") or "")
         or "the picked display has no retail model"
-    ShowEntries(usedBy, { { "Kind", 70 }, { "Id", 70, "RIGHT" }, { "Name" }, { "Display", 70, "RIGHT" } }, entries, title)
+    RB.ShowListEntries(usedBy, { { "Kind", 70 }, { "Id", 70, "RIGHT" }, { "Name" }, { "Display", 70, "RIGHT" } }, entries, title)
 end
 
-RB.AddDrawerTab("usedby", "Used by", usedBy.panel, RefreshUsedBy, { hotkey = "U", order = 4, kinds = { creature = true, item = true, mount = true, model = true } })
+RB.AddInspectorTab("usedby", "Used by", usedBy.panel, RefreshUsedBy, { order = 4, kinds = { creature = true, item = true, mount = true } })
 
 -- Stats (items): the ItemSparse stat lines, sockets, weapon and level fields.
-local stats = CreateList("Stats", function(entry)
+local stats = RB.CreateList("Stats", function(entry)
     if entry then RB.Copy(entry.copy, entry.cells[1] .. " (" .. entry.copy .. ")") end
 end, "list_field")
 
@@ -242,16 +127,16 @@ local function FieldEntries(d, keep)
     return entries
 end
 
-RB.AddDrawerTab("stats", function(kind, d) return "Stats " .. RB.Colored(#(d and d.stats or {}), RB.THEME.value) end, stats.panel, function(d)
+RB.AddInspectorTab("stats", "Stats", stats.panel, function(d)
     local entries = FieldEntries(d, function(label) return STAT_LABELS[label] or label:match("^Stat %d+$") end)
-    ShowEntries(stats, { { "Field", 120 }, { "Value" } }, entries, "retail values at the item's own level; click copies")
-end, { order = 2, kinds = { item = true } })
+    RB.ShowListEntries(stats, { { "Field", 120 }, { "Value" } }, entries, "retail values at the item's own level; click copies")
+end, { order = 2, kinds = { item = true }, count = function(kind, d) return #(d and d.stats or {}) end })
 
 -- Raw: every labelled field.
-local raw = CreateList("Raw", function(entry)
+local raw = RB.CreateList("Raw", function(entry)
     if entry then RB.Copy(entry.copy, entry.cells[1] .. " (" .. entry.copy .. ")") end
 end, "list_field")
 
-RB.AddDrawerTab("raw", function(kind, d) return "Raw " .. RB.Colored(#(d and d.fields or {}), RB.THEME.value) end, raw.panel, function(d)
-    ShowEntries(raw, { { "Field", 150 }, { "Value" } }, FieldEntries(d), "click copies a field; Ctrl+Shift+C in the grid copies them all")
-end, { hotkey = "R", order = 6 })
+RB.AddInspectorTab("raw", "Raw", raw.panel, function(d)
+    RB.ShowListEntries(raw, { { "Field", 150 }, { "Value" } }, FieldEntries(d), "click copies a field; Ctrl+Shift+C in the grid copies them all")
+end, { order = 6, count = function(kind, d) return #(d and d.fields or {}) end })

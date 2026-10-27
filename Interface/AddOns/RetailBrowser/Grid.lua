@@ -1,12 +1,12 @@
 -- The grid: a header per column (click sorts the whole index, again flips it), the filter row (Filters.lua), pooled
--- 16 px rows (as many as the window's height leaves) over a FauxScrollFrame of the page's 50 rows, a check box per
--- row (bulk actions act on the checked rows), the focused row (the drawer shows it) and hover (the hover preview).
--- Columns reflow with the window's width: fixed columns keep theirs, the name column takes the rest.
+-- 16 px rows (as many as the main column's height leaves) over a FauxScrollFrame of the page's 50 rows, a check box
+-- per row (bulk actions act on the checked rows), the focused row (the inspector shows it) and hover (the hover
+-- preview). Columns reflow with the main column's width: fixed columns keep theirs, the name column takes the rest,
+-- and the columns with the highest drop rank (Columns.lua) are left out first when they no longer fit.
 
 local RB = RetailBrowser
 local L = RB.LAYOUT
 local T = RB.THEME
-local frame = RB.frame
 
 local MAX_COLUMNS = 13
 local MAX_ROWS = 40
@@ -14,10 +14,17 @@ local SCROLLBAR = 20
 local INSET = RB.EDGE_INSET
 local ROWS_TOP = INSET + L.headHeight + L.filterHeight
 local SELECTED_EDGE = 2
+local NAME_MIN = 120
+-- Above the grid: the search box and the query row.
+local QUERY_SPACE = L.searchHeight + 4 + L.queryHeight + 4
+-- Below the grid: the bulk bar (Bulk.lua, as tall as its rows of buttons) and the status line.
+local function BelowSpace()
+    return (RB.bulk and RB.bulk:GetHeight() or L.bulkHeight) + 4 + L.statusHeight + 4
+end
 
-local grid = RB.CreatePanel(frame, "well")
-grid:SetPoint("TOPLEFT", L.pad, -L.gridTop)
-grid:SetPoint("TOPRIGHT", -L.pad, -L.gridTop)
+local grid = RB.CreatePanel(RB.mainCol, "well")
+grid:SetPoint("TOPLEFT", 0, -QUERY_SPACE)
+grid:SetPoint("TOPRIGHT", 0, -QUERY_SPACE)
 RB.grid = grid
 RB.rows, RB.checked = {}, {}
 RB.visibleRows = 10
@@ -33,20 +40,16 @@ local scroll = CreateFrame("ScrollFrame", "RetailBrowserGridScroll", grid, "Faux
 scroll:SetPoint("TOPLEFT", INSET, -ROWS_TOP)
 scroll:SetPoint("BOTTOMRIGHT", -SCROLLBAR - INSET, INSET)
 
--- Column x offsets and widths: fixed widths, the rest to the name column.
+-- Column x offsets and widths: fixed widths, the rest to the name column; no place for a column a narrow grid drops.
 local layout = {}
 local function LayOut(columns)
-    local inner = grid:GetWidth() - 2 * INSET - SCROLLBAR
-    local fixed = 0
-    for _, column in ipairs(columns) do
-        fixed = fixed + (column.width or 0)
-    end
-    local x = INSET
-    wipe(layout)
+    local fit = {}
     for i, column in ipairs(columns) do
-        local width = column.width or math.max(120, inner - fixed)
-        layout[i] = { x = x, width = width }
-        x = x + width
+        fit[i] = { width = column.width, flex = not column.width, drop = column.drop }
+    end
+    wipe(layout)
+    for i, place in pairs(RB.Layout.FitColumns(fit, grid:GetWidth() - 2 * INSET - SCROLLBAR, NAME_MIN)) do
+        layout[i] = { x = INSET + place.x, width = place.width }
     end
 end
 
@@ -98,7 +101,7 @@ end
 function RB.RefreshHeaders()
     local columns, sort = RB.ColumnsNow(), RB.state.sort
     for i, header in ipairs(headers) do
-        local column = columns[i]
+        local column = layout[i] and columns[i]
         if column then
             local label = column.label or ""
             if sort and sort.key == column.key then
@@ -175,7 +178,8 @@ local function LayOutRows(columns)
         row.box:Hide()
         row.icon:Hide()
         for c, cell in ipairs(row.cells) do
-            local column, place = columns[c], layout[c]
+            local place = layout[c]
+            local column = place and columns[c]
             cell:ClearAllPoints()
             if column and column.cell then
                 cell:SetPoint("LEFT", row, "LEFT", place.x - INSET + 3, 0)
@@ -301,12 +305,18 @@ function RB.SetRows(rows)
     RB.RefreshBulk()
 end
 
--- The rows the drawer leaves (Drawer.lua sets them from the window's height).
-function RB.SetGridRows(count)
-    RB.visibleRows = math.max(1, math.min(MAX_ROWS, count))
+-- Whole rows of the main column's height, less the query row, the bulk bar and the status line.
+function RB.FitGridRows()
+    local chrome = QUERY_SPACE + BelowSpace() + RB.GRID_CHROME
+    RB.visibleRows = RB.Layout.GridRows(RB.ColumnHeight(), chrome, L.rowHeight, MAX_ROWS)
     grid:SetHeight(RB.GRID_CHROME + RB.visibleRows * L.rowHeight)
     RB.RefreshGrid()
 end
+
+RB.OnColumnsResized(function()
+    RB.FitGridRows()
+    RB.RelayoutColumns()
+end)
 
 -- Keeps a row in view, scrolling by whole rows.
 local function ScrollTo(index)
@@ -319,7 +329,7 @@ local function ScrollTo(index)
     RetailBrowserGridScrollScrollBar:SetValue(offset * L.rowHeight)
 end
 
--- Focuses a row: the drawer shows it (its preview after a pause, at once when now is set).
+-- Focuses a row: the inspector shows it (its preview after a pause, at once when now is set).
 function RB.FocusRow(index, now)
     local entry = RB.rows[index]
     if not entry then

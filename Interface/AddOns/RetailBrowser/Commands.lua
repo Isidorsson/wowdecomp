@@ -146,7 +146,7 @@ function RB.PrimaryId(details)
     return details.setId or details.itemId or details.creatureId or details.mountId or details.fdid or details.id
 end
 
--- RetailDetails, cached for the grid's cells and the drawer (the index does not change while the client runs).
+-- RetailDetails, cached for the grid's cells and the inspector (the index does not change while the client runs).
 local detailsCache, cached = {}, 0
 local CACHE_LIMIT = 600
 

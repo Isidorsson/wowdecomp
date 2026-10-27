@@ -1,4 +1,4 @@
--- The 3D previews. The drawer's: a DressUpModel filling the drawer's height, showing a creature display
+-- The 3D previews. The inspector's: a DressUpModel at the top of its content, showing a creature display
 -- (SetDisplayInfo, dressed and baked for humanoid NPCs) or the player wearing an item display or a whole set
 -- (TryOnDisplay). Its toolbar picks the display, turns, zooms, fits, resets, plays an animation and copies the
 -- display id; drag turns it too and the wheel zooms. Fit frames it by the display's scale and the creature's type.
@@ -20,7 +20,7 @@ local FIT_MOUNT = 2.5
 -- Animations the toolbar cycles through (AnimationData ids).
 local ANIMATIONS = { { 0, "Stand" }, { 4, "Walk" }, { 5, "Run" }, { 26, "Ready" }, { 60, "Talk" }, { 69, "Dance" } }
 
-local slot = RB.drawerPreviewSlot
+local slot = RB.inspectorPreviewSlot
 local back = RB.CreatePanel(slot, "well")
 back:SetPoint("TOPLEFT")
 back:SetPoint("BOTTOMRIGHT", 0, TOOLBAR_HEIGHT)
@@ -238,7 +238,7 @@ function RB.TryOnAll(list)
     caption:SetText(worn .. " slots worn from " .. #list .. " rows")
 end
 
--- The drawer preview follows the focused row after a pause (arrowing through rows loads one model at the end).
+-- The inspector preview follows the focused row after a pause (arrowing through rows loads one model at the end).
 function RB.SchedulePreview(now)
     if now then
         RB.previewAt = nil

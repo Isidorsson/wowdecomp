@@ -1,9 +1,10 @@
 -- The bulk bar under the grid: what it does to the checked rows (of any page). Without checked rows it says how to
 -- check some. The grid's letter keys G, I, Y, F act on the checked rows when there are some, else on the focused one.
+-- Its buttons wrap into rows beside the count (their keys are in their tooltips), so the bar grows to fit a narrow
+-- main column; the grid gives up rows for it.
 
 local RB = RetailBrowser
 local L = RB.LAYOUT
-local frame = RB.frame
 
 local CONFIRM_SECONDS = 5
 local CONFIRM_ABOVE = 10
@@ -11,18 +12,22 @@ local CONFIRM_ABOVE = 10
 local LABEL_WIDTH = 74
 local CHECK_PAGE_WIDTH = 120
 local GAP = 4
+local BUTTON_MIN_WIDTH = 64
+local BUTTON_HEIGHT = 18
+local ROW_SPACE = BUTTON_HEIGHT + 4
 
-local bar = RB.CreatePanel(frame, "band")
+local bar = RB.CreatePanel(RB.mainCol, "band")
 bar:SetPoint("TOPLEFT", RB.grid, "BOTTOMLEFT", 0, -2)
 bar:SetPoint("TOPRIGHT", RB.grid, "BOTTOMRIGHT", 0, -2)
 bar:SetHeight(L.bulkHeight)
 RB.bulk = bar
 
 local label = RB.CreateText(bar, "GameFontNormalSmall")
-label:SetPoint("LEFT", 8, 0)
+label:SetPoint("TOPLEFT", 8, -(L.bulkHeight - 12) / 2)
 label:SetWidth(LABEL_WIDTH)
 local idle = RB.CreateText(bar, "RetailBrowserLabelFont")
 idle:SetPoint("LEFT", 8, 0)
+idle:SetPoint("RIGHT", -CHECK_PAGE_WIDTH - 12, 0)
 idle:SetText("Check rows for bulk actions: Space, Ctrl+click or right-click a row, Shift+click a range, Ctrl+A the page.")
 
 -- The details of each checked row (fetched for rows of other pages too).
@@ -143,30 +148,48 @@ local function AddButton(key, text, onClick, kinds)
 end
 
 local ITEMS = { item = true, set = true }
-AddButton("ids", "Copy ids " .. RB.Key("Ctrl+C"), RB.BulkCopyIds)
-AddButton("rows", "Rows " .. RB.Key("Ctrl+Shift+C"), RB.BulkCopyRows)
-AddButton("gm", "GM " .. RB.Key("G"), RB.BulkGm)
-AddButton("add", "Add " .. RB.Key("I"), RB.BulkAdd, ITEMS)
-AddButton("try", "Try on " .. RB.Key("Y"), RB.BulkTryOn, ITEMS)
-AddButton("fav", "Fav " .. RB.Key("F"), RB.BulkFavourite)
-AddButton("csv", "CSV " .. RB.Key("Shift+E"), RB.BulkCsv)
-AddButton("build", "Build SQL x1 " .. RB.Key("B"), function() RB.ShowBuild("checked") end, RB.BUILD_TABLES)
-AddButton("clear", "Clear " .. RB.Key("Esc"), RB.ClearChecks)
+AddButton("ids", "Copy ids", RB.BulkCopyIds)
+AddButton("rows", "Rows", RB.BulkCopyRows)
+AddButton("gm", "GM", RB.BulkGm)
+AddButton("add", "Add", RB.BulkAdd, ITEMS)
+AddButton("try", "Try on", RB.BulkTryOn, ITEMS)
+AddButton("fav", "Fav", RB.BulkFavourite)
+AddButton("csv", "CSV", RB.BulkCsv)
+AddButton("build", "Build SQL x1", function() RB.ShowBuild("checked") end, RB.BUILD_TABLES)
+AddButton("clear", "Clear", RB.ClearChecks)
 
-local checkPage = RB.CreateButton(bar, "Check page " .. RB.Key("Ctrl+A"), CHECK_PAGE_WIDTH, 18, function() RB.CheckPage() end)
-checkPage:SetPoint("RIGHT", -6, 0)
+local checkPage = RB.CreateButton(bar, "Check page", CHECK_PAGE_WIDTH, BUTTON_HEIGHT, function() RB.CheckPage() end)
 RB.AttachTip(checkPage, "checkPage")
 
--- The buttons share the bar's width between the label and Check page.
-local function SpreadButtons()
-    local width = (bar:GetWidth() - 16 - LABEL_WIDTH - CHECK_PAGE_WIDTH - GAP * (#buttons + 1)) / #buttons
-    for i, button in ipairs(buttons) do
-        button:SetWidth(math.max(60, width))
-        button:ClearAllPoints()
-        button:SetPoint("LEFT", bar, "LEFT", 8 + LABEL_WIDTH + (i - 1) * (math.max(60, width) + GAP), 0)
+-- Idle: the hint and Check page on one line. With checked rows: the count, then the buttons and Check page in as
+-- many rows as the bar's width needs. Returns the bar's height.
+local function LayOutBar(checking)
+    checkPage:ClearAllPoints()
+    if not checking then
+        checkPage:SetWidth(CHECK_PAGE_WIDTH)
+        checkPage:SetPoint("RIGHT", -6, 0)
+        return L.bulkHeight
+    end
+    local items = { unpack(buttons) }
+    items[#items + 1] = checkPage
+    local width = bar:GetWidth() - 16 - LABEL_WIDTH
+    local columns, buttonWidth, rows = RB.Layout.ActionGrid(#items, width, BUTTON_MIN_WIDTH, GAP)
+    for i, item in ipairs(items) do
+        local n = i - 1
+        item:ClearAllPoints()
+        item:SetWidth(buttonWidth)
+        item:SetPoint("TOPLEFT", 8 + LABEL_WIDTH + (n % columns) * (buttonWidth + GAP), -3 - math.floor(n / columns) * ROW_SPACE)
+    end
+    return rows * ROW_SPACE + 2
+end
+
+local function ApplyHeight(height)
+    if math.abs(bar:GetHeight() - height) > 0.5 then
+        bar:SetHeight(height)
+        RB.FitGridRows()
     end
 end
-bar:SetScript("OnSizeChanged", SpreadButtons)
+bar:SetScript("OnSizeChanged", function() ApplyHeight(LayOutBar(#RB.CheckedRows() > 0)) end)
 
 function RB.RefreshBulk()
     local rows = RB.CheckedRows()
@@ -179,8 +202,9 @@ function RB.RefreshBulk()
         RB.Shown(button, count > 0)
         button:SetEnabled(not button.kinds or (kind and button.kinds[kind]))
     end
-    buttons.build:SetLabel("Build SQL x" .. count .. " " .. RB.Key("B"))
+    buttons.build:SetLabel("Build SQL x" .. count)
     RB.Shown(checkPage, #RB.rows > 0)
+    ApplyHeight(LayOutBar(count > 0))
     if RB.OnChecksChanged then
         RB.OnChecksChanged(count)
     end

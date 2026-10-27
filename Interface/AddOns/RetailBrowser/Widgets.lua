@@ -1,5 +1,6 @@
--- Widget helpers on the stock 3.3.5 pieces, coloured from Theme.lua: panels with the tooltip edge tinted bronze, the
--- red-and-gold UIPanelButtonTemplate, gold-text tabs (TabButtonTemplate), dark input wells, and the grouped choice menu.
+-- Widget helpers coloured from Theme.lua: panels with the tooltip edge tinted, flat buttons (a 1 px border on a
+-- dark fill, square corners: 3.3.5 has no 9-slice to round them cleanly) with a primary variant and an on state,
+-- flat input wells with a teal focus border, and the grouped choice menu.
 
 local RB = RetailBrowser
 local T = RB.THEME
@@ -20,11 +21,12 @@ RB.PANEL_BACKDROP = {
     tile = true, tileSize = 16, edgeSize = 12,
     insets = { left = 3, right = 3, top = 3, bottom = 3 },
 }
-RB.INPUT_BACKDROP = {
-    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true, tileSize = 16, edgeSize = 8,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+-- A solid fill with a 1 px border: buttons and input wells.
+RB.FLAT_BACKDROP = {
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Buttons\\WHITE8X8",
+    edgeSize = 1,
+    insets = { left = 1, right = 1, top = 1, bottom = 1 },
 }
 
 local function MakeFont(name, file, size, color)
@@ -38,6 +40,8 @@ MakeFont("RetailBrowserHeadFont", "Fonts\\FRIZQT__.TTF", 10, T.title)
 MakeFont("RetailBrowserSmallFont", "Fonts\\ARIALN.TTF", 10, T.text)
 MakeFont("RetailBrowserLabelFont", "Fonts\\ARIALN.TTF", 10, T.label)
 MakeFont("RetailBrowserValueFont", "Fonts\\ARIALN.TTF", 11, T.value)
+MakeFont("RetailBrowserButtonFont", "Fonts\\ARIALN.TTF", 11, T.buttonText)
+MakeFont("RetailBrowserPrimaryFont", "Fonts\\FRIZQT__.TTF", 10, T.primaryText)
 
 -- A panel (style panel, well or band) with the tooltip edge in bronze (dim for wells).
 function RB.CreatePanel(parent, style)
@@ -73,42 +77,95 @@ function RB.SetHoverHighlight(button)
     button:SetHighlightTexture(glow)
 end
 
-local function SetLabel(self, text)
-    self:SetText(text)
+local BUTTON_PADDING = 7
+
+-- The state a flat button draws: disabled, pressed, on (a set toggle), hover or normal.
+local function ButtonState(button)
+    if not button.enabled then
+        return "disabled"
+    elseif button.pressed then
+        return "pressed"
+    elseif button.on then
+        return "on"
+    elseif button.hovered then
+        return "hover"
+    end
+    return "normal"
 end
 
--- A stock red-and-gold button with small text; SetOn locks its highlight (toggles, scopes).
+local function PaintButton(button)
+    local style = RB.ButtonStyle(button.variant, ButtonState(button))
+    RB.SetBack(button, style.fill)
+    RB.SetBorder(button, style.border)
+    RB.SetColor(button.label, style.text)
+    RB.SetColor(button.hint, button.variant ~= "normal" and style.text or T.label)
+    button:SetAlpha(style.alpha)
+end
+
+-- The label; a trailing RB.Key hint goes to the right edge in the label colour, the text to the left. Without one the
+-- text is centred.
+local function SetLabel(button, text)
+    local main, hint = RB.SplitKeyHint(text or "")
+    button.label:SetText(main)
+    button.hint:SetText(hint or "")
+    button.label:ClearAllPoints()
+    button.label:SetPoint("LEFT", BUTTON_PADDING, 0)
+    if hint then
+        button.label:SetPoint("RIGHT", button.hint, "LEFT", -4, 0)
+        button.label:SetJustifyH("LEFT")
+    else
+        button.label:SetPoint("RIGHT", -BUTTON_PADDING, 0)
+        button.label:SetJustifyH("CENTER")
+    end
+end
+
+local function SetFlag(key)
+    return function(button, on)
+        button[key] = on and true or false
+        PaintButton(button)
+    end
+end
+
+local SetOn, SetHovered, SetPressed = SetFlag("on"), SetFlag("hovered"), SetFlag("pressed")
+
+local function SetEnabled(button, on)
+    if on then button:Enable() else button:Disable() end
+    button.enabled = on and true or false
+    PaintButton(button)
+end
+
+-- A solid variant (primary: the main action of the shown kind; confirm: the yellow go-ahead) with dark bold text, or
+-- "normal".
+local function SetVariant(button, variant)
+    button.variant = variant
+    button.label:SetFontObject(variant == "normal" and RetailBrowserButtonFont or RetailBrowserPrimaryFont)
+    PaintButton(button)
+end
+
+local function SetPrimary(button, primary)
+    SetVariant(button, primary and "primary" or "normal")
+end
+
+-- A flat button: SetLabel, SetOn (toggles, scopes, active chips), SetEnabled, SetPrimary, SetVariant.
 function RB.CreateButton(parent, text, width, height, onClick)
-    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    local button = CreateFrame("Button", nil, parent)
     button:SetSize(width, height or 20)
-    button:SetNormalFontObject(GameFontNormalSmall)
-    button:SetHighlightFontObject(GameFontHighlightSmall)
-    button:SetDisabledFontObject(GameFontDisableSmall)
-    button:SetText(text)
-    button.label = button:GetFontString()
+    button:SetBackdrop(RB.FLAT_BACKDROP)
+    button.label = RB.CreateText(button, "RetailBrowserButtonFont", "CENTER")
+    button.hint = RB.CreateText(button, "RetailBrowserLabelFont", "RIGHT")
+    button.hint:SetPoint("RIGHT", -BUTTON_PADDING, 0)
+    button.variant, button.enabled = "normal", true
+    button.SetLabel, button.SetOn, button.SetEnabled, button.SetPrimary = SetLabel, SetOn, SetEnabled, SetPrimary
+    button.SetVariant = SetVariant
     button:SetScript("OnClick", onClick)
-    button.SetLabel = SetLabel
-    button.SetOn = function(self, on) if on then self:LockHighlight() else self:UnlockHighlight() end end
-    button.SetEnabled = function(self, on) if on then self:Enable() else self:Disable() end end
+    button:SetScript("OnEnter", function(self) SetHovered(self, true) end)
+    button:SetScript("OnLeave", function(self) SetHovered(self, false) end)
+    button:SetScript("OnMouseDown", function(self) if self.enabled then SetPressed(self, true) end end)
+    button:SetScript("OnMouseUp", function(self) SetPressed(self, false) end)
+    button:SetScript("OnHide", function(self) self.hovered, self.pressed = false, false; PaintButton(self) end)
+    SetLabel(button, text)
+    PaintButton(button)
     return button
-end
-
--- A gold-text tab; SetOn selects it.
-function RB.CreateTab(parent, name, text, onClick)
-    local tab = CreateFrame("Button", name, parent, "TabButtonTemplate")
-    tab:SetText(text)
-    tab.label = tab:GetFontString()
-    tab:SetScript("OnClick", onClick)
-    tab.SetLabel = function(self, label)
-        self:SetText(label)
-        PanelTemplates_TabResize(self, 0)
-    end
-    tab.SetOn = function(self, on)
-        if on then PanelTemplates_SelectTab(self) else PanelTemplates_DeselectTab(self) end
-    end
-    PanelTemplates_TabResize(tab, 0)
-    PanelTemplates_DeselectTab(tab)
-    return tab
 end
 
 -- A box's placeholder: grey text over an empty box, hidden while it has focus or text (3.3.5 has no placeholder).
@@ -131,7 +188,7 @@ local function WellBlur(self)
     if self.hint then RB.RefreshHint(self) end
 end
 
--- The state colour of a well's border (dim, active, invalid); focus draws it gold meanwhile.
+-- The state colour of a well's border (dim, active, invalid); focus draws it teal meanwhile.
 function RB.SetWellEdge(well, color)
     well.edgeColor = color
     if not (well.HasFocus and well:HasFocus()) then
@@ -140,7 +197,7 @@ function RB.SetWellEdge(well, color)
 end
 
 local function MakeWell(frame)
-    frame:SetBackdrop(RB.INPUT_BACKDROP)
+    frame:SetBackdrop(RB.FLAT_BACKDROP)
     RB.SetBack(frame, T.input)
     RB.SetBorder(frame, T.inputBorder)
 end
@@ -232,19 +289,6 @@ end
 function RB.QualityColor(quality)
     local color = T.quality[quality or 1] or T.quality[1]
     return color[1], color[2], color[3]
-end
-
--- Creature rank groups as the filter has them: 0 normal, 1 elite, 2 rare, 3 rare elite (retail 1 and 3 are elite,
--- 2 rare elite, 4 rare).
-function RB.RankGroup(classification)
-    if classification == 1 or classification == 3 then
-        return 1
-    elseif classification == 2 then
-        return 3
-    elseif classification == 4 then
-        return 2
-    end
-    return 0
 end
 
 function RB.RankColor(group)

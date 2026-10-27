@@ -12,7 +12,7 @@ function RB.SetKind(kind)
     local state = RB.state
     state.kind, state.source, state.page, state.filters, state.sort, state.text = kind, "search", 1, {}, nil, ""
     RB.OnColumnsChanged()
-    RB.RefreshTabs()
+    RB.RefreshRail()
     RB.Search(true)
 end
 
@@ -20,7 +20,7 @@ function RB.ShowSaved(source)
     local state = RB.state
     state.source, state.page, state.filters, state.sort, state.text = source, 1, {}, nil, ""
     RB.OnColumnsChanged()
-    RB.RefreshTabs()
+    RB.RefreshRail()
     RB.RefreshSaved()
 end
 
@@ -84,7 +84,7 @@ function RB.ShowResult(result)
     RB.lastPageMs = debugprofilestop() - started
     RB.SetRows(result.rows)
     if result.total > 0 then
-        RB.SetPageText(string.format("%d matches, page %d / %d", result.total, result.page, result.pages))
+        RB.SetPageText(RB.PageText(result.total, result.page, result.pages))
     else
         RB.SetPageText(RB.state.text == "" and not next(RB.state.filters) and "Type a name or id, or set a filter" or "No matches")
     end
@@ -162,7 +162,7 @@ local function RefreshInfo()
         local c = info.counts
         RB.SetStatus(string.format("index ready, %d rows", c.creature + c.item + c.set + c.model + c.mount))
         if firstReady then
-            RB.RefreshTabs()
+            RB.RefreshRail()
         end
         return true
     end
@@ -191,11 +191,11 @@ function RB.OnWindowShown()
     if not RefreshInfo() then
         RB.pollAt = GetTime() + RB.POLL_SECONDS
     end
-    RB.RefreshTabs()
-    RB.RefreshDrawer()
+    RB.RefreshRail()
+    RB.RefreshInspector()
 end
 
--- Opens an entry of any kind: its tab, searched by id, with its details in the drawer.
+-- Opens an entry of any kind: its tab, searched by id, with its details in the inspector.
 function RB.OpenEntry(kind, id)
     RB.SetKind(kind)
     RB.SetSearchText(tostring(id))

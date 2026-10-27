@@ -55,7 +55,7 @@ local function Page(step)
 end
 
 local function Tab(key)
-    return function() RB.ShowDrawerTab(key) end
+    return function() RB.ShowInspectorTab(key) end
 end
 
 local function ExtendCheck(step)
@@ -79,7 +79,7 @@ local PLAIN = {
     I = Bulk(RB.BulkAdd, "addItem"), Y = Bulk(RB.BulkTryOn, "tryOn"), G = Bulk(RB.BulkGm, "copyGm"),
     F = Bulk(RB.BulkFavourite, "favourite"),
     B = function() RB.ShowBuild(next(RB.checked) and "checked" or "focused") end,
-    D = Tab("details"), P = Tab("displays"), U = Tab("usedby"), R = Tab("raw"), S = Tab("stats"),
+    D = Tab("overview"), P = Tab("displays"), U = Tab("usedby"), R = Tab("raw"), S = Tab("stats"),
     E = function() RB.ExportCsv() end,
     ["["] = function() RB.TurnPage(-1) end, ["]"] = function() RB.TurnPage(1) end,
     ["="] = function() RB.ZoomPreview(1) end, ["-"] = function() RB.ZoomPreview(-1) end,
@@ -92,7 +92,7 @@ local SHIFT = {
 }
 
 local CTRL = {
-    UP = function() RB.StepDrawer(1) end, DOWN = function() RB.StepDrawer(-1) end,
+    LEFT = function() RB.StepInspector(1) end, RIGHT = function() RB.StepInspector(-1) end,
     DELETE = function() RB.ClearHistoryNow() end,
     C = function()
         if IsShiftKeyDown() then

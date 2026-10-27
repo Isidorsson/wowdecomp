@@ -15,7 +15,6 @@ local COPY = "Click copies the value; Shift+click adds it to the copy buffer."
 RB.TIPS = {
     -- Window.
     close = { "Close", "Closes the browser. Esc in the grid does it too (after clearing checked rows).", key = "Esc" },
-    scale = { "Window scale", "Draws the whole window at this scale; its top right corner stays put. Saved per character." },
     indexAtLogin = { "Index at login", "Builds the search index on a worker thread when you log in, so the first /rb is ready at once (keeps about 120 MB)." },
     tab_creature = { "Creatures", "Retail creatures: names, ranks, every display and its NPC Extra row.", key = "Ctrl+1" },
     tab_item = { "Items", "The 104k searchable retail items with their appearances and ItemSparse stats.", key = "Ctrl+2" },
@@ -32,7 +31,7 @@ RB.TIPS = {
     keys = { "Key owner", "Green: the grid has the keys and letter keys are commands. Click to hand the keys back to the game, or to the grid." },
     clearHistory = { "Clear history", "Forgets every entry in History.", key = "Ctrl+Del" },
     grip = { "Resize", "Drag to resize the window (at least 960x600). The size is saved per character." },
-    splitter = { "Grid / drawer split", "Drag up for a bigger drawer, down for a longer list. Saved per character.", key = "Ctrl+Up / Ctrl+Down" },
+    splitter = { "Inspector width", "Drag left for a wider inspector, right for a wider grid. Saved per character.", key = "Ctrl+Left / Ctrl+Right" },
 
     -- Filter cells.
     filter_search = { "Search", "A name (case and accents ignored) or any id of the entry. Searches the whole index.", key = "/" },
@@ -55,16 +54,24 @@ RB.TIPS = {
     bulk_clear = { "Clear checks", "Unchecks every row.", key = "Esc" },
     checkPage = { "Check page", "Checks every row of this page.", key = "Ctrl+A" },
 
-    -- Drawer tabs.
-    tab_details = { "Details", "Every id of the entry in groups; click a value to copy it.", key = "D" },
+    -- Inspector tabs.
+    tab_overview = { "Overview", "The entry at a glance: its ids, model slots, tooltip, classes or lists; click a value to copy it.", key = "D" },
     tab_stats = { "Stats", "The ItemSparse stats at the item's own level, sockets and weapon fields.", key = "S" },
     tab_displays = { "Displays", "Every display (appearance, piece, user). The picked one drives the preview and every action.", key = "P" },
     tab_usedby = { "Used by", "Everything else that uses the picked display's model; click one to open it.", key = "U" },
-    tab_build = { "Build SQL", "World DB SQL for the focused row, the checked rows or the page.", key = "B" },
+    tab_build = { "Build SQL", "Opens the Build SQL page: world DB SQL for the focused row, the checked rows or the page. The count is the rows it builds.", key = "B" },
+    build_back = { "Back", "Back to the grid and the inspector.", key = "Esc" },
+    build_wrap = { "Wrap", "Off: each SQL line stays whole and the box scrolls sideways (the bar under it, or Shift+wheel). On: lines wrap at the box's width. Saved per character; Stat mapping and Changes vs base always wrap." },
+    build_itemOptions = { "Item options", "Options only items and sets use. They open by themselves when the build has one; click to open or fold them." },
+    build_queueRow = { "Queue row", "A row the build writes: teal is ready, yellow needs a look (an installed display row wins, or the source has several displays). Click shows its SQL and changes." },
+    build_tab_sql = { "SQL", "The selected row's statements (at most 4 KB); Copy and Export use all of it." },
+    build_tab_mapping = { "Stat mapping", "Every retail stat, its value, what it became on 3.3.5 and why (items and sets)." },
+    build_tab_changes = { "Changes vs base", "The columns the selected row writes instead of copying them from the base row. The base row's own values are in the world DB, not the client." },
     tab_raw = { "Raw", "Every field RetailDetails labels; click one to copy it.", key = "R" },
     list_displays = { "Display", "Click picks it for the preview and every action (Shift+click opens a model's user).", key = "Left / Right" },
     list_usedby = { "User of the model", "Click opens this entry in its tab." },
     list_field = { "Field", "Click copies the value." },
+    list_overview = { "Row", "Click picks a display or piece, or opens a user." },
     group_ids = { "Ids", "Every id of the entry and its picked display; click one to copy it." },
     group_item = { "Item", "The item's quality, levels, slot, class and classes (Item and ItemSparse)." },
     group_creature = { "Creature", "The creature's name, title, type, family, rank and how many displays it has." },
@@ -98,11 +105,11 @@ RB.TIPS = {
     action_copyDisplay = { "Copy display id", "Copies the picked display id (green in the Displays tab).", key = "Alt+C", disabled = "This entry has no display." },
     action_copyAll = { "Copy all", "Copies every field as plain text.", key = "Ctrl+Shift+C", disabled = "Select a row first." },
     action_copyGm = { "GM command", "Copies .morph for a display, or the .additem lines of an item or set.", key = "G", disabled = "This entry has no GM command." },
-    action_favourite = { "Favourite", "Saves the entry to Favourites, or removes it.", key = "F", disabled = "Select a row first." },
+    favouriteStar = { "Favourite", "Saves the entry to Favourites (gold star), or removes it.", key = "F" },
     action_build = { "Build SQL", "Opens Build SQL for this entry.", key = "B", disabled = "SQL is built for items, sets, creatures, models and mounts." },
 
     -- Build SQL.
-    scope_focused = { "Focused row", "Builds the SQL of the entry the drawer shows." },
+    scope_focused = { "Focused row", "Builds the SQL of the entry the inspector shows." },
     scope_checked = { "Checked rows", "Builds one entry per checked row (at most 50), counting up from Start entry." },
     scope_page = { "Whole page", "Builds one entry per row of this page (at most 50)." },
     opt_itemLevel = { "Item level", "The level retail stats are computed at and the item's ItemLevel. Empty: each item's own retail level; 0 is allowed." },
@@ -116,14 +123,13 @@ RB.TIPS = {
     opt_retailStamina = { "Retail stamina multiplier", "On: retail's StaminaMultByILvl (x9.49 at 200). Off: 3.3.5-sized stamina." },
     opt_allVariants = { "Every set variant", "A row per set piece instead of one per slot." },
     opt_retailArmour = { "Retail armour/damage", "On: armor, damage and delay from the retail formulas at the item level (retail-sized, far below 3.3.5's; the mapping shows the base's beside them). Off: the base row's stay." },
-    opt_displays = { "Displays", "Creatures, models and mounts with several displays. One creature each: a row per display, named <name> (<display>), to spawn each. Picked only: one row, the picked display. As modelid1-4 variants: one row, the picked display then the others in modelid2-4 (3.3.5 has four); it shows one of them at random. Click to switch." },
-    sql_build = { "Build now", "Builds at once (changes also rebuild 0.3 s after the last one). The status under the options shows the time of the last build." },
+    opt_displays = { "Displays", "Creatures, models and mounts with several displays. One creature each: a row per display, named <name> (<display>), to spawn each (at most 50). Picked only: one row, the picked display. modelid1-4 variants: one row, the picked display then the next three in modelid2-4 (3.3.5 has four; more are left out); it shows one of them at random." },
     sql_copy = { "Copy SQL", "Copies all the SQL, not just the 4 KB shown.", key = "Ctrl+Enter" },
     sql_export = { "Export SQL", "Writes all the SQL to Logs\\RetailBrowser\\<kind>-<id>-<time>.sql.", key = "Ctrl+S" },
-    sql_apply = { "Apply to DB", "Runs all the SQL on the server's world DB (GM only; click twice). Template rows in this build's entries only. Creatures reload at once, items load after a server restart." },
+    sql_apply = { "Apply to DB", "Runs all the SQL on the server's world DB (GM only; the yellow bar asks first). Template rows in this build's entries only. Creatures reload at once, items load after a server restart." },
     sql_edit = { "Edit full SQL", "Puts every statement in the box to edit (over 64 KB asks for a second click: the box can freeze the client)." },
     sql_mapping = { "Stat mapping", "Every retail stat, its value, what it became on 3.3.5 and why." },
-    sql_preview = { "SQL preview", "The first row's statements (at most 4 KB); Copy and Export use all of it." },
+    sql_preview = { "SQL", "The selected row's statements (at most 4 KB); Copy and Export use all of it." },
 }
 
 -- Header tips by column key; the label is the title.
@@ -153,7 +159,7 @@ RB.COLUMN_TIPS = {
     mountType = "Retail MountTypeID.",
 }
 
--- Drawer value tips by field label.
+-- Inspector value tips by field label.
 RB.FIELD_TIPS = {
     ["Creature id"] = "Creature.db2 id.",
     ["Display"] = "CreatureDisplayInfo (or ItemDisplayInfo) id of the picked display. " .. "served = delivered from retail CASC; 3.3.5 or custom = your installed DBC row wins.",
@@ -170,6 +176,14 @@ RB.FIELD_TIPS = {
     ["Item id"] = "Item.db2 id.",
     ["Appearance"] = "ItemAppearance id.",
     ["Mod. appear."] = "ItemModifiedAppearance id.",
+    ["IDI"] = "ItemDisplayInfo id of the picked appearance. served = delivered from retail CASC; 3.3.5 or custom = your installed DBC row wins.",
+    ["IMA"] = "ItemModifiedAppearance id.",
+    ["Model fdid 1 / 2"] = "The appearance's model FileDataIDs (a second one for pauldrons and the like).",
+    ["Material"] = "Item material (sounds and the 3.3.5 material column).",
+    ["Sheathe"] = "SheatheType: where the weapon sits on the back or hip.",
+    ["Weapon delay"] = "Weapon swing time in ms (ItemSparse).",
+    ["Sockets"] = "Socket types and the socket bonus enchant (ItemSparse).",
+    ["Scales"] = "Whether the item scales with the player's level, and its scaling curve.",
     ["Icon fdid"] = "The icon's FileDataID.",
     ["Level / req"] = "Item level and required level (ItemSparse).",
     ["Class / sub"] = "Item class and subclass.",
@@ -193,7 +207,7 @@ RB.FIELD_TIPS = {
     ["Id"] = "The id of the picked user: a creature, item or mount id.",
     ["Mount id"] = "Mount.db2 id.",
     ["Spell id"] = "The spell that summons the mount.",
-    ["Expansion"] = "The set's expansion.",
+    ["Expansion"] = "The expansion the item or set comes from.",
     ["Pieces"] = "How many items the set lists (several per slot for a transmog set's looks).",
     ["ItemSet id"] = "ItemSet.db2 id: the set's own id, which Copy id copies.",
     ["TransmogSet id"] = "TransmogSet.db2 id: the set's own id, which Copy id copies.",

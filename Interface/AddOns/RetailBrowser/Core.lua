@@ -131,6 +131,24 @@ function RB.PrefetchIcons(list)
     end
 end
 
+-- Creature rank groups as the filter has them: 0 normal, 1 elite, 2 rare, 3 rare elite (retail 1 and 3 are elite,
+-- 2 rare elite, 4 rare).
+function RB.RankGroup(classification)
+    if classification == 1 or classification == 3 then
+        return 1
+    elseif classification == 2 then
+        return 3
+    elseif classification == 4 then
+        return 2
+    end
+    return 0
+end
+
+-- The pager's text: "1 match, page 1 / 1", "360 matches, page 2 / 8".
+function RB.PageText(total, page, pages)
+    return string.format("%d %s, page %d / %d", total, total == 1 and "match" or "matches", page, pages)
+end
+
 -- "served" (the client draws the retail row), "3.3.5" (a stock DBC row of that id wins) or "custom" (a row the
 -- server added wins).
 function RB.BadgeOf(custom, displayId, itemDisplay)
@@ -142,7 +160,7 @@ function RB.BadgeOf(custom, displayId, itemDisplay)
 end
 
 -- Account-wide: favourites by "kind:id", the most recent details first, the index-at-login choice. Per character
--- (RetailBrowserCharDB): the window's place, scale and drawer height.
+-- (RetailBrowserCharDB): the window's place and size and the inspector width.
 local function InitDB()
     RetailBrowserDB = RetailBrowserDB or {}
     RetailBrowserDB.favourites = RetailBrowserDB.favourites or {}

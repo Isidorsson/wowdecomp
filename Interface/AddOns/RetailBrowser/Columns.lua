@@ -1,6 +1,7 @@
 -- The grid's columns per kind: header label, width (nil: the rest), alignment, the RetailSearch sort column, the filter
 -- cell (search text, a range or exact number, or a choice; all go to RetailSearch, so they filter the whole index) and
--- the cell text of a row from its search row and its cached RetailDetails.
+-- the cell text of a row from its search row and its cached RetailDetails. drop ranks the columns a narrow grid
+-- leaves out, highest first (Layout.FitColumns); columns without one always show.
 
 local RB = RetailBrowser
 local S = RB.SORT
@@ -77,8 +78,15 @@ local function TypeChoices(info)
 end
 
 local CHECK = { key = "check", width = 16, special = "check" }
-local FAV = { key = "fav", label = "*", width = 16, align = "CENTER", filter = { type = "favourites" },
-    cell = function(row) return Text(RB.IsFavourite(row.kind, row.id) and "*" or "", GOLD) end }
+local function Fav(drop)
+    return { key = "fav", label = "*", width = 16, align = "CENTER", filter = { type = "favourites" }, drop = drop,
+        cell = function(row) return Text(RB.IsFavourite(row.kind, row.id) and "*" or "", GOLD) end }
+end
+-- Sets a column's drop rank (the shared constructors make columns without one).
+local function Drop(column, drop)
+    column.drop = drop
+    return column
+end
 local function NameColumn(cell)
     return { key = "name", label = "Name", align = "LEFT", sort = S.name, filter = { type = "search" }, cell = cell }
 end
@@ -110,81 +118,81 @@ RB.COLUMNS.item = {
     CHECK,
     { key = "icon", width = 16, special = "icon" },
     NameColumn(function(row) return row.name, RB.QualityColor(row.quality) end),
-    { key = "ilvl", label = "iLvl", width = 40, align = "RIGHT", sort = S.itemLevel, filter = { type = "range", min = "minItemLevel", max = "maxItemLevel" },
+    { key = "ilvl", drop = 2, label = "iLvl", width = 40, align = "RIGHT", sort = S.itemLevel, filter = { type = "range", min = "minItemLevel", max = "maxItemLevel" },
         cell = function(row, d) return Number(d.itemLevel) end },
-    ChoiceColumn("slot", "Slot", 74, S.slot, "inventoryType", RB.INVENTORY_TYPES, function(row, d) return Choice(RB.INVENTORY_TYPES, d.inventoryType) end),
-    ChoiceColumn("type", "Type", 70, S.subclass, "armour", TypeChoices, function(row, d) return Text(d.subclassName, DIM) end),
-    ChoiceColumn("quality", "Quality", 62, S.quality, "quality", RB.QUALITIES, function(row)
+    Drop(ChoiceColumn("slot", "Slot", 74, S.slot, "inventoryType", RB.INVENTORY_TYPES, function(row, d) return Choice(RB.INVENTORY_TYPES, d.inventoryType) end), 3),
+    Drop(ChoiceColumn("type", "Type", 70, S.subclass, "armour", TypeChoices, function(row, d) return Text(d.subclassName, DIM) end), 5),
+    Drop(ChoiceColumn("quality", "Quality", 62, S.quality, "quality", RB.QUALITIES, function(row)
         return RB.ChoiceText(RB.QUALITIES, row.quality), RB.QualityColor(row.quality)
-    end),
+    end), 1),
     IdColumn("Item id"),
     DisplayColumn(),
-    ChoiceColumn("exp", "Exp", 48, S.expansion, "expansion", RB.EXPANSIONS, function(row, d) return Choice(RB.EXPANSIONS, d.expansion) end),
+    Drop(ChoiceColumn("exp", "Exp", 48, S.expansion, "expansion", RB.EXPANSIONS, function(row, d) return Choice(RB.EXPANSIONS, d.expansion) end), 6),
     SourceColumn("appearances", true),
-    FAV,
+    Fav(4),
 }
 
 RB.COLUMNS.creature = {
     CHECK,
     NameColumn(function(row, d) return row.name, RB.RankColor(RB.RankGroup(d.classification)) end),
     IdColumn("Creature id", 68),
-    CountColumn("Disp", "displays"),
+    Drop(CountColumn("Disp", "displays"), 1),
     DisplayColumn("Display 1"),
-    ChoiceColumn("type", "Type", 74, S.type, "creatureType", function(info) return RB.NamedChoices(info.creatureTypes) end,
-        function(row, d) return Text(d.typeName, DIM) end),
-    ChoiceColumn("rank", "Rank", 62, S.rank, "classification", RB.CLASSIFICATIONS, function(row, d)
+    Drop(ChoiceColumn("type", "Type", 74, S.type, "creatureType", function(info) return RB.NamedChoices(info.creatureTypes) end,
+        function(row, d) return Text(d.typeName, DIM) end), 2),
+    Drop(ChoiceColumn("rank", "Rank", 62, S.rank, "classification", RB.CLASSIFICATIONS, function(row, d)
         local group = RB.RankGroup(d.classification)
         return RB.ChoiceText(RB.CLASSIFICATIONS, group), RB.RankColor(group)
-    end),
-    ChoiceColumn("race", "Race", 70, S.race, "race", RB.RACES, function(row, d) return Choice(RB.RACES, FirstExtraRace(d)) end),
-    ChoiceColumn("family", "Family", 70, S.family, "family", function(info) return RB.NamedChoices(info.families) end,
-        function(row, d) return Text(d.familyName, DIM) end),
-    ChoiceColumn("kind", "Kind", 46, S.kind, "humanoid", RB.NPC_KINDS, function(row, d) return Text(FirstExtraRace(d) and "NPC" or "Model", DIM) end),
+    end), 3),
+    Drop(ChoiceColumn("race", "Race", 70, S.race, "race", RB.RACES, function(row, d) return Choice(RB.RACES, FirstExtraRace(d)) end), 5),
+    Drop(ChoiceColumn("family", "Family", 70, S.family, "family", function(info) return RB.NamedChoices(info.families) end,
+        function(row, d) return Text(d.familyName, DIM) end), 7),
+    Drop(ChoiceColumn("kind", "Kind", 46, S.kind, "humanoid", RB.NPC_KINDS, function(row, d) return Text(FirstExtraRace(d) and "NPC" or "Model", DIM) end), 6),
     SourceColumn("displays", false),
-    FAV,
+    Fav(4),
 }
 
 RB.COLUMNS.set = {
     CHECK,
     NameColumn(function(row) return Text(row.name) end),
     IdColumn("Set id", 58, function(row, d) return d.setId end),
-    ChoiceColumn("setSource", "Source", 64, S.kind, "setSource", RB.SET_SOURCES, function(row, d)
+    Drop(ChoiceColumn("setSource", "Source", 64, S.kind, "setSource", RB.SET_SOURCES, function(row, d)
         return Text(d.source == "itemset" and "Item set" or "Transmog", DIM)
-    end),
-    CountColumn("Pieces", "pieces"),
-    ChoiceColumn("armour", "Armour", 62, S.subclass, "armour", RB.ARMOUR_TYPES, function(row, d) return Choice(RB.ARMOUR_TYPES, d.armour) end),
-    ChoiceColumn("class", "Class", 110, nil, "classId", RB.CLASSES, function(row, d) return Text(ClassText(d.classMask), DIM) end),
-    ChoiceColumn("exp", "Exp", 48, S.expansion, "expansion", RB.EXPANSIONS, function(row, d) return Choice(RB.EXPANSIONS, d.expansion) end),
+    end), 2),
+    Drop(CountColumn("Pieces", "pieces"), 3),
+    Drop(ChoiceColumn("armour", "Armour", 62, S.subclass, "armour", RB.ARMOUR_TYPES, function(row, d) return Choice(RB.ARMOUR_TYPES, d.armour) end), 4),
+    Drop(ChoiceColumn("class", "Class", 110, nil, "classId", RB.CLASSES, function(row, d) return Text(ClassText(d.classMask), DIM) end), 6),
+    Drop(ChoiceColumn("exp", "Exp", 48, S.expansion, "expansion", RB.EXPANSIONS, function(row, d) return Choice(RB.EXPANSIONS, d.expansion) end), 7),
     DisplayColumn("Display 1"),
     SourceColumn("pieces", true),
-    FAV,
+    Fav(5),
 }
 
 RB.COLUMNS.model = {
     CHECK,
     NameColumn(function(row) return Text(row.name) end),
     IdColumn("Model fdid", 74),
-    ChoiceColumn("modelKind", "Kind", 64, S.kind, "modelKind", RB.MODEL_KINDS, function(row, d)
+    Drop(ChoiceColumn("modelKind", "Kind", 64, S.kind, "modelKind", RB.MODEL_KINDS, function(row, d)
         return Text(d.creature and "Creature" or "Item", DIM)
-    end),
-    { key = "count", label = "Users", width = 46, align = "RIGHT", sort = S.count, filter = { type = "range", min = "minCount", max = "maxCount" },
+    end), 2),
+    { key = "count", drop = 1, label = "Users", width = 46, align = "RIGHT", sort = S.count, filter = { type = "range", min = "minCount", max = "maxCount" },
         cell = function(row, d) return Text(d.userCount, (d.userCount or 0) > 1 and GOLD or VALUE) end },
-    { key = "disp", label = "Disp", width = 38, align = "RIGHT",
+    { key = "disp", drop = 3, label = "Disp", width = 38, align = "RIGHT",
         cell = function(row, d) return Text(d.displayCount, (d.displayCount or 0) > 1 and GOLD or VALUE) end },
     DisplayColumn("Display 1"),
-    FAV,
+    Fav(4),
 }
 
 RB.COLUMNS.mount = {
     CHECK,
     NameColumn(function(row) return Text(row.name) end),
     IdColumn("Mount id"),
-    { key = "spell", label = "Spell", width = 62, align = "RIGHT", cell = function(row, d) return Number(d.spellId) end },
-    ChoiceColumn("mountType", "Type", 74, S.kind, "mountType", RB.MOUNT_TYPES, function(row, d) return Choice(RB.MOUNT_TYPES, d.mountType) end),
-    CountColumn("Disp", "displays"),
+    { key = "spell", drop = 2, label = "Spell", width = 62, align = "RIGHT", cell = function(row, d) return Number(d.spellId) end },
+    Drop(ChoiceColumn("mountType", "Type", 74, S.kind, "mountType", RB.MOUNT_TYPES, function(row, d) return Choice(RB.MOUNT_TYPES, d.mountType) end), 4),
+    Drop(CountColumn("Disp", "displays"), 1),
     DisplayColumn("Display 1"),
     SourceColumn("displays", false),
-    FAV,
+    Fav(3),
 }
 
 -- Favourites and History: every kind at once, filtered and sorted in Lua (the saved lists are small and complete).
@@ -195,7 +203,7 @@ RB.COLUMNS.saved = {
         cell = function(row) return Text(RB.KindLabel(row.kind), DIM) end },
     { key = "id", label = "Id", width = 80, align = "RIGHT", sort = "id", filter = { type = "range", min = "minId", max = "maxId" },
         cell = function(row) return Text(row.id, VALUE) end },
-    FAV,
+    Fav(1),
 }
 
 -- The columns the grid shows now.

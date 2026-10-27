@@ -1,7 +1,7 @@
--- The grid's filter row: one cell on top of each column. The name cell is the search box (/ focuses it); a range
--- cell takes 200-, -300, 100-200, >=5, >5, <=5, <5 or =5; an exact cell a number; a choice cell opens a menu. Every
--- cell sets a RetailSearch filter, so the index filters all its entries, not the page shown. Active filters show as
--- chips in the query row.
+-- The search box over the main column (/ focuses it; it is the name column's filter, which has no cell of its own)
+-- and the grid's filter row: one cell on top of each other column. A range cell takes 200-, -300, 100-200, >=5, >5,
+-- <=5, <5 or =5; an exact cell a number; a choice cell opens a menu. Every filter goes to RetailSearch, so the index
+-- filters all its entries, not the page shown. Active filters show as chips in the query row.
 
 local RB = RetailBrowser
 local L = RB.LAYOUT
@@ -9,6 +9,7 @@ local T = RB.THEME
 local grid = RB.grid
 
 local MAX_COLUMNS = 13
+local SEARCH_ICON = 14
 local CELL_TOP = -(RB.EDGE_INSET + L.headHeight + 1)
 
 local boxes, choiceButtons, favButtons = {}, {}, {}
@@ -111,6 +112,51 @@ local function CreateBox(i)
     return box
 end
 
+-- The search box: a full-width input with a magnifier; its text is RB.state.text.
+local searchBox = RB.CreateCellBox(RB.mainCol, "RetailBrowserSearchBox")
+searchBox:SetPoint("TOPLEFT", 0, 0)
+searchBox:SetPoint("TOPRIGHT", 0, 0)
+searchBox:SetHeight(L.searchHeight)
+searchBox:SetFontObject(RetailBrowserButtonFont)
+searchBox:SetTextInsets(SEARCH_ICON + 12, 6, 0, 0)
+searchBox.hint:ClearAllPoints()
+searchBox.hint:SetPoint("LEFT", SEARCH_ICON + 13, 0)
+searchBox.hint:SetFontObject(RetailBrowserButtonFont)
+RB.SetColor(searchBox.hint, T.disabled)
+local searchIcon = searchBox:CreateTexture(nil, "OVERLAY")
+searchIcon:SetSize(SEARCH_ICON, SEARCH_ICON)
+searchIcon:SetPoint("LEFT", 6, 0)
+searchIcon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
+RB.SetVertex(searchIcon, T.label)
+searchBox:SetScript("OnTextChanged", function(self)
+    if suppressText then
+        return
+    end
+    RB.state.text = self:GetText()
+    RB.RefreshHint(self)
+    RB.SetWellEdge(self, RB.state.text ~= "" and T.inputActive or T.inputBorder)
+    FiltersChanged()
+end)
+searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() RB.FocusGrid() end)
+searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() RB.FocusGrid() end)
+searchBox:SetScript("OnTabPressed", function()
+    local nextBox = NextBox(0, 1)
+    if nextBox then nextBox:SetFocus() end
+end)
+searchBox:HookScript("OnEditFocusGained", function() RB.SetKeyOwner("search") end)
+searchBox:HookScript("OnEditFocusLost", function() RB.KeyOwnerLost() end)
+RB.AttachTip(searchBox, "filter_search")
+
+-- Empty, with the shown list's placeholder ("Search creatures by name or id").
+local function ResetSearchBox()
+    suppressText = true
+    searchBox:SetText("")
+    suppressText = false
+    local list = RB.state.source == "search" and RB.KindLabel(RB.state.kind) or RB.state.source
+    RB.SetHint(searchBox, "Search " .. (list or ""):lower() .. " by name or id")
+    RB.SetWellEdge(searchBox, T.inputBorder)
+end
+
 local function ChoiceLabel(button)
     return (button.text and RB.Colored(button.text, T.value) or RB.Colored("Any", T.disabled)) .. " " .. RB.Colored("v", T.title)
 end
@@ -182,7 +228,7 @@ function RB.LayOutFilterCells(columns)
         choice:Hide()
         fav:Hide()
         local filter = columns[i] and columns[i].filter
-        if filter and (filter.type == "search" or filter.type == "range" or filter.type == "exact") then
+        if filter and (filter.type == "range" or filter.type == "exact") then
             box:ClearFocus()
             ResetBox(box, filter.type)
             box:Show()
@@ -194,16 +240,21 @@ function RB.LayOutFilterCells(columns)
         elseif filter and filter.type == "favourites" and RB.state.source == "search" then
             fav:Show()
         end
+        box.wanted, choice.wanted, fav.wanted = box:IsShown(), choice:IsShown(), fav:IsShown()
     end
+    ResetSearchBox()
     RB.RefreshChips()
 end
 
--- Puts the shown cells on top of their columns.
+-- Puts the column's cell on top of it; a column left out for want of width hides its cell (its filter stays).
 function RB.PlaceFilterCells(layout)
     for i = 1, MAX_COLUMNS do
         local place = layout[i]
         for _, cell in ipairs({ boxes[i], choiceButtons[i], favButtons[i] }) do
-            if place and cell:IsShown() then
+            if cell.wanted then
+                RB.Shown(cell, place)
+            end
+            if place and cell.wanted then
                 cell:ClearAllPoints()
                 cell:SetPoint("TOPLEFT", grid, "TOPLEFT", place.x + 1, CELL_TOP)
                 cell:SetWidth(place.width - 2)
@@ -212,13 +263,8 @@ function RB.PlaceFilterCells(layout)
     end
 end
 
--- The search box: the name cell.
 function RB.SearchBox()
-    for i, column in ipairs(columnsNow) do
-        if column.filter and column.filter.type == "search" then
-            return boxes[i]
-        end
-    end
+    return searchBox
 end
 
 function RB.SetSearchText(text)
@@ -257,9 +303,12 @@ function RB.RefreshChips()
     for i, column in ipairs(columnsNow) do
         local filter = column.filter
         local box, choice = boxes[i], choiceButtons[i]
-        if filter and box:IsShown() and Trim(box:GetText()) ~= "" then
+        local search = filter and filter.type == "search" and Trim(searchBox:GetText()) or ""
+        if search ~= "" then
+            chips[#chips + 1] = { column = i, text = (column.label or "") .. " ~ " .. search }
+        elseif filter and box.wanted and Trim(box:GetText()) ~= "" then
             chips[#chips + 1] = { column = i, text = (column.label or "") .. (filter.type == "search" and " ~ " or " ") .. Trim(box:GetText()) }
-        elseif filter and choice:IsShown() and choice.text then
+        elseif filter and choice.wanted and choice.text then
             chips[#chips + 1] = { column = i, text = (column.label or "") .. " = " .. choice.text }
         end
     end
@@ -271,6 +320,10 @@ function RB.ClearColumnFilter(index)
     local filter = column and column.filter
     -- The favourites cell is a button, not a filter: nothing to clear.
     if not filter or filter.type == "favourites" then
+        return
+    end
+    if filter.type == "search" then
+        searchBox:SetText("")
         return
     end
     if boxes[index]:IsShown() then
