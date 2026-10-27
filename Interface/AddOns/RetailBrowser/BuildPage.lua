@@ -1,5 +1,6 @@
 -- The Build SQL page (RB.ShowPage("build")): a header with "< <Kind>" back (Esc), the title, the scope switch
--- (Focused row / Checked N / Whole page N), the entry range and Apply to world DB; the yellow confirm bar Apply opens;
+-- (Focused row / Checked N / Whole page N), the entry range and Apply to world DB; a hint when rows are checked but
+-- only the focused one is built; the yellow confirm bar Apply opens;
 -- then three columns: the queue (BuildQueue.lua), the settings (BuildOptions.lua) and the output (BuildOutput.lua).
 -- While it is open the page owns the keys: Esc goes back, Ctrl+Enter copies the SQL, Ctrl+S exports it.
 
@@ -9,6 +10,7 @@ local T = RB.THEME
 local PAD = 12
 local HEADER_HEIGHT = 44
 local CONFIRM_HEIGHT = 32
+local HINT_HEIGHT = 24
 local QUEUE_WIDTH = 300
 local OPTIONS_WIDTH = 380
 local SCOPE_WIDTH = 108
@@ -44,7 +46,7 @@ RB.SetColor(title, T.text)
 
 local scopeButtons = {}
 for i, scope in ipairs(SCOPES) do
-    local button = RB.CreateButton(header, "", SCOPE_WIDTH, 24, function() RB.SetBuildScope(scope) end)
+    local button = RB.CreateButton(header, "", SCOPE_WIDTH, 24, function() RB.ChooseBuildScope(scope) end)
     button:SetPoint("LEFT", i == 1 and title or scopeButtons[i - 1], "RIGHT", i == 1 and 18 or 2, 0)
     button.scope = scope
     RB.AttachTip(button, "scope_" .. scope)
@@ -58,8 +60,25 @@ RB.AttachTip(apply, "sql_apply")
 local range = RB.CreateText(header, "RetailBrowserValueFont", "RIGHT")
 range:SetPoint("RIGHT", apply, "LEFT", -14, 0)
 
--- labels: { focused, checked, page } texts; scope: the one that is on; rangeText: "9000000–9000002" or nil.
-function RB.RefreshBuildHeader(labels, scope, rangeText)
+-- Under the header while rows are checked but only the focused row is built: "50 rows checked · Build all 50".
+local hint = CreateFrame("Frame", nil, page)
+hint:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0)
+hint:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, 0)
+hint:SetHeight(HINT_HEIGHT)
+RB.CreateFill(hint, "BACKGROUND", T.band)
+hint.text = RB.CreateText(hint, "RetailBrowserButtonFont")
+hint.text:SetPoint("LEFT", PAD, 0)
+RB.SetColor(hint.text, T.pending)
+hint.all = RB.CreateButton(hint, "", 110, 18, function() RB.ChooseBuildScope("checked") end)
+hint.all:SetPoint("LEFT", hint.text, "RIGHT", 10, 0)
+RB.AttachTip(hint.all, "scope_checked")
+hint:Hide()
+
+local LayOutColumns
+
+-- labels: { focused, checked, page } texts; scope: the one that is on; rangeText: "9000000–9000002" or nil;
+-- checked: how many rows are checked.
+function RB.RefreshBuildHeader(labels, scope, rangeText, checked)
     for _, button in ipairs(scopeButtons) do
         button:SetLabel(labels[button.scope])
         button:SetOn(button.scope == scope)
@@ -68,6 +87,15 @@ function RB.RefreshBuildHeader(labels, scope, rangeText)
     apply:SetEnabled(rangeText ~= nil)
     local list = RB.state.source == "search" and RB.KindLabel(RB.state.kind) or RB.KindLabel(RB.state.source)
     back:SetLabel("< " .. list:gsub("^%l", string.upper))
+    local showHint = scope == "focused" and (checked or 0) > 0
+    if showHint then
+        hint.text:SetText(checked .. (checked == 1 and " row checked" or " rows checked") .. " · only the focused row is built")
+        hint.all:SetLabel(checked == 1 and "Build it" or ("Build all " .. checked))
+    end
+    if hint:IsShown() ~= (showHint and true or false) then
+        RB.Shown(hint, showHint)
+        LayOutColumns()
+    end
 end
 
 -- The confirm bar: Apply asks here before anything is written.
@@ -84,8 +112,12 @@ go:SetPoint("RIGHT", -PAD, 0)
 go:SetVariant("confirm")
 local cancel = RB.CreateButton(confirm, "Cancel", 70, 22, function() RB.HideApplyConfirm() end)
 cancel:SetPoint("RIGHT", go, "LEFT", -6, 0)
+-- The count first and large, so a build of 50 rows never reads like one.
+local count = RB.CreateText(confirm, "GameFontNormalLarge")
+count:SetPoint("LEFT", PAD, 0)
+RB.SetColor(count, T.confirmButton)
 local question = RB.CreateText(confirm, "RetailBrowserButtonFont")
-question:SetPoint("LEFT", PAD, 0)
+question:SetPoint("LEFT", count, "RIGHT", 10, 0)
 question:SetPoint("RIGHT", cancel, "LEFT", -10, 0)
 RB.SetColor(question, T.confirmText)
 
@@ -99,8 +131,11 @@ end
 RB.buildQueueCol, RB.buildOptionsCol, RB.buildOutputCol = Column(QUEUE_WIDTH), Column(OPTIONS_WIDTH), Column()
 local queueLine, optionsLine = Line(page, true), Line(page, true)
 
-local function LayOutColumns()
-    local top = RB.EDGE_INSET + HEADER_HEIGHT + (confirm:IsShown() and CONFIRM_HEIGHT or 0)
+function LayOutColumns()
+    local above = hint:IsShown() and hint or header
+    confirm:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, 0)
+    confirm:SetPoint("TOPRIGHT", above, "BOTTOMRIGHT", 0, 0)
+    local top = RB.EDGE_INSET + HEADER_HEIGHT + (confirm:IsShown() and CONFIRM_HEIGHT or 0) + (hint:IsShown() and HINT_HEIGHT or 0)
     RB.buildQueueCol:SetPoint("TOPLEFT", RB.EDGE_INSET, -top)
     RB.buildOptionsCol:SetPoint("TOPLEFT", RB.buildQueueCol, "TOPRIGHT", 1, 0)
     RB.buildOutputCol:SetPoint("TOPLEFT", RB.buildOptionsCol, "TOPRIGHT", 1, 0)
@@ -112,9 +147,10 @@ local function LayOutColumns()
 end
 LayOutColumns()
 
-function RB.ShowApplyConfirm(text, count)
+function RB.ShowApplyConfirm(text, rows)
+    count:SetText(rows .. (rows == 1 and " row" or " rows"))
     question:SetText(text)
-    go:SetLabel("Apply " .. count .. (count == 1 and " row" or " rows"))
+    go:SetLabel("Apply " .. rows .. (rows == 1 and " row" or " rows"))
     confirm:Show()
     LayOutColumns()
 end

@@ -127,12 +127,75 @@ function Layout.FitChips(widths, room, gap)
     return #widths
 end
 
+-- How the player wearing an item is framed: x is the distance (more negative is further back), z the height (more
+-- negative frames higher on the body), facing the turn (positive brings the right hand toward you). Measured in game
+-- on a human male in the default inspector box; the player model has a camera, so distance zooms.
+Layout.WHOLE_VIEW = { x = -5.2, z = -0.05, facing = 0 }
+local NEAR = -3.6
+local HEAD_VIEW = { x = NEAR, z = -0.45, facing = 0 }
+local CHEST_VIEW = { x = NEAR, z = -0.25, facing = 0 }
+local WAIST_VIEW = { x = NEAR, z = 0, facing = 0 }
+local RIGHT_HAND_VIEW = { x = NEAR, z = 0, facing = 0.9 }
+local LEFT_HAND_VIEW = { x = NEAR, z = 0, facing = -0.9 }
+local TWO_HAND_VIEW = { x = Layout.WHOLE_VIEW.x, z = Layout.WHOLE_VIEW.z, facing = 0.6 }
+
+-- By InventoryType. Rings, trinkets, bags, ammo, quivers and relics draw nothing on the body: the whole view.
+local ITEM_VIEWS = {
+    [1] = HEAD_VIEW, [2] = HEAD_VIEW, [3] = HEAD_VIEW,
+    [4] = CHEST_VIEW, [5] = CHEST_VIEW, [19] = CHEST_VIEW, [20] = CHEST_VIEW,
+    [6] = WAIST_VIEW, [9] = WAIST_VIEW, [10] = WAIST_VIEW,
+    [7] = { x = NEAR, z = 0.25, facing = 0 },
+    [8] = { x = NEAR, z = 0.45, facing = 0 },
+    [16] = { x = -4.4, z = -0.2, facing = math.pi },
+    [13] = RIGHT_HAND_VIEW, [21] = RIGHT_HAND_VIEW, [25] = RIGHT_HAND_VIEW, [26] = RIGHT_HAND_VIEW,
+    [14] = LEFT_HAND_VIEW, [22] = LEFT_HAND_VIEW, [23] = LEFT_HAND_VIEW,
+    [17] = TWO_HAND_VIEW,
+    [15] = { x = Layout.WHOLE_VIEW.x, z = Layout.WHOLE_VIEW.z, facing = -0.6 },
+}
+
+function Layout.ItemView(inventoryType)
+    return ITEM_VIEWS[inventoryType or 0] or Layout.WHOLE_VIEW
+end
+
+-- A creature or mount display has no camera, so distance does nothing and its size is set by scale instead. A
+-- humanoid fits whole, with head room, at 0.58 in the default box (262 px of model height; the model stands on the
+-- box's bottom, so a bigger scale loses the head first); the scale follows the box's height, and big creature types
+-- (their fit value) and big display scales shrink it further.
+local DISPLAY_FULL_HEIGHT = 262 / 0.58
+local DISPLAY_TYPE_SHRINK = 0.2
+
+function Layout.DisplayScale(boxHeight, typeFit, displayScale)
+    if not boxHeight or boxHeight <= 0 then
+        return 1
+    end
+    local scale = math.min(1, boxHeight / DISPLAY_FULL_HEIGHT)
+    return scale / (1 + (typeFit or 0) * DISPLAY_TYPE_SHRINK) / math.max(1, displayScale or 1)
+end
+
 -- The SQL box's width: the visible width when it wraps, else wide enough for the longest line (it scrolls sideways).
 function Layout.SqlBoxWidth(wrap, visible, longest, padding)
     if wrap then
         return visible
     end
     return math.max(visible, longest + padding)
+end
+
+-- What a click on a grid row does: "range" (Shift, checkbox included), "toggle" (the checkbox, Ctrl or right-click)
+-- or "focus".
+function Layout.RowClickAction(mouse, onBox, shift, ctrl)
+    if shift then
+        return "range"
+    elseif mouse == "RightButton" or onBox or ctrl then
+        return "toggle"
+    end
+    return "focus"
+end
+
+-- The grid row under the cursor while dragging over the checkboxes, clamped to the visible rows: gridTop and cursorY
+-- in the same units, rowsTop the rows' distance below the grid's top, offset the scrolled-past rows.
+function Layout.RowUnderCursor(gridTop, cursorY, rowsTop, rowHeight, offset, visible)
+    local row = math.floor((gridTop - rowsTop - cursorY) / rowHeight) + 1
+    return offset + math.max(1, math.min(visible, row))
 end
 
 -- Buttons of at least minWidth in as many columns as fit: columns, button width, rows.

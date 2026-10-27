@@ -150,8 +150,9 @@ end
 
 local function RefreshHeader()
     local result = RB.buildResult
-    RB.RefreshBuildHeader(RB.BuildScopeLabels(#RB.CheckedRows(), #RB.rows), RB.buildScope,
-        result and RB.EntryRangeText(result.firstEntry, result.nextEntry) or nil)
+    local checked = #RB.CheckedRows()
+    RB.RefreshBuildHeader(RB.BuildScopeLabels(checked, #RB.rows), RB.buildScope,
+        result and RB.EntryRangeText(result.firstEntry, result.nextEntry) or nil, checked)
 end
 
 -- The output for the selected queue row.
@@ -291,17 +292,22 @@ function RB.SetBuildScope(scope)
     RB.RefreshRail()
 end
 
-function RB.OnChecksChanged()
-    RefreshHeader()
-    RB.RefreshRail()
-    if RB.buildScope ~= "focused" then
-        RB.ScheduleBuild()
-    end
+-- A scope picked on the page's switch: it stands until the checks change.
+function RB.ChooseBuildScope(scope)
+    RB.buildScopeChosen = scope
+    RB.SetBuildScope(scope)
 end
 
--- Opens the page for a scope (focused, checked, page).
-function RB.ShowBuild(scope)
-    RB.SetBuildScope(scope or RB.buildScope)
+-- New checks drop a chosen scope: the build follows them again (RB.DefaultBuildScope).
+function RB.OnChecksChanged()
+    RB.buildScopeChosen = nil
+    RB.SetBuildScope(RB.BuildScopeFor(#RB.CheckedRows(), nil))
+end
+
+-- Opens the page: the checked rows when there are some, else the focused row, unless a scope was chosen on the
+-- page since the checks last changed. The B key, the action, the bulk bar and the rail all come here.
+function RB.ShowBuild()
+    RB.SetBuildScope(RB.BuildScopeFor(#RB.CheckedRows(), RB.buildScopeChosen))
     local d = RB.details
     local first = RB.CheckedRows()[1]
     if (not d or not RB.BUILD_TABLES[d.kind]) and first then

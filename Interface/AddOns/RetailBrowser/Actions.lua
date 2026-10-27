@@ -64,7 +64,7 @@ AddAction("favourite", nil, "F", function(d)
     RB.Print((on and "added " or "removed ") .. d.name .. (on and " to" or " from") .. " favourites")
     RB.AfterFavouriteChange()
 end)
-AddAction("build", "Build SQL", "B", function() RB.ShowBuild("focused") end,
+AddAction("build", "Build SQL", "B", function() RB.ShowBuild() end,
     function(d) return RB.BUILD_TABLES[d.kind] ~= nil end)
 
 local hint = RB.CreateText(slot, "RetailBrowserLabelFont")

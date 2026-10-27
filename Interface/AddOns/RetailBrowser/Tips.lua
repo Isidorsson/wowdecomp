@@ -134,7 +134,7 @@ RB.TIPS = {
 
 -- Header tips by column key; the label is the title.
 RB.COLUMN_TIPS = {
-    check = "Check rows for the bulk bar: click here, Space, Ctrl+click, right-click or Shift+click a range.",
+    check = "Check rows for the bulk bar: click here, or press here and drag up or down to check (or uncheck) every row you pass. Shift+click checks a range from the last clicked row; Space, Ctrl+click and right-click toggle one.",
     icon = "The item's retail icon.",
     name = "Click sorts by name over the whole index; again reverses. Items: quality colour. Creatures: rank colour.",
     ilvl = "Retail item level (ItemSearchName).",

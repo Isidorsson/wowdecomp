@@ -78,7 +78,7 @@ local PLAIN = {
     M = function() RB.RunAction("morph") end, T = function() RB.RunAction("npcModel") end,
     I = Bulk(RB.BulkAdd, "addItem"), Y = Bulk(RB.BulkTryOn, "tryOn"), G = Bulk(RB.BulkGm, "copyGm"),
     F = Bulk(RB.BulkFavourite, "favourite"),
-    B = function() RB.ShowBuild(next(RB.checked) and "checked" or "focused") end,
+    B = function() RB.ShowBuild() end,
     D = Tab("overview"), P = Tab("displays"), U = Tab("usedby"), R = Tab("raw"), S = Tab("stats"),
     E = function() RB.ExportCsv() end,
     ["["] = function() RB.TurnPage(-1) end, ["]"] = function() RB.TurnPage(1) end,

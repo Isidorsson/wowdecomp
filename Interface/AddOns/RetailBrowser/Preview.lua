@@ -1,20 +1,26 @@
--- The 3D previews. The inspector's: a DressUpModel at the top of its content, showing a creature display
--- (SetDisplayInfo, dressed and baked for humanoid NPCs) or the player wearing an item display or a whole set
--- (TryOnDisplay). Its toolbar picks the display, turns, zooms, fits, resets, plays an animation and copies the
--- display id; drag turns it too and the wheel zooms. Fit frames it by the display's scale and the creature's type.
+-- The 3D previews. The inspector's: two DressUpModels at the top of its content, one shown at a time. The player
+-- model wears an item display or a whole set (TryOnDisplay) and is framed on the item's slot (Layout.ItemView: a helm
+-- shows the head, a shield turns the left side toward you). The display model shows a creature or mount display
+-- (SetDisplayInfo, dressed and baked for humanoid NPCs) whole, sized by scale (Layout.DisplayScale). They are kept
+-- apart because a model that once had the player's camera frames displays differently. Its toolbar picks the display,
+-- turns, zooms, fits, resets, plays an animation and copies the display id; drag turns it too and the wheel zooms.
 -- The hover preview: one shared model shown 0.4 s after the mouse rests on a grid row.
 
 local RB = RetailBrowser
 local T = RB.THEME
+local Layout = RB.Layout
 
 local PREVIEW_DELAY = 0.25
 local HOVER_DELAY = 0.4
 local SCROLL_QUIET = 0.2
-local ZOOM_STEP = 1
 local TURN_STEP = math.pi / 8
 local TOOLBAR_HEIGHT = 30
--- How far back fit puts a display, per retail creature type (Beast 1, Dragonkin 2, Elemental 4, Giant 5,
--- Mechanical 9), before the display's own scale; mounts sit a little further back.
+local INSET = 4
+-- A zoom step: this much nearer for the player model, this factor larger for a display.
+local PLAYER_ZOOM_STEP = 0.35
+local DISPLAY_ZOOM_FACTOR = 1.15
+-- How big a creature looks for its fit, per retail creature type (Beast 1, Dragonkin 2, Elemental 4, Giant 5,
+-- Mechanical 9); mounts are a little bigger (Layout.DisplayScale shrinks by it).
 local FIT_BY_TYPE = { [1] = 1, [2] = 4.5, [4] = 1.5, [5] = 3.5, [9] = 1.5 }
 local FIT_MOUNT = 2.5
 -- Animations the toolbar cycles through (AnimationData ids).
@@ -26,21 +32,46 @@ back:SetPoint("TOPLEFT")
 back:SetPoint("BOTTOMRIGHT", 0, TOOLBAR_HEIGHT)
 RB.SetBack(back, T.preview)
 
-local model = CreateFrame("DressUpModel", "RetailBrowserPreview", slot)
-model:SetPoint("TOPLEFT", 4, -4)
-model:SetPoint("BOTTOMRIGHT", -4, TOOLBAR_HEIGHT + 4)
-model:EnableMouse(true)
-model:EnableMouseWheel(true)
-RB.preview = model
-
 local caption = RB.CreateText(slot, "RetailBrowserLabelFont", "CENTER")
 caption:SetPoint("BOTTOMLEFT", 6, TOOLBAR_HEIGHT + 6)
 caption:SetPoint("BOTTOMRIGHT", -6, TOOLBAR_HEIGHT + 6)
 
-local zoom, fitZoom, animation = 0, 0, 1
-local function ApplyZoom()
-    local _, y, z = model:GetPosition()
-    model:SetPosition(zoom, y or 0, z or 0)
+local function CreateModel(name)
+    local model = CreateFrame("DressUpModel", name, slot)
+    model:SetPoint("TOPLEFT", INSET, -INSET)
+    model:SetPoint("BOTTOMRIGHT", -INSET, TOOLBAR_HEIGHT + INSET)
+    model:EnableMouse(true)
+    model:EnableMouseWheel(true)
+    model:Hide()
+    return model
+end
+
+local playerModel = CreateModel("RetailBrowserPreview")
+local displayModel = CreateModel("RetailBrowserDisplayPreview")
+local active = displayModel
+-- The player model's view (distance, height, facing) and the display model's fitted scale; zoom counts steps from them.
+local view, displayScale, zoom = Layout.WHOLE_VIEW, 1, 0
+local animation = 1
+
+local function Use(model)
+    active = model
+    RB.Shown(playerModel, model == playerModel)
+    RB.Shown(displayModel, model == displayModel)
+end
+
+local function ApplyView()
+    if active == playerModel then
+        playerModel:SetPosition(view.x + zoom * PLAYER_ZOOM_STEP, 0, view.z)
+    else
+        displayModel:SetPosition(0, 0, 0)
+        displayModel:SetModelScale(displayScale * DISPLAY_ZOOM_FACTOR ^ zoom)
+    end
+end
+
+local function ResetView()
+    zoom = 0
+    active:SetFacing(active == playerModel and view.facing or 0)
+    ApplyView()
 end
 
 -- The animation runs on a clock the model's OnUpdate advances (SetSequence alone did not move retail displays);
@@ -65,16 +96,12 @@ end
 
 Tool("<", 1, function() RB.StepPick(-1) end)
 Tool(">", 1, function() RB.StepPick(1) end)
-Tool("<<", 1.2, function() model:SetFacing(model:GetFacing() - TURN_STEP) end)
-Tool(">>", 1.2, function() model:SetFacing(model:GetFacing() + TURN_STEP) end)
+Tool("<<", 1.2, function() active:SetFacing(active:GetFacing() - TURN_STEP) end)
+Tool(">>", 1.2, function() active:SetFacing(active:GetFacing() + TURN_STEP) end)
 Tool("+", 1, function() RB.ZoomPreview(1) end)
 Tool("-", 1, function() RB.ZoomPreview(-1) end)
 Tool("Fit", 1.3, function() RB.FitPreview() end)
-Tool("Reset", 1.7, function()
-    model:SetFacing(0)
-    zoom = fitZoom
-    ApplyZoom()
-end)
+Tool("Reset", 1.7, ResetView)
 Tool("Stand", 1.9, function(self)
     animation = animation % #ANIMATIONS + 1
     self:SetLabel(ANIMATIONS[animation][2])
@@ -86,7 +113,6 @@ local TOOL_TIPS = { "tool_prev", "tool_next", "tool_turnLeft", "tool_turnRight",
 for i, button in ipairs(tools) do
     RB.AttachTip(button, TOOL_TIPS[i])
 end
-RB.AttachTip(model, "preview")
 
 toolbar:SetScript("OnSizeChanged", function(self, width)
     local weights = 0
@@ -101,29 +127,24 @@ toolbar:SetScript("OnSizeChanged", function(self, width)
     end
 end)
 
-model:SetScript("OnMouseDown", function(self)
-    self.dragX = GetCursorPosition()
-    self.dragFacing = self:GetFacing()
-end)
-model:SetScript("OnMouseUp", function(self) self.dragX = nil end)
-model:SetScript("OnMouseWheel", function(self, delta) RB.ZoomPreview(delta) end)
-model:SetScript("OnUpdate", function(self, elapsed)
-    if self.dragX then
-        local x = GetCursorPosition()
-        self:SetFacing(self.dragFacing + (x - self.dragX) / 80)
-    end
-    if animation > 1 then
-        animationClock = animationClock + elapsed * 1000
-        self:SetSequenceTime(ANIMATIONS[animation][1], animationClock)
-    end
-end)
-
--- The fit distance of a creature or mount display: by type, then by the display's scale.
-local function FitOf(d, picked)
-    local base = d.kind == "mount" and FIT_MOUNT or FIT_BY_TYPE[d.type or 0] or 0
-    local scale = picked and picked.scale or 1
-    local back = base + math.max(0, scale - 1) * 3
-    return back > 0 and -back or 0
+for _, model in ipairs({ playerModel, displayModel }) do
+    RB.AttachTip(model, "preview")
+    model:SetScript("OnMouseDown", function(self)
+        self.dragX = GetCursorPosition()
+        self.dragFacing = self:GetFacing()
+    end)
+    model:SetScript("OnMouseUp", function(self) self.dragX = nil end)
+    model:SetScript("OnMouseWheel", function(self, delta) RB.ZoomPreview(delta) end)
+    model:SetScript("OnUpdate", function(self, elapsed)
+        if self.dragX then
+            local x = GetCursorPosition()
+            self:SetFacing(self.dragFacing + (x - self.dragX) / 80)
+        end
+        if animation > 1 then
+            animationClock = animationClock + elapsed * 1000
+            self:SetSequenceTime(ANIMATIONS[animation][1], animationClock)
+        end
+    end)
 end
 
 local function Wear(target, displayId, inventoryType, sheathe, classId, subclassId)
@@ -132,7 +153,6 @@ end
 
 local function WearItem(target, item, look)
     target:SetUnit("player")
-    target:SetFacing(0)
     look = look or (item.appearances and item.appearances[1])
     return look and Wear(target, look.displayId, item.inventoryType, item.sheatheType, item.classId, item.subclassId)
 end
@@ -153,14 +173,7 @@ end
 local function WearSet(target, set)
     target:SetUnit("player")
     target:Undress()
-    target:SetFacing(0)
     return WearPieces(target, set.pieces or {}, {})
-end
-
-local function ShowDisplay(target, display, fit)
-    target:SetDisplayInfo(display)
-    target:SetFacing(0)
-    target:SetPosition(fit or 0, 0, 0)
 end
 
 -- "Display 129156", with its place among the entry's displays when there are several: "Display 126134 (2/8)".
@@ -173,25 +186,36 @@ local function DisplayCaption(d, display)
     return "Display " .. display
 end
 
--- Shows an entry on a model; the caption text.
+-- Whether an entry is shown as the player wearing it (items, sets, item models) rather than as a display.
+local function WornByPlayer(d)
+    return d.kind == "item" or d.kind == "set" or (d.kind == "model" and not d.creature)
+end
+
+-- Shows an entry on a model; the caption text and, when the player wears it, the view of the worn slot.
 local function ShowOn(target, d, picked)
     if d.kind == "item" then
         local worn = WearItem(target, d, picked)
-        return worn and ("on you, display " .. picked.displayId) or "this slot has no model"
+        return worn and ("on you, display " .. picked.displayId) or "this slot has no model", Layout.ItemView(d.inventoryType)
     elseif d.kind == "set" then
-        return WearSet(target, d) .. " slots worn, " .. #(d.pieces or {}) .. " pieces"
+        return WearSet(target, d) .. " slots worn, " .. #(d.pieces or {}) .. " pieces", Layout.WHOLE_VIEW
     elseif d.kind == "model" and not d.creature then
         local user = picked or (d.users and d.users[1])
         local item = user and RB.DetailsOf("item", user.id)
-        return item and WearItem(target, item) and ("on you, item " .. user.id) or "no item to wear"
+        local text = item and WearItem(target, item) and ("on you, item " .. user.id) or "no item to wear"
+        return text, Layout.ItemView(item and item.inventoryType)
     end
     local display = RB.ActionDisplay(d)
     if not display then
         return "no display"
     end
-    local fit = d.kind == "model" and 0 or FitOf(d, picked)
-    ShowDisplay(target, display, fit)
-    return string.format("%s, fit %g", DisplayCaption(d, display), fit), fit
+    target:SetDisplayInfo(display)
+    return DisplayCaption(d, display)
+end
+
+-- The display model's scale that shows a creature or mount whole in the box.
+local function FitScale(d, picked)
+    local typeFit = d.kind == "mount" and FIT_MOUNT or FIT_BY_TYPE[d.type or 0] or 0
+    return Layout.DisplayScale(slot:GetHeight() - TOOLBAR_HEIGHT - 2 * INSET, typeFit, picked and picked.scale)
 end
 
 function RB.Preview(d)
@@ -199,8 +223,11 @@ function RB.Preview(d)
         return
     end
     local picked = RB.Picked(d)
-    local text, fit = ShowOn(model, d, picked)
-    zoom, fitZoom = fit or 0, fit or 0
+    Use(WornByPlayer(d) and playerModel or displayModel)
+    local text, worn = ShowOn(active, d, picked)
+    view = worn or Layout.WHOLE_VIEW
+    displayScale = FitScale(d, picked)
+    ResetView()
     caption:SetText(text)
     if animation > 1 then
         PlayAnimation()
@@ -208,34 +235,54 @@ function RB.Preview(d)
 end
 
 function RB.FitPreview()
-    local d = RB.details
-    if d and d.kind ~= "item" and d.kind ~= "set" then
-        zoom = FitOf(d, RB.Picked(d))
-        fitZoom = zoom
-        ApplyZoom()
-    end
+    zoom = 0
+    ApplyView()
 end
 
 function RB.ZoomPreview(steps)
-    zoom = zoom + steps * ZOOM_STEP
-    ApplyZoom()
+    zoom = zoom + steps
+    ApplyView()
 end
+
+-- A model frame keeps the projection of the place and size it was first drawn at: when the box moves or changes size
+-- (the inspector's width, the warning band above it) it is hidden and shown to take the new one, and the entry shown
+-- again and refitted. The refresh waits until the place has held for a few frames, so the model's rect has caught up.
+local SETTLE_FRAMES = 3
+local placeWatch, place, still = CreateFrame("Frame", nil, slot), "", 0
+placeWatch:SetScript("OnUpdate", function()
+    local now = string.format("%.1f %.1f %.1f %.1f", slot:GetLeft() or 0, slot:GetTop() or 0, slot:GetRight() or 0, slot:GetBottom() or 0)
+    if now ~= place then
+        place, still = now, 0
+        return
+    end
+    still = still + 1
+    if still ~= SETTLE_FRAMES then
+        return
+    end
+    active:Hide()
+    active:Show()
+    if RB.details then
+        RB.Preview(RB.details)
+    end
+end)
 
 -- Wears every checked item and set at once (the bulk bar's Try on).
 function RB.TryOnAll(list)
-    model:SetUnit("player")
-    model:Undress()
-    model:SetFacing(0)
+    Use(playerModel)
+    playerModel:SetUnit("player")
+    playerModel:Undress()
     local slots, worn = {}, 0
     for _, d in ipairs(list) do
         if d.kind == "item" then
             local look = d.appearances and d.appearances[1]
-            worn = worn + WearPieces(model, look and { { inventoryType = d.inventoryType, displayId = look.displayId } } or {}, slots)
+            worn = worn + WearPieces(playerModel, look and { { inventoryType = d.inventoryType, displayId = look.displayId } } or {}, slots)
         elseif d.kind == "set" then
-            worn = worn + WearPieces(model, d.pieces or {}, slots)
+            worn = worn + WearPieces(playerModel, d.pieces or {}, slots)
         end
     end
     caption:SetText(worn .. " slots worn from " .. #list .. " rows")
+    view = Layout.WHOLE_VIEW
+    ResetView()
 end
 
 -- The inspector preview follows the focused row after a pause (arrowing through rows loads one model at the end).
@@ -292,6 +339,7 @@ local function ShowHover()
     hover:Show()
     local list = RB.PickList(d)
     local text = ShowOn(hoverModel, d, list[1])
+    hoverModel:SetFacing(0)
     hoverCaption:SetText(text or "")
 end
 

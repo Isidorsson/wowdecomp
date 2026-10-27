@@ -28,7 +28,7 @@ label:SetWidth(LABEL_WIDTH)
 local idle = RB.CreateText(bar, "RetailBrowserLabelFont")
 idle:SetPoint("LEFT", 8, 0)
 idle:SetPoint("RIGHT", -CHECK_PAGE_WIDTH - 12, 0)
-idle:SetText("Check rows for bulk actions: Space, Ctrl+click or right-click a row, Shift+click a range, Ctrl+A the page.")
+idle:SetText("Check rows: click or drag down the boxes, Shift+click a range, Shift+Up/Down, Ctrl+A the page.")
 
 -- The details of each checked row (fetched for rows of other pages too).
 local function CheckedDetails()
@@ -155,7 +155,7 @@ AddButton("add", "Add", RB.BulkAdd, ITEMS)
 AddButton("try", "Try on", RB.BulkTryOn, ITEMS)
 AddButton("fav", "Fav", RB.BulkFavourite)
 AddButton("csv", "CSV", RB.BulkCsv)
-AddButton("build", "Build SQL x1", function() RB.ShowBuild("checked") end, RB.BUILD_TABLES)
+AddButton("build", "Build SQL x1", function() RB.ShowBuild() end, RB.BUILD_TABLES)
 AddButton("clear", "Clear", RB.ClearChecks)
 
 local checkPage = RB.CreateButton(bar, "Check page", CHECK_PAGE_WIDTH, BUTTON_HEIGHT, function() RB.CheckPage() end)

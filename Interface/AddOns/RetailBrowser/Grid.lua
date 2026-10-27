@@ -119,22 +119,72 @@ end
 -- Rows.
 local buttons = {}
 
+-- The checkbox column at a row's left edge.
+local BOX_WIDTH = 18
+
+local function OnBox(row)
+    return GetCursorPosition() / row:GetEffectiveScale() - row:GetLeft() < BOX_WIDTH
+end
+
 local function RowClicked(self, mouse)
     local index = self.index
     if not RB.rows[index] then
         return
     end
-    local x = GetCursorPosition() / self:GetEffectiveScale() - self:GetLeft()
-    if mouse == "RightButton" or x < 18 or IsControlKeyDown() then
-        RB.ToggleCheck(index)
-    elseif IsShiftKeyDown() then
-        RB.CheckRange(RB.anchor or index, index)
+    -- A press on the box already checked this row (and maybe dragged over others): the click adds nothing.
+    if self.dragStarted then
+        self.dragStarted = nil
     else
-        RB.FocusRow(index, true)
+        local action = RB.Layout.RowClickAction(mouse, OnBox(self), IsShiftKeyDown(), IsControlKeyDown())
+        if action == "range" then
+            RB.CheckRange(RB.anchor or index, index)
+        elseif action == "toggle" then
+            RB.ToggleCheck(index)
+        else
+            RB.FocusRow(index, true)
+        end
     end
     RB.anchor = index
     RB.FocusGrid()
 end
+
+-- Drag over the boxes: a plain left press on a box sets that row and every row the cursor passes to the opposite of
+-- the pressed row's state, until the button is let go. The cursor's row is worked out from its height, since the
+-- pressed row keeps the mouse while the button is down.
+local drag
+
+local function RowPressed(self, mouse)
+    -- A drag let go over another row never clicks the pressed one: forget any flag it left.
+    for _, row in ipairs(buttons) do
+        row.dragStarted = nil
+    end
+    local entry = RB.rows[self.index]
+    if mouse ~= "LeftButton" or not entry or not OnBox(self) or IsShiftKeyDown() or IsControlKeyDown() then
+        return
+    end
+    drag = { on = not RB.checked[RB.EntryKey(entry.kind, entry.id)], last = self.index }
+    self.dragStarted = true
+    RB.SetChecks(self.index, self.index, drag.on)
+end
+
+local function DragOver()
+    if not IsMouseButtonDown("LeftButton") then
+        drag = nil
+        return
+    end
+    local y = select(2, GetCursorPosition()) / grid:GetEffectiveScale()
+    local index = RB.Layout.RowUnderCursor(grid:GetTop(), y, ROWS_TOP, L.rowHeight, FauxScrollFrame_GetOffset(RetailBrowserGridScroll), RB.visibleRows)
+    if index ~= drag.last then
+        RB.SetChecks(drag.last, index, drag.on)
+        drag.last = index
+    end
+end
+
+grid:HookScript("OnUpdate", function()
+    if drag then
+        DragOver()
+    end
+end)
 
 local function CreateRow(i)
     local row = CreateFrame("Button", nil, grid)
@@ -162,6 +212,7 @@ local function CreateRow(i)
         row.cells[c]:SetHeight(L.rowHeight)
     end
     row:SetScript("OnClick", RowClicked)
+    row:SetScript("OnMouseDown", RowPressed)
     row:SetScript("OnEnter", function(self) RB.HoverRow(self) end)
     row:SetScript("OnLeave", function() RB.HoverEnd() end)
     if i % 2 == 1 then row.stripe:Hide() end
@@ -366,15 +417,20 @@ function RB.ToggleCheck(index)
     RB.RefreshBulk()
 end
 
-function RB.CheckRange(from, to)
+-- Checks (on) or unchecks the rows from..to.
+function RB.SetChecks(from, to, on)
     for index = math.min(from, to), math.max(from, to) do
         local entry = RB.rows[index]
         if entry then
-            RB.checked[RB.EntryKey(entry.kind, entry.id)] = entry
+            RB.checked[RB.EntryKey(entry.kind, entry.id)] = on and entry or nil
         end
     end
     RB.RefreshGrid()
     RB.RefreshBulk()
+end
+
+function RB.CheckRange(from, to)
+    RB.SetChecks(from, to, true)
 end
 
 function RB.CheckPage()

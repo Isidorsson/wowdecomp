@@ -164,6 +164,69 @@ h.describe("SQL box width", function()
     end)
 end)
 
+h.describe("Item preview framing", function()
+    local HEAD, CHEST, LEGS, FEET, ONE_HAND, SHIELD, TWO_HAND, MAIN_HAND, OFF_HAND, HOLDABLE, FINGER, BACK =
+        1, 5, 7, 8, 13, 14, 17, 21, 22, 23, 11, 16
+
+    h.it("a slot's view is closer than the whole body", function()
+        for _, slot in ipairs({ HEAD, CHEST, LEGS, FEET, MAIN_HAND, SHIELD }) do
+            h.assertTrue(Layout.ItemView(slot).x > Layout.WHOLE_VIEW.x, "slot " .. slot)
+        end
+    end)
+
+    h.it("the head is framed above the chest, the chest above the legs, the legs above the feet", function()
+        h.assertTrue(Layout.ItemView(HEAD).z < Layout.ItemView(CHEST).z)
+        h.assertTrue(Layout.ItemView(CHEST).z < Layout.ItemView(LEGS).z)
+        h.assertTrue(Layout.ItemView(LEGS).z < Layout.ItemView(FEET).z)
+    end)
+
+    h.it("main-hand and one-hand weapons turn the right side toward you", function()
+        h.assertTrue(Layout.ItemView(MAIN_HAND).facing > 0)
+        h.assertEq(Layout.ItemView(ONE_HAND).facing, Layout.ItemView(MAIN_HAND).facing)
+    end)
+
+    h.it("off-hands, shields and held-in-off-hand items turn the left side toward you", function()
+        for _, slot in ipairs({ OFF_HAND, SHIELD, HOLDABLE }) do
+            h.assertTrue(Layout.ItemView(slot).facing < 0, "slot " .. slot)
+        end
+    end)
+
+    h.it("a cloak is seen from behind", function()
+        h.assertTrue(math.abs(Layout.ItemView(BACK).facing) > 3)
+    end)
+
+    h.it("two-handers show the whole body", function()
+        h.assertEq(Layout.ItemView(TWO_HAND).x, Layout.WHOLE_VIEW.x)
+    end)
+
+    h.it("slots with no model, and unknown slots, show the whole body", function()
+        h.assertEq(Layout.ItemView(FINGER), Layout.WHOLE_VIEW)
+        h.assertEq(Layout.ItemView(nil), Layout.WHOLE_VIEW)
+        h.assertEq(Layout.ItemView(99), Layout.WHOLE_VIEW)
+    end)
+end)
+
+h.describe("Display preview scale", function()
+    h.it("the default inspector box shows a humanoid at the measured scale", function()
+        local scale = Layout.DisplayScale(262, 0, 1)
+        h.assertTrue(scale > 0.55 and scale < 0.62, tostring(scale))
+    end)
+
+    h.it("a shorter box shrinks the model, a taller one never grows it past 1", function()
+        h.assertTrue(Layout.DisplayScale(200, 0, 1) < Layout.DisplayScale(262, 0, 1))
+        h.assertEq(Layout.DisplayScale(2000, 0, 1), 1)
+    end)
+
+    h.it("big creature types and big display scales shrink it further", function()
+        h.assertTrue(Layout.DisplayScale(262, 4.5, 1) < Layout.DisplayScale(262, 0, 1))
+        h.assertTrue(Layout.DisplayScale(262, 0, 2) < Layout.DisplayScale(262, 0, 1))
+    end)
+
+    h.it("a box with no height yet keeps the model's own size", function()
+        h.assertEq(Layout.DisplayScale(0, 0, 1), 1)
+    end)
+end)
+
 h.describe("Pager", function()
     h.it("one match is singular", function()
         h.assertEq(RetailBrowser.PageText(1, 1, 1), "1 match, page 1 / 1")
@@ -197,5 +260,41 @@ h.describe("Action grid", function()
         local cols, width = Layout.ActionGrid(10, 100, 160, 6)
         h.assertEq(cols, 1)
         h.assertEq(width, 100)
+    end)
+end)
+
+h.describe("Row click", function()
+    h.it("Shift+click checks a range, even on the checkbox", function()
+        h.assertEq(Layout.RowClickAction("LeftButton", true, true, false), "range")
+        h.assertEq(Layout.RowClickAction("LeftButton", false, true, false), "range")
+    end)
+
+    h.it("the checkbox, Ctrl+click and right-click toggle one row", function()
+        h.assertEq(Layout.RowClickAction("LeftButton", true, false, false), "toggle")
+        h.assertEq(Layout.RowClickAction("LeftButton", false, false, true), "toggle")
+        h.assertEq(Layout.RowClickAction("RightButton", false, false, false), "toggle")
+    end)
+
+    h.it("a plain click elsewhere on the row focuses it", function()
+        h.assertEq(Layout.RowClickAction("LeftButton", false, false, false), "focus")
+    end)
+end)
+
+h.describe("Row under the cursor", function()
+    -- Rows start 40 px below the grid's top at y = 500, 16 px each; the list is scrolled 10 rows; 20 rows show.
+    local function At(y) return Layout.RowUnderCursor(500, y, 40, 16, 10, 20) end
+
+    h.it("the first visible row is the scroll offset plus one", function()
+        h.assertEq(At(459), 11)
+    end)
+
+    h.it("each row height down is the next row", function()
+        h.assertEq(At(459 - 16), 12)
+        h.assertEq(At(460 - 40), 13)
+    end)
+
+    h.it("above the rows or below the last visible one is clamped to the edge rows", function()
+        h.assertEq(At(480), 11)
+        h.assertEq(At(0), 30)
     end)
 end)

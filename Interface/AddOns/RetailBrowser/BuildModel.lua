@@ -131,6 +131,16 @@ function RB.EntryRangeText(first, nextEntry)
     return first .. "–" .. (nextEntry - 1)
 end
 
+-- What Build SQL builds when it opens: the checked rows when there are some, else the focused row.
+function RB.DefaultBuildScope(checked)
+    return checked > 0 and "checked" or "focused"
+end
+
+-- The scope chosen on the page's switch stands until the checks change (chosen is then nil).
+function RB.BuildScopeFor(checked, chosen)
+    return chosen or RB.DefaultBuildScope(checked)
+end
+
 function RB.BuildScopeLabels(checked, page)
     return { focused = "Focused row", checked = "Checked " .. checked, page = "Whole page " .. page }
 end

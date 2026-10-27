@@ -91,6 +91,22 @@ h.describe("Build queue", function()
     end)
 end)
 
+h.describe("Default build scope", function()
+    h.it("builds the checked rows when there are some", function()
+        h.assertEq(RB.DefaultBuildScope(50), "checked")
+    end)
+
+    h.it("builds the focused row when nothing is checked", function()
+        h.assertEq(RB.DefaultBuildScope(0), "focused")
+    end)
+
+    h.it("a scope chosen on the page stands until the checks change", function()
+        h.assertEq(RB.BuildScopeFor(50, "focused"), "focused")
+        h.assertEq(RB.BuildScopeFor(50, nil), "checked")
+        h.assertEq(RB.BuildScopeFor(0, "page"), "page")
+    end)
+end)
+
 h.describe("Build page labels", function()
     h.it("entry range: one entry, or first to last", function()
         h.assertEq(RB.EntryRangeText(9000000, 9000001), "9000000")
