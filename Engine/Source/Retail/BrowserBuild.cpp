@@ -227,7 +227,11 @@ bool AddItem(Build& build, const BrowseItem& item, uint32_t displayId, bool lone
         build.Note(std::string(item.name) + ": " + classNote);
     }
     uint32_t chosen = lone ? Unsigned(NumberOption(build.options, "baseEntry", 0)) : 0;
-    row.base = chosen ? chosen : SuggestedBaseItem(row.classId, row.subclass, item.inventoryType);
+    std::string baseNote;
+    row.base = chosen ? chosen : SuggestedBaseItem(row.classId, row.subclass, item.inventoryType, &baseNote);
+    if (!baseNote.empty()) {
+        build.Note(std::string(item.name) + ": " + baseNote);
+    }
     if (!row.base) {
         error = "no stock 3.3.5 item of class " + std::to_string(row.classId) + ", subclass " + std::to_string(row.subclass) + ", slot " +
             std::to_string(item.inventoryType) + " to copy for " + std::string(item.name) + ": enter a base entry";

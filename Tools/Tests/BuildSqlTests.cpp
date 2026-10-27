@@ -139,6 +139,32 @@ TEST(SuggestedBaseItemsComeFromTheWorldDb) {
     CHECK(SuggestedBaseItem(9, 0, 0) == 0);
 }
 
+TEST(MiscellaneousShirtsAndRobesHaveBases) {
+    CHECK(SuggestedBaseItem(4, 0, 4) == 11840);    // Shirt: Master Builder's Shirt.
+    CHECK(SuggestedBaseItem(4, 0, 20) == 13895);   // Miscellaneous robe: Formal Dangui.
+    CHECK(SuggestedBaseItem(4, 0, 5) == 13895);    // No miscellaneous chest: the robe.
+}
+
+TEST(AnExactBaseSaysNothing) {
+    std::string note;
+    CHECK(SuggestedBaseItem(4, 4, 5, &note) == 39239);
+    CHECK(note.empty());
+}
+
+TEST(NoBaseForTheSubclassFallsBackToTheSameSlotClothFirst) {
+    std::string note;
+    CHECK(SuggestedBaseItem(4, 0, 7, &note) == 40560);    // Cosmetic legs: the cloth legs.
+    CHECK(Contains(note, "40560"));
+    CHECK(Contains(note, "subclass 0"));
+    CHECK(SuggestedBaseItem(4, 0, 16) == 39225);          // Cosmetic cloak: the cloth cloak.
+    CHECK(SuggestedBaseItem(4, 0, 10) == 42103);          // Cosmetic gloves: the cloth gloves.
+}
+
+TEST(TheSlotFallbackStaysInItsClass) {
+    CHECK(SuggestedBaseItem(2, 20, 13) == 40402);   // An unknown one-hand weapon: the first one-hand weapon.
+    CHECK(SuggestedBaseItem(4, 0, 13) == 0);        // No armour in a weapon slot.
+}
+
 TEST(RetailOnlyItemClassesBecomeTheirNearest) {
     uint32_t classId = 2, subclass = 9;
     std::string note;

@@ -6,6 +6,8 @@ namespace Retail {
 
 constexpr uint32_t INVENTORY_CHEST = 5;
 constexpr uint32_t INVENTORY_ROBE = 20;
+constexpr uint32_t ITEM_CLASS_ARMOUR = 4;
+constexpr uint32_t ARMOUR_CLOTH = 1;
 
 std::string SqlQuote(const std::string& text) {
     std::string quoted = "'";
@@ -183,6 +185,7 @@ static const BaseItem BASE_ITEMS[] = {
     { 2, 13, 22, 42264 }, { 2, 14, 13, 12866 }, { 2, 14, 17, 41755 }, { 2, 15, 13, 42241 }, { 2, 15, 21, 42345 }, { 2, 15, 22, 42247 },
     { 2, 16, 25, 42449 }, { 2, 18, 26, 42494 }, { 2, 19, 26, 34146 },
     { 4, 0, 1, 20591 }, { 4, 0, 2, 39246 }, { 4, 0, 11, 37784 }, { 4, 0, 12, 42128 }, { 4, 0, 19, 45983 }, { 4, 0, 23, 38322 },
+    { 4, 0, 4, 11840 }, { 4, 0, 20, 13895 }, // No epic shirt or miscellaneous robe: the highest-level plain ones.
     { 4, 1, 1, 45435 }, { 4, 1, 3, 45253 }, { 4, 1, 5, 24687 }, { 4, 1, 6, 40561 }, { 4, 1, 7, 40560 }, { 4, 1, 8, 45258 },
     { 4, 1, 9, 41878 }, { 4, 1, 10, 42103 }, { 4, 1, 16, 39225 }, { 4, 1, 20, 42100 },
     { 4, 2, 1, 50679 }, { 4, 2, 3, 43481 }, { 4, 2, 5, 50656 }, { 4, 2, 6, 43484 }, { 4, 2, 7, 43495 }, { 4, 2, 8, 40519 },
@@ -203,12 +206,39 @@ static uint32_t FindBaseItem(uint32_t classId, uint32_t subclass, uint32_t inven
     return 0;
 }
 
-uint32_t SuggestedBaseItem(uint32_t classId, uint32_t subclass, uint32_t inventoryType) {
+// The first base of the class in the slot, any subclass; armour tries cloth first.
+static const BaseItem* FindSlotBase(uint32_t classId, uint32_t inventoryType) {
+    const BaseItem* found = nullptr;
+    for (const BaseItem& item : BASE_ITEMS) {
+        if (item.classId != classId || item.inventoryType != inventoryType) {
+            continue;
+        }
+        if (classId == ITEM_CLASS_ARMOUR && item.subclass == ARMOUR_CLOTH) {
+            return &item;
+        }
+        found = found ? found : &item;
+    }
+    return found;
+}
+
+uint32_t SuggestedBaseItem(uint32_t classId, uint32_t subclass, uint32_t inventoryType, std::string* note) {
     uint32_t entry = FindBaseItem(classId, subclass, inventoryType);
     if (!entry && (inventoryType == INVENTORY_CHEST || inventoryType == INVENTORY_ROBE)) {
         entry = FindBaseItem(classId, subclass, inventoryType == INVENTORY_CHEST ? INVENTORY_ROBE : INVENTORY_CHEST);
     }
-    return entry;
+    if (entry) {
+        return entry;
+    }
+    const BaseItem* slot = FindSlotBase(classId, inventoryType);
+    if (!slot) {
+        return 0;
+    }
+    if (note) {
+        *note = "no 3.3.5 base of class " + std::to_string(classId) + ", subclass " + std::to_string(subclass) + ", slot " +
+            std::to_string(inventoryType) + ": copied " + std::to_string(slot->entry) + " (subclass " + std::to_string(slot->subclass) +
+            "); class, subclass and slot stay the retail item's";
+    }
+    return slot->entry;
 }
 
 void ClassicItemClass(uint32_t& classId, uint32_t& subclass, std::string& note) {

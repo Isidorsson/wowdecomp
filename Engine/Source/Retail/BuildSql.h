@@ -69,8 +69,9 @@ std::string BuildItemSql(const ItemSql& item, std::string& error);
 std::string BuildCreatureSql(const CreatureSql& creature, std::string& error);
 
 // A stock 3.3.5 item of the class, subclass and inventory type to copy (epic, item level 200 to 245, no spell, set or
-// socket where one exists; from the world DB), 0 when there is none. A robe falls back to a chest and back.
-uint32_t SuggestedBaseItem(uint32_t classId, uint32_t subclass, uint32_t inventoryType);
+// socket where one exists; from the world DB), 0 when there is none. A robe falls back to a chest and back, then any
+// subclass of the class in that slot (armour: cloth first), which note (when given) names.
+uint32_t SuggestedBaseItem(uint32_t classId, uint32_t subclass, uint32_t inventoryType, std::string* note = nullptr);
 
 // The 3.3.5 class and subclass of a retail one: warglaives become swords, cosmetic and relic armour becomes misc.
 // Note says what changed; empty when nothing did.
