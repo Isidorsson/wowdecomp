@@ -117,7 +117,7 @@ RB.TIPS = {
     opt_allVariants = { "Every set variant", "A row per set piece instead of one per slot." },
     opt_retailArmour = { "Retail armour/damage", "On: armor, damage and delay from the retail formulas at the item level (retail-sized, far below 3.3.5's; the mapping shows the base's beside them). Off: the base row's stay." },
     opt_otherDisplays = { "Other displays as modelid2-4", "Creatures, models and mounts: the other displays after the picked one fill modelid2 to modelid4 (3.3.5 has four)." },
-    sql_build = { "Build now", "Builds at once (changes also rebuild 0.3 s after the last one)." },
+    sql_build = { "Build now", "Builds at once (changes also rebuild 0.3 s after the last one). The status under the options shows the time of the last build." },
     sql_copy = { "Copy SQL", "Copies all the SQL, not just the 4 KB shown.", key = "Ctrl+Enter" },
     sql_export = { "Export SQL", "Writes all the SQL to Logs\\RetailBrowser\\<kind>-<id>-<time>.sql.", key = "Ctrl+S" },
     sql_edit = { "Edit full SQL", "Puts every statement in the box to edit (over 64 KB asks for a second click: the box can freeze the client)." },

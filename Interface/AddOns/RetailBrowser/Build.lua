@@ -378,7 +378,8 @@ function RB.BuildSql()
     end
     RB.buildResult = result
     local skipped = asked - #entries
-    status:SetText(string.format("Entries %d to %d (%d %s), base %d%s, item level %d. Next free: %d.%s", result.firstEntry, result.nextEntry - 1,
+    -- The time shows a rebuild happened even when its SQL is the same as before.
+    status:SetText(RB.Colored("Built " .. date("%H:%M:%S") .. ".", RB.THEME.good) .. string.format(" Entries %d to %d (%d %s), base %d%s, item level %d. Next free: %d.%s", result.firstEntry, result.nextEntry - 1,
         #entries, #entries == 1 and "entry" or "entries", result.base, baseEntry:GetText() == "" and " (suggested)" or "", result.itemLevel,
         result.nextEntry, skipped > 0 and " " .. RB.Colored(string.format("%d skipped (kind, or over %d).", skipped, RB.BULK_LIMIT), RB.THEME.bad) or ""))
     local lone = #entries == 1 and entries[1].kind == "item"
