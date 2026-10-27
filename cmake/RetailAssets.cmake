@@ -24,6 +24,7 @@ add_library(RetailCore STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailEffects.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailSecondUv.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailBoneWindows.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailPhysics.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailSkinLayout.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/Decimate.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailViews.cpp

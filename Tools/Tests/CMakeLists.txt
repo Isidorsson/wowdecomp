@@ -33,6 +33,7 @@ if (TARGET RetailCore)
         RetailSecondUvTests.cpp
         RetailOverlayTests.cpp
         RetailBoneWindowsTests.cpp
+        RetailPhysicsTests.cpp
         RetailSkinLayoutTests.cpp
         DecimateTests.cpp
         ModelSkinsTests.cpp

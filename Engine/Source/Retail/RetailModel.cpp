@@ -2,6 +2,7 @@
 #include "Engine/Source/Retail/RetailAnimation.h"
 #include "Engine/Source/Retail/RetailBoneWindows.h"
 #include "Engine/Source/Retail/RetailModelData.h"
+#include "Engine/Source/Retail/RetailPhysics.h"
 #include "Engine/Source/Retail/RetailRecords.h"
 #include "Engine/Source/Retail/RetailShading.h"
 #include "Engine/Source/Retail/RetailSkeleton.h"
@@ -382,6 +383,23 @@ static bool ConvertForViews(std::vector<uint8_t>& m2, const std::vector<uint32_t
     return AppendBoneWindows(m2, chosen.plan, error) && CopyFirstUvSet(m2, chosen.originals, warnings, error) && ReportEffects(m2, chosen.originals, warnings, error);
 }
 
+// The physics the model embeds (PFDC) or names (PFID), baked into the rest pose of its bones. A physics file that is
+// not read leaves them in their bind pose, with a warning.
+static bool BakePhysics(std::vector<uint8_t>& m2, std::map<std::string, std::vector<uint8_t>>& chunks, const FileReader& read,
+    std::vector<std::string>& warnings, std::string& error) {
+    std::vector<uint8_t> physics = chunks["PFDC"];
+    std::vector<uint32_t> pfid = U32s(chunks["PFID"]);
+    if (physics.empty() && !pfid.empty() && pfid[0]) {
+        std::string readError = "no reader";
+        if (!read || !read(pfid[0], physics, readError)) {
+            warnings.push_back("physics file " + std::to_string(pfid[0]) + " was not read (" + readError + "), so its bones keep their bind pose");
+            return true;
+        }
+    }
+
+    return physics.empty() || BakePhysicsPose(m2, physics, warnings, error);
+}
+
 bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources, ConvertedModel& model, std::string& error) {
     auto chunks = ReadChunks(file);
     std::vector<uint8_t> m2;
@@ -400,7 +418,8 @@ bool ConvertModel(const std::vector<uint8_t>& file, const ModelSources& sources,
     if ((skeleton.fileDataId && !PadRuns(m2, skeleton.own, static_cast<uint32_t>(skeleton.parentIndex.size()), error))
         || !InlineAnimations(m2, afid, sources.read, skeleton, converted.warnings, error)
         || (skeleton.fileDataId && !ApplyParentEvents(m2, chunks["PEDC"], skeleton, converted.warnings, error))
-        || !DecodeParticleGravity(m2, compressedGravity, error) || !EmbedAliases(m2, error) || !RemapSequences(m2, sources.fallbacks, converted.remapped, error)) {
+        || !DecodeParticleGravity(m2, compressedGravity, error) || !EmbedAliases(m2, error) || !RemapSequences(m2, sources.fallbacks, converted.remapped, error)
+        || !BakePhysics(m2, chunks, sources.read, converted.warnings, error)) {
         return false;
     }
 
