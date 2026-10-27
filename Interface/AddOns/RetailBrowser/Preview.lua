@@ -11,13 +11,12 @@ local T = RB.THEME
 local Layout = RB.Layout
 
 local PREVIEW_DELAY = 0.25
-local HOVER_DELAY = 0.4
 local SCROLL_QUIET = 0.2
 local TURN_STEP = math.pi / 8
 local TOOLBAR_HEIGHT = 30
 local INSET = 4
 -- A zoom step: this much nearer for the player model, this factor larger for a display.
-local PLAYER_ZOOM_STEP = 0.35
+local PLAYER_ZOOM_STEP = 0.15
 local DISPLAY_ZOOM_FACTOR = 1.15
 -- How big a creature looks for its fit, per retail creature type (Beast 1, Dragonkin 2, Elemental 4, Giant 5,
 -- Mechanical 9); mounts are a little bigger (Layout.DisplayScale shrinks by it).
@@ -48,6 +47,21 @@ end
 
 local playerModel = CreateModel("RetailBrowserPreview")
 local displayModel = CreateModel("RetailBrowserDisplayPreview")
+
+-- Each model stands in a box of a fixed shape on the preview's floor (Layout.ModelBox), so it frames the body the same
+-- however wide the inspector is.
+local function FitBox(model, aspect)
+    local width, height = Layout.ModelBox(slot:GetWidth() - 2 * INSET, slot:GetHeight() - TOOLBAR_HEIGHT - 2 * INSET, aspect)
+    model:ClearAllPoints()
+    model:SetSize(math.max(1, width), math.max(1, height))
+    model:SetPoint("BOTTOM", slot, "BOTTOM", 0, TOOLBAR_HEIGHT + INSET)
+end
+
+local function FitBoxes()
+    FitBox(playerModel, Layout.PLAYER_ASPECT)
+    FitBox(displayModel, Layout.DISPLAY_ASPECT)
+end
+FitBoxes()
 local active = displayModel
 -- The player model's view (distance, height, facing) and the display model's fitted scale; zoom counts steps from them.
 local view, displayScale, zoom = Layout.WHOLE_VIEW, 1, 0
@@ -259,6 +273,7 @@ placeWatch:SetScript("OnUpdate", function()
     if still ~= SETTLE_FRAMES then
         return
     end
+    FitBoxes()
     active:Hide()
     active:Show()
     if RB.details then
@@ -314,7 +329,8 @@ hoverCaption:SetPoint("BOTTOMRIGHT", -4, 4)
 function RB.HoverRow(row)
     local entry = RB.rows[row.index]
     RB.hoverRow, RB.hoverEntry = row, entry
-    RB.hoverAt = entry and GetTime() + HOVER_DELAY
+    local now = GetTime()
+    RB.hoverAt = entry and now + Layout.HoverDelay(now, hover:IsShown(), RB.hoverHiddenAt)
     if entry then
         RB.Prefetch(entry.kind, entry.id)
     end
@@ -322,6 +338,9 @@ end
 
 function RB.HoverEnd()
     RB.hoverRow, RB.hoverEntry, RB.hoverAt = nil, nil, nil
+    if hover:IsShown() then
+        RB.hoverHiddenAt = GetTime()
+    end
     hover:Hide()
 end
 

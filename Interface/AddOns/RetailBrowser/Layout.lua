@@ -129,11 +129,12 @@ end
 
 -- How the player wearing an item is framed: x is the distance (more negative is further back), z the height (more
 -- negative frames higher on the body), facing the turn (positive brings the right hand toward you). Measured in game
--- on a human male in the default inspector box; the player model has a camera, so distance zooms.
-Layout.WHOLE_VIEW = { x = -5.2, z = -0.05, facing = 0 }
-local NEAR = -3.6
-local HEAD_VIEW = { x = NEAR, z = -0.45, facing = 0 }
-local CHEST_VIEW = { x = NEAR, z = -0.25, facing = 0 }
+-- in the player model's fixed box (Layout.ModelBox, PLAYER_ASPECT): the whole body at 0 fills about four fifths of its height; the
+-- player model has a camera about 2.5 in front, so distance zooms.
+Layout.WHOLE_VIEW = { x = 0, z = -0.05, facing = 0 }
+local NEAR = 1
+local HEAD_VIEW = { x = NEAR, z = -0.5, facing = 0 }
+local CHEST_VIEW = { x = NEAR, z = -0.2, facing = 0 }
 local WAIST_VIEW = { x = NEAR, z = 0, facing = 0 }
 local RIGHT_HAND_VIEW = { x = NEAR, z = 0, facing = 0.9 }
 local LEFT_HAND_VIEW = { x = NEAR, z = 0, facing = -0.9 }
@@ -145,8 +146,8 @@ local ITEM_VIEWS = {
     [4] = CHEST_VIEW, [5] = CHEST_VIEW, [19] = CHEST_VIEW, [20] = CHEST_VIEW,
     [6] = WAIST_VIEW, [9] = WAIST_VIEW, [10] = WAIST_VIEW,
     [7] = { x = NEAR, z = 0.25, facing = 0 },
-    [8] = { x = NEAR, z = 0.45, facing = 0 },
-    [16] = { x = -4.4, z = -0.2, facing = math.pi },
+    [8] = { x = NEAR, z = 0.55, facing = 0 },
+    [16] = { x = 0.5, z = -0.15, facing = math.pi },
     [13] = RIGHT_HAND_VIEW, [21] = RIGHT_HAND_VIEW, [25] = RIGHT_HAND_VIEW, [26] = RIGHT_HAND_VIEW,
     [14] = LEFT_HAND_VIEW, [22] = LEFT_HAND_VIEW, [23] = LEFT_HAND_VIEW,
     [17] = TWO_HAND_VIEW,
@@ -202,4 +203,29 @@ end
 function Layout.ActionGrid(count, width, minWidth, gap)
     local columns = math.min(count, math.max(1, math.floor((width + gap) / (minWidth + gap))))
     return columns, (width - (columns - 1) * gap) / columns, math.ceil(count / columns)
+end
+
+-- The row-hover preview: a first hover waits, so sweeping the list does not flash previews; once one has shown (or
+-- hid within HOVER_WARM_WINDOW, as moving between rows passes through a leave) the next one swaps almost at once.
+Layout.HOVER_DELAY = 0.2
+Layout.HOVER_WARM_DELAY = 0.05
+local HOVER_WARM_WINDOW = 0.5
+
+function Layout.HoverDelay(now, shown, hiddenAt)
+    local warm = shown or (hiddenAt ~= nil and now - hiddenAt < HOVER_WARM_WINDOW)
+    return warm and Layout.HOVER_WARM_DELAY or Layout.HOVER_DELAY
+end
+
+-- A preview model's box: a fixed shape (width over height), as tall as the preview allows. A model with a camera (the
+-- player, humanoid displays) takes its field of view as a diagonal (wowdecomp Gxu.cpp GxuXformCreateProjection_SG), so
+-- the vertical view narrows as the box widens; one shape keeps each view framing the body the same in any box. The
+-- player's box is a portrait; a display's is square, for mounts and long creatures.
+Layout.PLAYER_ASPECT = 0.8
+Layout.DISPLAY_ASPECT = 1
+
+function Layout.ModelBox(width, height, aspect)
+    if width >= height * aspect then
+        return height * aspect, height
+    end
+    return width, width / aspect
 end
