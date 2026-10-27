@@ -4,6 +4,7 @@ add_executable(WowdecompTests
     BlpPixelsTests.cpp
     ItemGeosetsTests.cpp
     BeltBuckleTests.cpp
+    ServerItemRecordsTests.cpp
     ${CMAKE_SOURCE_DIR}/WoW/Common/ComponentCore/ItemGeosets.cpp
     ${CMAKE_SOURCE_DIR}/WoW/Common/ComponentCore/BeltBuckle.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Source/BLPFile/BlpPixels.cpp
