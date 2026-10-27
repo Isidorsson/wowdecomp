@@ -15,7 +15,6 @@ RB.KINDS = {
 RB.HISTORY_SIZE = 200
 RB.POLL_SECONDS = 0.5
 RB.SEARCH_DELAY = 0.3
-RB.BULK_LIMIT = 50
 -- The world DB template each kind's Build SQL writes (FreeEntry.lua asks for a free run in it); other kinds have none.
 RB.BUILD_TABLES = { item = "item", set = "item", creature = "creature", model = "creature", mount = "creature" }
 

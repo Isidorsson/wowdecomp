@@ -107,9 +107,19 @@ local function DisplayCount(d)
     return d.displayCount or #(d.displays or {})
 end
 
--- parts: { { d = details, sql = that entry's SQL } } in build order. Returns the queue: a row per statement with its
--- name, "from <id> · display <id>", a note and whether it is ready (retail's row is served, one display).
-function RB.BuildQueue(parts)
+-- Why a row was not built, short enough for the queue's note line.
+local function SkipNote(reason)
+    if reason:find("no stock 3.3.5", 1, true) then
+        return "skipped: no stock item to copy, set a base entry"
+    end
+    return "skipped: " .. reason
+end
+
+-- parts: { { d = details, sql = that entry's SQL } } in build order; skipped: { { d = details, reason = the error } }
+-- for entries that could not be built. Returns the queue: a row per statement with its name, "from <id> · display
+-- <id>", a note and whether it is ready (retail's row is served, one display), then a row per skipped entry, whose
+-- SQL is a comment saying why.
+function RB.BuildQueue(parts, skipped)
     local queue = {}
     for _, part in ipairs(parts) do
         local count = DisplayCount(part.d)
@@ -119,6 +129,10 @@ function RB.BuildQueue(parts)
             queue[#queue + 1] = { name = row.name or "", entry = row.entry, row = row, d = part.d, ready = note == nil,
                 note = note or "ready", from = "from " .. RB.PrimaryId(part.d) .. SEPARATOR .. "display " .. (row.display or 0) }
         end
+    end
+    for _, skip in ipairs(skipped or {}) do
+        queue[#queue + 1] = { name = skip.d.name or "", d = skip.d, ready = false, skipped = true, note = SkipNote(skip.reason),
+            from = "from " .. RB.PrimaryId(skip.d), row = { text = "-- skipped: " .. skip.reason .. "\n", columns = {}, values = {} } }
     end
     return queue
 end
@@ -165,11 +179,121 @@ function RB.ItemOptionsOpen(entries)
     return false
 end
 
--- The confirm bar's question before Apply: tables, how many rows, the entry range.
+-- The tables a build writes, in the order its queue names them; rows that were not built name none.
+function RB.BuildTables(queue)
+    local tables, seen = {}, {}
+    for _, item in ipairs(queue) do
+        local name = item.row and item.row.table
+        if name and not seen[name] then
+            seen[name] = true
+            tables[#tables + 1] = name
+        end
+    end
+    return tables
+end
+
+-- The confirm bar's question before Apply: tables, how many rows and the entry range.
 function RB.ApplyConfirmText(tables, first, nextEntry)
     local count = nextEntry - first
     return string.format("Write %d %s %s (%s) to the world DB? Rows with these entries are replaced.", count,
         table.concat(tables, " and "), count == 1 and "row" or "rows", RB.EntryRangeText(first, nextEntry))
+        .. (count > 1 and " Written one row at a time, top to bottom." or "")
+end
+
+function RB.ApplyProgressText(index, count, entry)
+    return string.format("Writing row %d / %d · entry %d...", index, count, entry)
+end
+
+function RB.BuildProgressText(done, total)
+    return string.format("Building %d / %d...", done, total)
+end
+
+-- Apply goes a row at a time. A build's SQL is blocks parted by blank lines, a block per row whose DELETE names its
+-- entry; that line stays whole in the readable layout and in the user's edits, so it is what the SQL is split on. A
+-- block with no entry (a note the user typed) goes with the row before it, or the first row, so nothing is dropped.
+local DELETE_ENTRY = "DELETE FROM `[%w_]+` WHERE `entry` = (%d+);"
+
+-- The SQL as { entry, sql } per row, top to bottom.
+function RB.ApplyRows(sql)
+    local rows, leading = {}, {}
+    for block in ((sql or "") .. "\n\n"):gmatch("(.-)\n\n") do
+        if block:match("%S") then
+            local entry = tonumber(block:match(DELETE_ENTRY))
+            if entry then
+                rows[#rows + 1] = { entry = entry, blocks = { block } }
+            elseif #rows > 0 then
+                table.insert(rows[#rows].blocks, block)
+            else
+                leading[#leading + 1] = block
+            end
+        end
+    end
+    for i, row in ipairs(rows) do
+        local blocks = i == 1 and { unpack(leading) } or {}
+        for _, block in ipairs(row.blocks) do blocks[#blocks + 1] = block end
+        rows[i] = { entry = row.entry, sql = table.concat(blocks, "\n\n") .. "\n" }
+    end
+    return rows
+end
+
+-- An apply job: every row's state (waiting, writing, written, failed) and the row it is at. One row is sent at a
+-- time; a failed row stops the job until it is retried, which starts again at that row.
+function RB.ApplyJob(rows)
+    local job = { rows = rows, index = 1, state = {}, done = #rows == 0 }
+    for _, row in ipairs(rows) do job.state[row.entry] = "waiting" end
+    return job
+end
+
+-- The next row to send, marked writing; nil when the job is done or stopped at a failure.
+function RB.ApplyJobNext(job)
+    local row = not job.done and not job.failed and job.rows[job.index]
+    if not row then
+        return nil
+    end
+    job.state[row.entry] = "writing"
+    return row
+end
+
+function RB.ApplyJobFinished(job, ok, text)
+    job.state[job.rows[job.index].entry] = ok and "written" or "failed"
+    if ok then
+        job.index = job.index + 1
+        job.done = job.index > #job.rows
+    else
+        job.failed = text or "failed"
+    end
+end
+
+-- Rows not written yet: the failed one and every later one.
+function RB.ApplyJobRemaining(job)
+    return #job.rows - job.index + 1
+end
+
+function RB.ApplyJobWritten(job)
+    return job.index - 1
+end
+
+function RB.ApplyJobRetry(job)
+    job.failed = nil
+    for i = job.index, #job.rows do job.state[job.rows[i].entry] = "waiting" end
+end
+
+-- The queue's title: its length, or where an apply is ("Writing 37 / 93").
+function RB.ApplyQueueTitle(count, job)
+    if not job then
+        return "Queue · " .. count
+    end
+    local verb = job.done and "Written" or job.failed and "Stopped at" or "Writing"
+    return string.format("%s %d / %d", verb, job.done and #job.rows or job.index, #job.rows)
+end
+
+-- The queue without the rows the job has written (Clear written); waiting, failed and skipped rows stay, in order.
+function RB.WithoutWritten(queue, job)
+    local kept = {}
+    for _, item in ipairs(queue) do
+        if not (job and item.entry and job.state[item.entry] == "written") then kept[#kept + 1] = item end
+    end
+    return kept
 end
 
 -- A list's items, LIST_ITEMS_PER_LINE to an indented line.

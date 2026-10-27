@@ -60,6 +60,12 @@ RB.AttachTip(apply, "sql_apply")
 local range = RB.CreateText(header, "RetailBrowserValueFont", "RIGHT")
 range:SetPoint("RIGHT", apply, "LEFT", -14, 0)
 
+-- The Apply button through a row-by-row apply: "Writing..." while it runs, "Retry N rows" after a failed row.
+function RB.SetApplyButton(label, enabled)
+    apply:SetLabel(label)
+    apply:SetEnabled(enabled)
+end
+
 -- Under the header while rows are checked but only the focused row is built: "50 rows checked · Build all 50".
 local hint = CreateFrame("Frame", nil, page)
 hint:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0)

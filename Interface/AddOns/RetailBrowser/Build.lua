@@ -10,13 +10,24 @@ local T = RB.THEME
 local DEFAULT_ITEM_LEVEL = 200
 local DEFAULT_START_ENTRY = 9000000
 local MAPPING_BYTES = 4096
+-- A build pauses after this many entries until the next frame, so hundreds of rows never freeze the client.
+local BUILD_STEP = 20
 
 RB.buildScope = "focused"
 local selected = 1
 
--- Rebuilds after a pause, so typing, ticking options or stepping through rows builds once at the end.
+-- The running build (a coroutine resumed each frame) and the row-by-row apply (RB.applyJob, BuildModel.lua).
+local buildJob
+
+local function ApplyRunning()
+    local job = RB.applyJob
+    return job and not job.done and not job.failed
+end
+
+-- Rebuilds after a pause, so typing, ticking options or stepping through rows builds once at the end. Not while an
+-- apply is writing: its rows are the ones on screen.
 function RB.ScheduleBuild()
-    if RB.page == "build" then
+    if RB.page == "build" and not ApplyRunning() then
         RB.buildAt = GetTime() + RB.SEARCH_DELAY
         RB.SetBuildStatus("Building...")
     end
@@ -88,7 +99,7 @@ local function MappingText(lines, notes, baseEntry)
     return table.concat(out, "\n")
 end
 
--- The entries the scope names, of the kinds SQL is built for, at most RB.BULK_LIMIT.
+-- The entries the scope names, of the kinds SQL is built for.
 local function ScopeEntries()
     local list = {}
     if RB.buildScope == "focused" then
@@ -100,7 +111,7 @@ local function ScopeEntries()
     end
     local entries = {}
     for _, d in ipairs(list) do
-        if d and RB.BUILD_TABLES[d.kind] and #entries < RB.BULK_LIMIT then
+        if d and RB.BUILD_TABLES[d.kind] then
             entries[#entries + 1] = d
         end
     end
@@ -115,20 +126,42 @@ function RB.BuildScopeCount()
     return RB.buildScope == "checked" and #RB.CheckedRows() or #RB.rows
 end
 
+-- Adds one entry's built SQL to the whole build.
+local function AddPart(all, d, result)
+    local sql = result.sql:sub(-1) == "\n" and result.sql or (result.sql .. "\n")
+    all.sql[#all.sql + 1] = sql
+    all.parts[#all.parts + 1] = { d = d, sql = sql }
+    for _, line in ipairs(result.lines or {}) do all.lines[#all.lines + 1] = line end
+    for _, note in ipairs(result.notes or {}) do all.notes[#all.notes + 1] = note end
+    all.base, all.itemLevel, all.nextEntry = all.base or result.base, result.itemLevel, result.nextEntry
+end
+
+-- Builds each entry from start on. An entry that cannot be built (no stock row to copy, no display) is skipped and
+-- listed with why, so one odd row does not stop a build of many; a lone entry, or a build where none can be built,
+-- fails with the first error instead.
 local function BuildAll(entries, start)
-    local all = { sql = {}, parts = {}, lines = {}, notes = {}, firstEntry = start, tables = RB.EntryTables(entries) }
-    for _, d in ipairs(entries) do
-        local result, err = RetailBuildSql(d.kind, d.id, RB.BuildOptionsFor(d, start))
-        if not result or result.status ~= "ok" then
-            return nil, (d.name or "") .. ": " .. tostring(err or (result and result.status))
+    local all = { sql = {}, parts = {}, lines = {}, notes = {}, skipped = {}, firstEntry = start, tables = RB.EntryTables(entries) }
+    local firstError
+    for i, d in ipairs(entries) do
+        if i % BUILD_STEP == 0 and coroutine.running() then
+            RB.SetBuildStatus(RB.BuildProgressText(i, #entries))
+            coroutine.yield()
         end
-        local sql = result.sql:sub(-1) == "\n" and result.sql or (result.sql .. "\n")
-        all.sql[#all.sql + 1] = sql
-        all.parts[#all.parts + 1] = { d = d, sql = sql }
-        for _, line in ipairs(result.lines or {}) do all.lines[#all.lines + 1] = line end
-        for _, note in ipairs(result.notes or {}) do all.notes[#all.notes + 1] = note end
-        all.base, all.itemLevel, all.nextEntry = all.base or result.base, result.itemLevel, result.nextEntry
-        start = result.nextEntry
+        local result, err = RetailBuildSql(d.kind, d.id, RB.BuildOptionsFor(d, start))
+        if result and result.status == "ok" then
+            AddPart(all, d, result)
+            start = result.nextEntry
+        else
+            local reason = tostring(err or (result and result.status))
+            firstError = firstError or ((d.name or "") .. ": " .. reason)
+            if #entries == 1 then
+                return nil, firstError
+            end
+            all.skipped[#all.skipped + 1] = { d = d, reason = reason }
+        end
+    end
+    if #all.parts == 0 then
+        return nil, firstError
     end
     all.sql = table.concat(all.sql, "\n")
     return all
@@ -148,11 +181,24 @@ local function BuildAtFree(entries)
     return first
 end
 
+-- The Apply button: "Writing..." while rows go out, "Retry N rows" after a failed row.
+local function RefreshApplyButton()
+    local job = RB.applyJob
+    if ApplyRunning() then
+        RB.SetApplyButton("Writing...", false)
+    elseif job and job.failed then
+        RB.SetApplyButton("Retry " .. RB.ApplyJobRemaining(job) .. " rows", true)
+    else
+        RB.SetApplyButton("Apply to world DB", RB.buildResult ~= nil)
+    end
+end
+
 local function RefreshHeader()
     local result = RB.buildResult
     local checked = #RB.CheckedRows()
     RB.RefreshBuildHeader(RB.BuildScopeLabels(checked, #RB.rows), RB.buildScope,
         result and RB.EntryRangeText(result.firstEntry, result.nextEntry) or nil, checked)
+    RefreshApplyButton()
 end
 
 -- The output for the selected queue row.
@@ -174,18 +220,19 @@ end
 -- "3 rows from 3 entries · base 15166 (suggested) · item level 200", then what was skipped.
 local function StatusText(result, entries, asked)
     local rows = result.nextEntry - result.firstEntry
+    local built = #result.parts
     local skipped = asked - #entries
+    local failed = #result.skipped
     return RB.Colored("Built " .. date("%H:%M:%S"), T.accent) .. RB.Colored(string.format(" · %d %s from %d %s · base %d%s · item level %d",
-        rows, rows == 1 and "row" or "rows", #entries, #entries == 1 and "entry" or "entries", result.base,
+        rows, rows == 1 and "row" or "rows", built, built == 1 and "entry" or "entries", result.base,
         RB.BuildBaseTyped() and "" or " (suggested)", result.itemLevel), T.label)
-        .. (skipped > 0 and " " .. RB.Colored(string.format("%d skipped (kind, or over %d).", skipped, RB.BULK_LIMIT), T.bad) or "")
+        .. (failed > 0 and " " .. RB.Colored(string.format("%d could not be built (end of the queue).", failed), T.pending) or "")
+        .. (skipped > 0 and " " .. RB.Colored(string.format("%d skipped (no SQL for their kind).", skipped), T.bad) or "")
 end
 
--- Rebuilds the SQL of the scope's entries with the page's options.
-function RB.BuildSql()
-    if RB.page ~= "build" then
-        return
-    end
+-- Builds the SQL of the scope's entries with the page's options; runs as a coroutine (BuildAll yields every
+-- BUILD_STEP entries). A new SQL ends any finished or failed apply job: its rows are not these.
+local function RunBuild()
     local entries, asked = ScopeEntries()
     RB.SetItemOptionsOpen(RB.ItemOptionsOpen(entries))
     if #entries == 0 then
@@ -199,10 +246,11 @@ function RB.BuildSql()
         return
     end
     RB.buildResult = result
+    RB.applyJob = nil
     -- What the box shows and Copy, Export and Apply write: the same SQL laid out for reading (the server's apply
     -- check passes it; only whitespace changes).
     RB.buildSqlText = RB.FormatSql(result.sql)
-    RB.buildQueue = RB.BuildQueue(result.parts)
+    RB.buildQueue = RB.BuildQueue(result.parts, result.skipped)
     selected = math.max(1, math.min(selected, #RB.buildQueue))
     local lone = #entries == 1 and entries[1].kind == "item"
     RB.buildMapping = MappingText(result.lines, result.notes, lone and result.base or nil)
@@ -212,17 +260,39 @@ function RB.BuildSql()
     RB.RefreshRail()
 end
 
+local function StepBuild()
+    local ok, err = coroutine.resume(buildJob)
+    if not ok then
+        buildJob = nil
+        Fail("Build failed: " .. tostring(err))
+        RB.Print("build failed: " .. tostring(err))
+    elseif coroutine.status(buildJob) == "dead" then
+        buildJob = nil
+    end
+end
+
+-- Starts a build (replacing one still running); a short build finishes in this call, a long one over a few frames.
+function RB.BuildSql()
+    if RB.page ~= "build" or ApplyRunning() then
+        return
+    end
+    buildJob = coroutine.create(RunBuild)
+    StepBuild()
+end
+
 function RB.SelectBuildRow(index)
     selected = index
     ShowOutput()
 end
 
--- Builds when a scheduled build is due (a change paused, or the server's free entry is in).
+-- Builds when a scheduled build is due (a change paused, or the server's free entry is in), and steps a running one.
 local timer = CreateFrame("Frame", nil, RB.buildPage)
 timer:SetScript("OnUpdate", function()
     if RB.buildAt and GetTime() >= RB.buildAt then
         RB.buildAt = nil
         RB.BuildSql()
+    elseif buildJob then
+        StepBuild()
     end
 end)
 
@@ -250,39 +320,90 @@ function RB.ExportBuildSql()
     if path then RB.ReserveBuilt(RB.buildResult) end
 end
 
--- The tables the build writes, in the order its rows name them.
-local function BuildTables()
-    local tables, seen = {}, {}
-    for _, item in ipairs(RB.buildQueue or {}) do
-        if not seen[item.row.table] then
-            seen[item.row.table] = true
-            tables[#tables + 1] = item.row.table
-        end
-    end
-    return tables
-end
 
--- Writes to the live world DB, so Apply first asks in the page's confirm bar.
+-- Writes to the live world DB, so Apply first asks in the page's confirm bar: the whole build, or after a failed
+-- row the rows not written yet.
+local pendingRows
+
 function RB.AskApply()
-    local result = RB.buildResult
-    if not result or RB.BuildFullSql() == "" then
+    local job, result = RB.applyJob, RB.buildResult
+    if job and job.failed then
+        local remaining = RB.ApplyJobRemaining(job)
+        RB.ShowApplyConfirm(string.format("Retry the %d rows not written, from row %d / %d? Rows already written are not sent again.",
+            remaining, job.index, #job.rows), remaining)
         return
     end
-    RB.ShowApplyConfirm(RB.ApplyConfirmText(BuildTables(), result.firstEntry, result.nextEntry), result.nextEntry - result.firstEntry)
+    if not result or ApplyRunning() then
+        return
+    end
+    pendingRows = RB.ApplyRows(RB.BuildFullSql())
+    if #pendingRows == 0 then
+        return
+    end
+    RB.ShowApplyConfirm(RB.ApplyConfirmText(RB.BuildTables(RB.buildQueue or {}), result.firstEntry, result.nextEntry),
+        result.nextEntry - result.firstEntry)
+end
+
+local function ApplyDone(job)
+    local text = string.format("%d %s written.", #job.rows, #job.rows == 1 and "row" or "rows")
+    RB.SetBuildStatus(RB.Colored("Applied: ", T.good) .. text)
+    RB.Print("applied: " .. text)
+end
+
+local function ApplyStopped(job, row, text)
+    RB.SetBuildStatus(RB.Colored(string.format("Row %d (entry %d) not written: ", job.index, row.entry), T.bad) .. text
+        .. RB.Colored(string.format("  %d rows not written: Retry sends them.", RB.ApplyJobRemaining(job)), T.label))
+    RB.Print(string.format("row %d / %d (entry %d) failed: %s", job.index, #job.rows, row.entry, text))
+end
+
+-- Sends the job's next row; the server's answer sends the one after, until the last is written or one fails.
+local function SendNextRow()
+    local job = RB.applyJob
+    local row = RB.ApplyJobNext(job)
+    if not row then
+        if job.done then ApplyDone(job) end
+        RefreshHeader()
+        ShowOutput()
+        return
+    end
+    RB.SetBuildStatus(RB.ApplyProgressText(job.index, #job.rows, row.entry))
+    local started = RB.ApplySql(row.entry, row.entry, row.sql, function(ok, text)
+        RB.ApplyJobFinished(job, ok, text)
+        if ok then
+            return SendNextRow()
+        end
+        ApplyStopped(job, row, text)
+        RefreshHeader()
+        ShowOutput()
+    end)
+    if not started then
+        RB.ApplyJobFinished(job, false, "another apply is still running")
+    end
+    RefreshHeader()
+    ShowOutput()
 end
 
 function RB.ApplyBuildSql()
     RB.HideApplyConfirm()
-    local sql, result = RB.BuildFullSql(), RB.buildResult
-    if sql == "" or not result then
+    local job = RB.applyJob
+    if job and job.failed then
+        RB.ApplyJobRetry(job)
+    elseif pendingRows and #pendingRows > 0 and not ApplyRunning() then
+        RB.applyJob, pendingRows = RB.ApplyJob(pendingRows), nil
+    else
         return
     end
-    local started = RB.ApplySql(result.firstEntry, result.nextEntry - 1, sql, function(ok, text)
-        RB.SetBuildStatus(RB.Colored(ok and "Applied: " or "Not applied: ", ok and T.good or T.bad) .. text)
-        RB.Print((ok and "applied: " or "apply failed: ") .. text)
-    end)
-    RB.SetBuildStatus(started and string.format("Applying %.1f KB to the world DB...", #sql / 1024)
-        or RB.Colored("An apply is still running.", T.bad))
+    SendNextRow()
+end
+
+-- Drops the written rows from the queue (the trash button); the SQL, Copy, Export and the apply job keep them.
+function RB.ClearWrittenRows()
+    if ApplyRunning() then
+        return
+    end
+    RB.buildQueue = RB.WithoutWritten(RB.buildQueue or {}, RB.applyJob)
+    selected = math.max(1, math.min(selected, #RB.buildQueue))
+    ShowOutput()
 end
 
 function RB.SetBuildScope(scope)

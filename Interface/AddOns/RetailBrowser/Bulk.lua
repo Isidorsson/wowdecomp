@@ -94,26 +94,52 @@ function RB.BulkGm()
     RB.Copy(table.concat(lines, "\n"), #lines .. " GM commands")
 end
 
+-- The .additem lines go out a few a second (a burst trips the server's chat flood guard); Add again stops them.
+local ADD_EVERY = 0.25
+local adding
+local adder = CreateFrame("Frame")
+adder:Hide()
+adder:SetScript("OnUpdate", function(self)
+    if GetTime() < adding.at then
+        return
+    end
+    RB.SendCommand(adding.lines[adding.next])
+    adding.next, adding.at = adding.next + 1, GetTime() + ADD_EVERY
+    if adding.next > #adding.lines then
+        RB.Print(string.format("added: %d .additem lines sent.", #adding.lines))
+        adding = nil
+        self:Hide()
+    end
+end)
+
 -- Sends every .additem line of the checked items and sets; many lines ask for a second press first.
 function RB.BulkAdd()
+    if adding then
+        RB.Print(string.format("stopped adding: %d of %d .additem lines sent.", adding.next - 1, #adding.lines))
+        adding = nil
+        adder:Hide()
+        return
+    end
     local commands = {}
     for _, entry in ipairs(CheckedDetails()) do
         for _, command in ipairs(RB.CommandsFor(entry.d).addItem) do
             commands[#commands + 1] = command
         end
     end
-    if #commands > RB.BULK_LIMIT then
-        RB.Print(string.format("%d .additem lines is more than %d: check fewer rows.", #commands, RB.BULK_LIMIT))
+    if #commands == 0 then
         return
     end
     if #commands > CONFIRM_ABOVE and not (RB.addConfirmAt and GetTime() - RB.addConfirmAt < CONFIRM_SECONDS) then
         RB.addConfirmAt = GetTime()
-        RB.Print(string.format("this sends %d .additem lines: press Add again within %d s to go ahead.", #commands, CONFIRM_SECONDS))
+        RB.Print(string.format("this sends %d .additem lines (about %d s): press Add again within %d s to go ahead.", #commands,
+            math.ceil(#commands * ADD_EVERY), CONFIRM_SECONDS))
         return
     end
     RB.addConfirmAt = nil
-    for _, command in ipairs(commands) do
-        RB.SendCommand(command)
+    adding = { lines = commands, next = 1, at = 0 }
+    adder:Show()
+    if #commands > CONFIRM_ABOVE then
+        RB.Print(string.format("adding %d items, %d a second; press Add again to stop.", #commands, 1 / ADD_EVERY))
     end
 end
 

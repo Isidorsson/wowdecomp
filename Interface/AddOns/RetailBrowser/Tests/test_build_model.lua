@@ -51,6 +51,27 @@ end)
 h.describe("Build queue", function()
     local function Part(d, sql) return { d = d, sql = sql } end
 
+    h.it("rows that could not be built follow the built ones, not ready, with why", function()
+        local d, bad = F.Creature(1), F.Creature(1)
+        bad.name = "Engine of Mecha-Perfection"
+        local reason = "no stock 3.3.5 item of class 0, subclass 8, slot 0 to copy for Engine of Mecha-Perfection: enter a base entry"
+        local rows = RB.BuildQueue({ Part(d, CreatureRow(9000000, 111839, "Stormwind Guard")) }, { { d = bad, reason = reason } })
+        h.assertEq(#rows, 2)
+        h.assertEq(rows[1].name, "Stormwind Guard")
+        local skipped = rows[2]
+        h.assertEq(skipped.name, "Engine of Mecha-Perfection")
+        h.assertTrue(not skipped.ready and skipped.skipped)
+        h.assertEq(skipped.entry, nil)
+        h.assertEq(skipped.note, "skipped: no stock item to copy, set a base entry")
+        h.assertTrue(skipped.row.text:find(reason, 1, true) ~= nil, skipped.row.text)
+        h.assertEq(RB.ChangesVsBase(skipped.row), {})
+    end)
+
+    h.it("another build error is shown as it is", function()
+        local rows = RB.BuildQueue({}, { { d = F.Creature(1), reason = "no display" } })
+        h.assertEq(rows[1].note, "skipped: no display")
+    end)
+
     h.it("a row per statement, with its source, display and entry", function()
         local d = F.Creature(1)
         local rows = RB.BuildQueue({ Part(d, CreatureRow(9000000, 111839, "Stormwind Guard")) })
@@ -136,7 +157,7 @@ h.describe("Build page labels", function()
 
     h.it("the apply confirm names the rows, tables and range", function()
         h.assertEq(RB.ApplyConfirmText({ "creature_template" }, 9000000, 9000003),
-            "Write 3 creature_template rows (9000000–9000002) to the world DB? Rows with these entries are replaced.")
+            "Write 3 creature_template rows (9000000–9000002) to the world DB? Rows with these entries are replaced. Written one row at a time, top to bottom.")
         h.assertEq(RB.ApplyConfirmText({ "item_template" }, 9100000, 9100001),
             "Write 1 item_template row (9100000) to the world DB? Rows with these entries are replaced.")
     end)
@@ -227,5 +248,185 @@ h.describe("SQL preview", function()
         local text, whole = RB.SqlPreview("row1\n", "row1\n\nrow2\n\nrow3\n", 3, 4096)
         h.assertTrue(not whole)
         h.assertTrue(text:find("2 more rows", 1, true) ~= nil, text)
+    end)
+end)
+
+h.describe("Apply rows", function()
+    local function Rows(first, count)
+        local blocks = {}
+        for i = 0, count - 1 do
+            blocks[#blocks + 1] = CreatureRow(first + i, 111839, "Guard " .. i)
+        end
+        return table.concat(blocks, "\n")
+    end
+
+    h.it("one apply row per entry, top to bottom", function()
+        local rows = RB.ApplyRows(Rows(9000000, 3))
+        h.assertEq(#rows, 3)
+        h.assertEq({ rows[1].entry, rows[3].entry }, { 9000000, 9000002 })
+    end)
+
+    h.it("a row's SQL holds its own statements and no others", function()
+        local row = RB.ApplyRows(Rows(9000000, 3))[2]
+        h.assertTrue(row.sql:find("`entry` = 9000001;", 1, true) ~= nil)
+        h.assertTrue(row.sql:find("`entry` = 9000000;", 1, true) == nil)
+        h.assertTrue(row.sql:find("`entry` = 9000002;", 1, true) == nil)
+    end)
+
+    h.it("splits the readable (formatted) SQL the same way", function()
+        local rows = RB.ApplyRows(RB.FormatSql(Rows(9000000, 3)))
+        h.assertEq(#rows, 3)
+        h.assertEq(rows[2].entry, 9000001)
+    end)
+
+    h.it("a block with no entry stays with the row before it, so nothing is dropped", function()
+        local rows = RB.ApplyRows(Rows(9000000, 2) .. "\n-- a note the user typed\n")
+        h.assertEq(#rows, 2)
+        h.assertTrue(rows[2].sql:find("a note the user typed", 1, true) ~= nil)
+    end)
+
+    h.it("no SQL, no rows", function()
+        h.assertEq(#RB.ApplyRows(""), 0)
+    end)
+end)
+
+h.describe("Apply job", function()
+    local function Job()
+        return RB.ApplyJob({ { entry = 1, sql = "a" }, { entry = 2, sql = "b" }, { entry = 3, sql = "c" } })
+    end
+
+    h.it("every row waits until it is sent", function()
+        local job = Job()
+        h.assertEq(job.state[1], "waiting")
+        h.assertEq(job.state[3], "waiting")
+    end)
+
+    h.it("sends one row at a time, top to bottom", function()
+        local job = Job()
+        h.assertEq(RB.ApplyJobNext(job).sql, "a")
+        h.assertEq(job.state[1], "writing")
+        h.assertEq(job.state[2], "waiting")
+        RB.ApplyJobFinished(job, true)
+        h.assertEq(job.state[1], "written")
+        h.assertEq(RB.ApplyJobNext(job).sql, "b")
+    end)
+
+    h.it("is done after the last row is written", function()
+        local job = Job()
+        for _ = 1, 3 do
+            RB.ApplyJobNext(job)
+            RB.ApplyJobFinished(job, true)
+        end
+        h.assertTrue(job.done)
+        h.assertEq(RB.ApplyJobNext(job), nil)
+    end)
+
+    h.it("stops at a failed row: later ones still waiting, nothing more sent", function()
+        local job = Job()
+        RB.ApplyJobNext(job)
+        RB.ApplyJobFinished(job, true)
+        RB.ApplyJobNext(job)
+        RB.ApplyJobFinished(job, false, "0/1 written")
+        h.assertEq(job.state[2], "failed")
+        h.assertEq(job.state[3], "waiting")
+        h.assertEq(job.failed, "0/1 written")
+        h.assertEq(RB.ApplyJobNext(job), nil)
+        h.assertEq(RB.ApplyJobRemaining(job), 2)
+    end)
+
+    h.it("retry resumes at the failed row and never resends written ones", function()
+        local job = Job()
+        RB.ApplyJobNext(job)
+        RB.ApplyJobFinished(job, true)
+        RB.ApplyJobNext(job)
+        RB.ApplyJobFinished(job, false, "timeout")
+        RB.ApplyJobRetry(job)
+        h.assertEq(job.failed, nil)
+        h.assertEq(job.state[1], "written")
+        h.assertEq(job.state[2], "waiting")
+        h.assertEq(RB.ApplyJobNext(job).sql, "b")
+    end)
+
+    h.it("counts written rows", function()
+        local job = Job()
+        RB.ApplyJobNext(job)
+        RB.ApplyJobFinished(job, true)
+        h.assertEq(RB.ApplyJobWritten(job), 1)
+    end)
+end)
+
+h.describe("Queue title", function()
+    local function Job(results)
+        local job = RB.ApplyJob({ { entry = 1, sql = "a" }, { entry = 2, sql = "b" }, { entry = 3, sql = "c" } })
+        for _, ok in ipairs(results) do
+            RB.ApplyJobNext(job)
+            RB.ApplyJobFinished(job, ok, "refused")
+        end
+        return job
+    end
+
+    h.it("counts the queue with no apply", function()
+        h.assertEq(RB.ApplyQueueTitle(93, nil), "Queue · 93")
+    end)
+
+    h.it("names the row being written", function()
+        local job = Job({ true })
+        RB.ApplyJobNext(job)
+        h.assertEq(RB.ApplyQueueTitle(3, job), "Writing 2 / 3")
+    end)
+
+    h.it("says where a failed apply stopped", function()
+        h.assertEq(RB.ApplyQueueTitle(3, Job({ true, false })), "Stopped at 2 / 3")
+    end)
+
+    h.it("says when every row is written", function()
+        h.assertEq(RB.ApplyQueueTitle(3, Job({ true, true, true })), "Written 3 / 3")
+    end)
+end)
+
+h.describe("Clear written", function()
+    h.it("drops written rows and keeps waiting, failed and skipped ones in order", function()
+        local job = RB.ApplyJob({ { entry = 1, sql = "a" }, { entry = 2, sql = "b" }, { entry = 3, sql = "c" } })
+        RB.ApplyJobNext(job)
+        RB.ApplyJobFinished(job, true)
+        RB.ApplyJobNext(job)
+        RB.ApplyJobFinished(job, false, "refused")
+        local queue = { { entry = 1 }, { entry = 2 }, { skipped = true }, { entry = 3 } }
+        local kept = RB.WithoutWritten(queue, job)
+        h.assertEq(#kept, 3)
+        h.assertEq({ kept[1].entry, kept[2].skipped, kept[3].entry }, { 2, true, 3 })
+    end)
+
+    h.it("keeps everything with no apply", function()
+        h.assertEq(#RB.WithoutWritten({ { entry = 1 } }, nil), 1)
+    end)
+end)
+
+h.describe("Apply texts", function()
+    h.it("the confirm says several rows go one at a time", function()
+        local text = RB.ApplyConfirmText({ "item_template" }, 100000, 100149)
+        h.assertTrue(text:find("149 item_template rows", 1, true) ~= nil, text)
+        h.assertTrue(text:find("one row at a time", 1, true) ~= nil, text)
+    end)
+
+    h.it("one row is not said to go one at a time", function()
+        h.assertTrue(RB.ApplyConfirmText({ "item_template" }, 100000, 100001):find("at a time", 1, true) == nil)
+    end)
+
+    h.it("progress names the row and its entry", function()
+        h.assertEq(RB.ApplyProgressText(37, 93, 100094), "Writing row 37 / 93 · entry 100094...")
+    end)
+
+    h.it("build progress counts rows", function()
+        h.assertEq(RB.BuildProgressText(60, 149), "Building 60 / 149...")
+    end)
+end)
+
+h.describe("Tables a build writes", function()
+    h.it("lists each table once, in queue order, and skips rows that were not built", function()
+        local d, bad = F.Creature(1), F.Creature(1)
+        local queue = RB.BuildQueue({ { d = d, sql = CreatureRow(9000000, 111839, "A") .. "\n" .. ITEM_ROW } },
+            { { d = bad, reason = "no display" } })
+        h.assertEq(RB.BuildTables(queue), { "creature_template", "item_template" })
     end)
 end)
