@@ -6,7 +6,7 @@
 
 // RetailBuildSql(kind, id, options): the SQL builders (BuildSql.h) fed from the index. Items take their stats from
 // ItemSparse at the chosen item level (StatBudget.h) mapped to 3.3.5 (ClassicStats.h); a set writes one item per piece;
-// a creature copies a base creature with the retail displays.
+// a creature, a model or a mount copies a base creature with the retail creature displays.
 
 namespace Retail {
 
@@ -308,15 +308,23 @@ bool AddSet(Build& build, const BrowseSet& set, std::string& error) {
     return true;
 }
 
-// modelid1 is the picked display (else the first); with otherDisplays the creature's other displays follow.
-std::vector<uint32_t> CreatureModels(const Build& build, const BrowseCreature& creature) {
+// What a creature_template row is built from: a creature, or a model's or a mount's creature displays.
+struct CreatureSource {
+    std::string origin;   // "retail creature 178184 Stormwind Guard Captain", for the comment.
+    std::string name;
+    std::string title;
+    const std::vector<BrowseDisplay>& displays;
+};
+
+// modelid1 is the picked display (else the first); with otherDisplays the source's other displays follow.
+std::vector<uint32_t> CreatureModels(const Build& build, const std::vector<BrowseDisplay>& displays) {
     std::vector<uint32_t> models;
     uint32_t picked = Unsigned(NumberOption(build.options, "display", 0));
     if (picked) {
         models.push_back(picked);
     }
     bool others = NumberOption(build.options, "otherDisplays", 0) != 0;
-    for (const BrowseDisplay& display : creature.displays) {
+    for (const BrowseDisplay& display : displays) {
         if (models.size() < CREATURE_MODELS && (models.empty() || (others && display.id != models[0]))) {
             models.push_back(display.id);
         }
@@ -324,10 +332,10 @@ std::vector<uint32_t> CreatureModels(const Build& build, const BrowseCreature& c
     return models;
 }
 
-bool AddCreature(Build& build, const BrowseCreature& creature, std::string& error) {
-    std::vector<uint32_t> models = CreatureModels(build, creature);
+bool AddCreature(Build& build, const CreatureSource& source, std::string& error) {
+    std::vector<uint32_t> models = CreatureModels(build, source.displays);
     if (models.empty()) {
-        error = std::string(creature.name) + " has no display";
+        error = source.name + " has no creature display";
         return false;
     }
     CreatureSql row;
@@ -336,14 +344,13 @@ bool AddCreature(Build& build, const BrowseCreature& creature, std::string& erro
     row.base = chosen ? chosen : DEFAULT_BASE_CREATURE;
     const std::string* name = TextOption(build.options, "name");
     const std::string* subname = TextOption(build.options, "subname");
-    row.name = name && !name->empty() ? *name : std::string(creature.name);
-    row.subname = subname ? *subname : std::string(creature.title);
+    row.name = name && !name->empty() ? *name : source.name;
+    row.subname = subname ? *subname : source.title;
     for (size_t slot = 0; slot < models.size(); slot++) {
         row.models[slot] = models[slot];
     }
     row.scale = static_cast<float>(NumberOption(build.options, "scale", 0));
-    row.comment = "retail creature " + std::to_string(creature.id) + " " + std::string(creature.name) + ", copied from creature " + std::to_string(row.base) +
-        "; creature_model_info already has rows for the retail displays";
+    row.comment = source.origin + ", copied from creature " + std::to_string(row.base) + "; creature_model_info already has rows for the retail displays";
     std::string sql = BuildCreatureSql(row, error);
     if (sql.empty()) {
         return false;
@@ -353,6 +360,23 @@ bool AddCreature(Build& build, const BrowseCreature& creature, std::string& erro
     build.pieces = 1;
     build.Note("level, faction, flags, AI and loot come from the base creature " + std::to_string(row.base) + "; spawn it with .npc add " +
         std::to_string(row.entry));
+    return true;
+}
+
+// 3.3.5 has no mount spell table to write: SPELL_AURA_MOUNTED (78) takes its display from the creature_template its
+// misc value names, so the mount is that creature row.
+bool AddMount(Build& build, uint32_t id, std::string& error) {
+    const BrowseMount* mount = build.index.Mount(id);
+    if (!mount) {
+        return false;
+    }
+    std::string name(mount->name);
+    uint32_t entry = build.nextEntry;
+    if (!AddCreature(build, { "retail mount " + std::to_string(id) + " " + name, name, "", mount->displays }, error)) {
+        return false;
+    }
+    build.Note("ride it with a spell whose SPELL_AURA_MOUNTED (78) effect has misc value " + std::to_string(entry) + "; retail spell " +
+        std::to_string(mount->spellId) + " is not in 3.3.5");
     return true;
 }
 
@@ -389,8 +413,19 @@ bool BuildEntry(Build& build, BrowseKind kind, uint32_t id, std::string& error) 
         const BrowseSet* set = index.Set(id);
         return set && AddSet(build, *set, error);
     }
+    if (kind == BrowseKind::Model) {
+        const BrowseModel* model = index.Model(id);
+        // Named as the details name it: after its first user.
+        std::string name = !model || model->users.empty() ? "Model " + std::to_string(id) : std::string(index.UserName(model->users[0]));
+        return model && AddCreature(build, { "retail model " + std::to_string(id), name, "", model->displays }, error);
+    }
+    if (kind == BrowseKind::Mount) {
+        return AddMount(build, id, error);
+    }
     const BrowseCreature* creature = index.Creature(id);
-    return creature && AddCreature(build, *creature, error);
+    std::string name(creature ? creature->name : std::string_view());
+    return creature && AddCreature(build, { "retail creature " + std::to_string(id) + " " + name, name, std::string(creature->title), creature->displays },
+        error);
 }
 
 }
@@ -399,10 +434,6 @@ bool MarshalBuild(const BrowserIndexView& view, const std::string& kind, uint32_
     std::string& error) {
     BrowseKind parsed;
     if (!BrowserKindOf(kind, parsed, error)) {
-        return false;
-    }
-    if (parsed != BrowseKind::Item && parsed != BrowseKind::Set && parsed != BrowseKind::Creature) {
-        error = "SQL is built for items, sets and creatures, not " + kind;
         return false;
     }
     if (BrowserNotReady(view, out)) {

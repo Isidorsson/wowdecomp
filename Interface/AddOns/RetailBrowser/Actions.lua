@@ -60,7 +60,7 @@ AddAction("favourite", "Favourite", "F", function(d)
     RB.AfterFavouriteChange()
 end)
 AddAction("build", "Build SQL", "B", function() RB.ShowBuild("focused") end,
-    function(d) return d.kind == "item" or d.kind == "set" or d.kind == "creature" end)
+    function(d) return RB.BUILD_TABLES[d.kind] ~= nil end)
 
 local hint = RB.CreateText(slot, "RetailBrowserLabelFont")
 hint:SetPoint("BOTTOMLEFT", 2, 2)

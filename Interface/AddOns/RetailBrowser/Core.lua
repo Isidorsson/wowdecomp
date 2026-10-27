@@ -16,6 +16,8 @@ RB.HISTORY_SIZE = 200
 RB.POLL_SECONDS = 0.5
 RB.SEARCH_DELAY = 0.3
 RB.BULK_LIMIT = 50
+-- The world DB template each kind's Build SQL writes (FreeEntry.lua asks for a free run in it); other kinds have none.
+RB.BUILD_TABLES = { item = "item", set = "item", creature = "creature", model = "creature", mount = "creature" }
 
 -- The highest stock 3.3.5a ids of the display DBCs: an installed row at or below them is the game's own ("3.3.5"),
 -- above them a row the server added ("custom").

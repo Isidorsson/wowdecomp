@@ -25,7 +25,7 @@ end
 function RB.EntryTables(entries)
     local item, creature = false, false
     for _, d in ipairs(entries) do
-        if d.kind == "creature" then creature = true else item = true end
+        if RB.BUILD_TABLES[d.kind] == "creature" then creature = true else item = true end
     end
     return item and creature and "both" or (creature and "creature" or "item")
 end

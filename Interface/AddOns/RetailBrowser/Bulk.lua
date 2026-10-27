@@ -150,7 +150,7 @@ AddButton("add", "Add " .. RB.Key("I"), RB.BulkAdd, ITEMS)
 AddButton("try", "Try on " .. RB.Key("Y"), RB.BulkTryOn, ITEMS)
 AddButton("fav", "Fav " .. RB.Key("F"), RB.BulkFavourite)
 AddButton("csv", "CSV " .. RB.Key("Shift+E"), RB.BulkCsv)
-AddButton("build", "Build SQL x1 " .. RB.Key("B"), function() RB.ShowBuild("checked") end, { item = true, set = true, creature = true })
+AddButton("build", "Build SQL x1 " .. RB.Key("B"), function() RB.ShowBuild("checked") end, RB.BUILD_TABLES)
 AddButton("clear", "Clear " .. RB.Key("Esc"), RB.ClearChecks)
 
 local checkPage = RB.CreateButton(bar, "Check page " .. RB.Key("Ctrl+A"), CHECK_PAGE_WIDTH, 18, function() RB.CheckPage() end)

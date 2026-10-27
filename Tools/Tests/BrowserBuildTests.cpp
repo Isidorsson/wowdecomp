@@ -312,12 +312,39 @@ TEST(CreatureBuildCopiesTheDefaultBaseWithTheRetailDisplay) {
     CHECK(Contains(sql, ", `speed_run`, 2, `rank`"));
 }
 
+TEST(ModelBuildWritesACreatureWithTheModelsDisplay) {
+    RetailIndex index = BuildIndex();
+    std::string sql = Text(Build(index, "model", 1011653), "sql");
+    CHECK(Contains(sql, "SELECT 9000000, 0, 0, 0, `KillCredit1`, `KillCredit2`, 3167, 0, 0, 0, 'Stormwind Guard', '', "));
+    CHECK(Contains(sql, "retail model 1011653") && Contains(sql, "WHERE `entry` = 15166;"));
+    BuildOptions options;
+    options.numbers = { { "display", 3259 } };
+    options.texts["name"] = "Guard Look";
+    sql = Text(Build(index, "model", 1011653, options), "sql");
+    CHECK(Contains(sql, "`KillCredit2`, 3259, 0, 0, 0, 'Guard Look', '', "));
+}
+
+TEST(MountBuildWritesTheCreatureAMountAuraNames) {
+    RetailIndex index = BuildIndex();
+    BrowserValue out = Build(index, "mount", 6);
+    std::string sql = Text(out, "sql");
+    CHECK(Contains(sql, "`KillCredit2`, 2404, 0, 0, 0, 'Brown Horse', '', ") && Contains(sql, "retail mount 6"));
+    bool noted = false;
+    const BrowserValue* notes = out.Get("notes");
+    for (size_t i = 0; notes && i < notes->items.size(); i++) {
+        noted = noted || Contains(notes->items[i].text, "misc value 9000000");
+    }
+    CHECK(noted);
+}
+
 TEST(BuildRefusesOtherKindsAndUnknownIds) {
     RetailIndex index = BuildIndex();
     BrowserIndexView view{ IndexState::Ready, &index, "" };
     BrowserValue out;
     std::string error;
-    CHECK(!MarshalBuild(view, "model", 1011653, {}, out, error) && !error.empty());
+    RetailIndex stock = BuildFixtureIndex(MakeBrowserFixture());
+    BrowserIndexView stockView{ IndexState::Ready, &stock, "" };
+    CHECK(!MarshalBuild(stockView, "model", 145000, {}, out, error) && Contains(error, "no creature display"));
     CHECK(!MarshalBuild(view, "item", 1, {}, out, error) && !error.empty());
     CHECK(!MarshalBuild(view, "bogus", 1, {}, out, error));
     BrowserIndexView building{ IndexState::Building, nullptr, "" };

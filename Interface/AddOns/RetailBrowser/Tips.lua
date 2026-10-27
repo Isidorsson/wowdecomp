@@ -51,7 +51,7 @@ RB.TIPS = {
     bulk_fav = { "Favourite", "Adds the checked rows to Favourites, or removes them when all are favourites.", key = "F" },
     bulk_csv = { "Copy CSV", "Copies the checked rows as CSV to the clipboard.", key = "Shift+E" },
     bulk_build = { "Build SQL", "Opens Build SQL for the checked rows, entries counting up from Start entry.", key = "B",
-        disabled = "SQL is built for items, sets and creatures." },
+        disabled = "SQL is built for items, sets, creatures, models and mounts." },
     bulk_clear = { "Clear checks", "Unchecks every row.", key = "Esc" },
     checkPage = { "Check page", "Checks every row of this page.", key = "Ctrl+A" },
 
@@ -99,7 +99,7 @@ RB.TIPS = {
     action_copyAll = { "Copy all", "Copies every field as plain text.", key = "Ctrl+Shift+C", disabled = "Select a row first." },
     action_copyGm = { "GM command", "Copies .morph for a display, or the .additem lines of an item or set.", key = "G", disabled = "This entry has no GM command." },
     action_favourite = { "Favourite", "Saves the entry to Favourites, or removes it.", key = "F", disabled = "Select a row first." },
-    action_build = { "Build SQL", "Opens Build SQL for this entry.", key = "B", disabled = "SQL is built for items, sets and creatures." },
+    action_build = { "Build SQL", "Opens Build SQL for this entry.", key = "B", disabled = "SQL is built for items, sets, creatures, models and mounts." },
 
     -- Build SQL.
     scope_focused = { "Focused row", "Builds the SQL of the entry the drawer shows." },
@@ -116,7 +116,7 @@ RB.TIPS = {
     opt_retailStamina = { "Retail stamina multiplier", "On: retail's StaminaMultByILvl (x9.49 at 200). Off: 3.3.5-sized stamina." },
     opt_allVariants = { "Every set variant", "A row per set piece instead of one per slot." },
     opt_retailArmour = { "Retail armour/damage", "On: armor, damage and delay from the retail formulas at the item level (retail-sized, far below 3.3.5's; the mapping shows the base's beside them). Off: the base row's stay." },
-    opt_otherDisplays = { "Other displays as modelid2-4", "Creatures: the other displays after the picked one fill modelid2 to modelid4." },
+    opt_otherDisplays = { "Other displays as modelid2-4", "Creatures, models and mounts: the other displays after the picked one fill modelid2 to modelid4 (3.3.5 has four)." },
     sql_build = { "Build now", "Builds at once (changes also rebuild 0.3 s after the last one)." },
     sql_copy = { "Copy SQL", "Copies all the SQL, not just the 4 KB shown.", key = "Ctrl+Enter" },
     sql_export = { "Export SQL", "Writes all the SQL to Logs\\RetailBrowser\\<kind>-<id>-<time>.sql.", key = "Ctrl+S" },

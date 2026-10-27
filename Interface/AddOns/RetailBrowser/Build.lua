@@ -9,7 +9,6 @@ local OPTIONS_WIDTH = 270
 local MAPPING_WIDTH = 300
 local DEFAULT_ITEM_LEVEL = 200
 local DEFAULT_START_ENTRY = 9000000
-local BUILD_KINDS = { item = true, set = true, creature = true }
 local COMBOS = { { 1, "Strength" }, { 2, "Agility" }, { 3, "Intellect" } }
 -- A multi-line edit box lays its text out in time that grows with the square of its length (a 425 KB set froze the
 -- client for 40 s), so the box shows the first row's statements and Copy / Export use the whole SQL.
@@ -98,7 +97,7 @@ local function RetailHints(entries, result)
     local many = #entries > 1
     RB.SetHint(itemLevel, many and "each own" or tostring(d and (d.sparseItemLevel or d.itemLevel) or DEFAULT_ITEM_LEVEL))
     RB.SetHint(nameBox, many and ("retail names (" .. #entries .. " rows)") or (d and d.name or "retail name"))
-    RB.SetHint(subnameBox, d and d.kind == "creature" and (many and "retail titles" or (d.title ~= "" and d.title or "none")) or "creatures only")
+    RB.SetHint(subnameBox, d and RB.BUILD_TABLES[d.kind] == "creature" and (many and "retail titles" or (d.title ~= "" and d.title or "none")) or "creatures only")
     RB.SetHint(baseEntry, result and result.base and ("suggested " .. result.base) or "suggested")
 end
 
@@ -132,7 +131,7 @@ end
 
 local retailStamina = Check("RetailStamina", "Retail stamina multiplier", RowY(9), false, "opt_retailStamina")
 local allVariants = Check("AllVariants", "Every set variant", RowY(10), false, "opt_allVariants")
-local otherDisplays = Check("OtherDisplays", "Other displays as modelid2-4 (creatures)", RowY(11), false, "opt_otherDisplays")
+local otherDisplays = Check("OtherDisplays", "Other displays as modelid2-4", RowY(11), false, "opt_otherDisplays")
 local retailArmour = Check("RetailArmour", "Retail armour/damage", RowY(12), true, "opt_retailArmour")
 local CHECK_BOTTOM = RowY(13) - 4
 
@@ -316,7 +315,7 @@ local function ScopeEntries()
     end
     local entries = {}
     for _, d in ipairs(list) do
-        if d and BUILD_KINDS[d.kind] and #entries < RB.BULK_LIMIT then
+        if d and RB.BUILD_TABLES[d.kind] and #entries < RB.BULK_LIMIT then
             entries[#entries + 1] = d
         end
     end
@@ -368,7 +367,7 @@ function RB.BuildSql()
     end
     local entries, asked = ScopeEntries()
     if #entries == 0 then
-        Fail(asked == 0 and "Nothing to build: focus a row or check some." or "SQL is built for items, sets and creatures.")
+        Fail(asked == 0 and "Nothing to build: focus a row or check some." or "SQL is built for items, sets, creatures, models and mounts.")
         return
     end
     local result, err = BuildAtFree(entries)
@@ -483,7 +482,7 @@ function RB.ShowBuild(scope)
     RB.SetBuildScope(scope or RB.buildScope)
     local d = RB.details
     local first = RB.CheckedRows()[1]
-    if (not d or not BUILD_KINDS[d.kind]) and first then
+    if (not d or not RB.BUILD_TABLES[d.kind]) and first then
         RB.ShowDetails(first.kind, first.id, false)
     end
     RB.ShowDrawerTab("build")
@@ -496,5 +495,5 @@ panel:SetScript("OnShow", function()
 end)
 
 RB.AddDrawerTab("build", "Build SQL", panel, function() RB.ScheduleBuild() end,
-    { hotkey = "B", order = 5, wide = true, kinds = { item = true, set = true, creature = true } })
+    { hotkey = "B", order = 5, wide = true, kinds = RB.BUILD_TABLES })
 RB.SetBuildScope("focused")
